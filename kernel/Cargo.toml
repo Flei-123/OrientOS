@@ -1,0 +1,36 @@
+[package]
+name = "karst"
+description = "karst — Kernel des Betriebssystems Karstos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "karst"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+# Limine-Bootprotokoll-Bindings. Begruendung in ARCHITECTURE.md: reine
+# Struct-Definitionen des Protokolls, kein Code der zur Laufzeit etwas tut.
+limine = "0.5"
+# spin: minimale Spinlocks ohne std. Begruendung in ARCHITECTURE.md.
+spin = { version = "0.9", default-features = false, features = ["spin_mutex", "once", "lazy"] }
+karst-mem = { path = "../libs/karst-mem" }
+karst-abi-native = { path = "../libs/karst-abi-native" }
+karst-abi-posix = { path = "../libs/karst-abi-posix", optional = true }
+
+[features]
+default = ["posix"]
+# POSIX-Kompatibilitaetsschicht. Ersatzlos abwaehlbar:
+# `cargo build --no-default-features` baut den Core OHNE jede POSIX-Semantik.
+posix = ["dep:karst-abi-posix"]
+# Fehler-Selbsttests (siehe run-qemu.sh --test-*). Standardmaessig AUS,
+# damit ein normaler Boot nicht absichtlich abstuerzt.
+test-pagefault = []
+test-doublefault = []
+test-panic = []
+# Schreibversuch auf .rodata — beweist, dass die Rechte des Kernelabbilds
+# tatsaechlich in Hardware gelten (erwartet: #PF mit Schreibzugriff).
+test-rodata = []

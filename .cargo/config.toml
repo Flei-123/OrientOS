@@ -1,0 +1,21 @@
+# Standardziel: der Kernel. `cargo build` ohne Argumente baut karst.
+[build]
+target = "x86_64-karst-none.json"
+
+[unstable]
+# PFLICHT auf rustc 1.99.0-nightly: .json-Target-Specs verlangen dieses Flag.
+json-target-spec = true
+
+# WICHTIG: `build-std` steht bewusst NICHT hier, sondern als Flag in build.sh.
+# Grund: eine Einstellung unter [unstable] gilt fuer JEDES Ziel — auch fuer
+# `cargo test --target x86_64-unknown-linux-gnu`. Dort fuehrt ein zweites,
+# selbstgebautes `core` zu `duplicate lang item`. Mit dem Flag nur im
+# Kernel-Build laufen Host-Tests und Kernel-Build sauber nebeneinander.
+
+[target.'cfg(target_os = "none")']
+rustflags = [
+    "-C", "link-arg=-Tkernel/linker-x86_64.ld",
+    "-C", "relocation-model=static",
+    # Frame-Pointer sind die Grundlage des Panic-Backtrace (siehe kcore/panic.rs).
+    "-C", "force-frame-pointers=yes",
+]

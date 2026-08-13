@@ -1,0 +1,9 @@
+[package]
+name = "karst-abi-posix"
+description = "ABTRENNBARE POSIX-Kompatibilitaetsschicht — uebersetzt POSIX-Calls auf karst-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+karst-abi-native = { path = "../karst-abi-native" }

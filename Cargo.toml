@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = [
+    "kernel",
+    "libs/karst-abi-native",
+    "libs/karst-abi-posix",
+    "libs/karst-mem",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+authors = ["Karstos Project"]
+
+[profile.release]
+panic = "abort"
+opt-level = 2
+lto = true
+debug = true
+codegen-units = 1
+
+[profile.dev]
+panic = "abort"
+opt-level = 1
+debug = true

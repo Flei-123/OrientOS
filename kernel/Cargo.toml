@@ -31,6 +31,9 @@ posix = ["dep:karst-abi-posix"]
 test-pagefault = []
 test-doublefault = []
 test-panic = []
+# Sprung in eine NX-Seite (.data) — beweist, dass das NX-Bit gilt
+# (erwartet: #PF mit Instruktionsabruf im Fehlercode).
+test-nx = []
 # Schreibversuch auf .rodata — beweist, dass die Rechte des Kernelabbilds
 # tatsaechlich in Hardware gelten (erwartet: #PF mit Schreibzugriff).
 test-rodata = []

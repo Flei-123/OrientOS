@@ -36,6 +36,44 @@ const ADDR_MASK: u64 = 0x000f_ffff_ffff_f000;
 /// Groesse einer 2-MiB-Seite.
 pub const LARGE_PAGE: usize = 2 * 1024 * 1024;
 
+/// Erste physische Adresse, die nicht mehr in einen Eintrag passt (52 Bit).
+const PHYS_LIMIT: u64 = 1 << 52;
+
+/// Ist `v` eine kanonische 48-Bit-Adresse (Bit 47 in Bit 48..63 fortgesetzt)?
+///
+/// Nicht kanonische Adressen wuerde die Indexrechnung stillschweigend auf eine
+/// voellig andere Seite umbiegen — deshalb werden sie abgewiesen. `MapError`
+/// hat dafuer keine eigene Variante (der Fehlerkatalog in `kcore` bleibt
+/// unveraendert); gemeldet wird [`MapError::Misaligned`] als "diese Adresse ist
+/// so nicht abbildbar".
+#[inline]
+const fn is_canonical(v: u64) -> bool {
+    let top = v >> 47;
+    top == 0 || top == 0x1_ffff
+}
+
+/// Prueft die virtuelle Adresse auf Ausrichtung UND Kanonizitaet.
+#[inline]
+const fn check_virt(v: u64, align: u64) -> Result<(), MapError> {
+    if v & (align - 1) != 0 || !is_canonical(v) {
+        return Err(MapError::Misaligned);
+    }
+    Ok(())
+}
+
+/// Prueft die physische Adresse auf Ausrichtung UND Wertebereich.
+///
+/// Ein Wert oberhalb von 2^52 wuerde beim Zusammenbau des Eintrags in die
+/// Flag-Bits (bis hin zu NX) hineinlaufen — dann waere die Seite ausfuehrbar,
+/// obwohl das Gegenteil verlangt wurde. Solche Adressen werden abgewiesen.
+#[inline]
+const fn check_phys(p: u64, align: u64) -> Result<(), MapError> {
+    if p & (align - 1) != 0 || p >= PHYS_LIMIT {
+        return Err(MapError::Misaligned);
+    }
+    Ok(())
+}
+
 /// Eine Seitentabelle: 512 Eintraege, seitenausgerichtet.
 #[repr(C, align(4096))]
 pub struct PageTable {
@@ -153,9 +191,8 @@ impl AddressSpaceOps for X86AddressSpace {
         flags: MapFlags,
         alloc: &mut dyn FrameAllocator,
     ) -> Result<(), MapError> {
-        if !virt.is_aligned(PAGE_SIZE as u64) || !phys.is_aligned(PAGE_SIZE as u64) {
-            return Err(MapError::Misaligned);
-        }
+        check_virt(virt.as_u64(), PAGE_SIZE as u64)?;
+        check_phys(phys.as_u64(), PAGE_SIZE as u64)?;
         let user = flags.contains(MapFlags::USER);
         let v = virt.as_u64();
         let pt = unsafe { self.walk_to(v, 1, alloc, user)? };
@@ -175,9 +212,8 @@ impl AddressSpaceOps for X86AddressSpace {
         flags: MapFlags,
         alloc: &mut dyn FrameAllocator,
     ) -> Result<(), MapError> {
-        if !virt.is_aligned(LARGE_PAGE as u64) || !phys.is_aligned(LARGE_PAGE as u64) {
-            return Err(MapError::Misaligned);
-        }
+        check_virt(virt.as_u64(), LARGE_PAGE as u64)?;
+        check_phys(phys.as_u64(), LARGE_PAGE as u64)?;
         let user = flags.contains(MapFlags::USER);
         let v = virt.as_u64();
         let pd = unsafe { self.walk_to(v, 2, alloc, user)? };
@@ -191,19 +227,28 @@ impl AddressSpaceOps for X86AddressSpace {
     }
 
     unsafe fn unmap(&mut self, virt: VirtAddr) -> Result<PhysAddr, MapError> {
-        if !virt.is_aligned(PAGE_SIZE as u64) {
-            return Err(MapError::Misaligned);
-        }
+        check_virt(virt.as_u64(), PAGE_SIZE as u64)?;
         let v = virt.as_u64();
         let mut table = self.root;
         let mut level = 4u32;
         while level > 1 {
-            let e = unsafe { (*table_ptr(table)).entries[idx(v, level)] };
+            let ent =
+                unsafe { core::ptr::addr_of_mut!((*table_ptr(table)).entries[idx(v, level)]) };
+            let e = unsafe { *ent };
             if e & PRESENT == 0 {
                 return Err(MapError::NotMapped);
             }
             if e & HUGE != 0 {
-                return Err(MapError::ParentHugePage);
+                // Grosse Seite. Nur ihr eigener Anfang darf sie aufloesen —
+                // eine Adresse mittendrin ist ein Aufrufsfehler und bleibt
+                // ParentHugePage, sonst wuerde man mehr freigeben als gedacht.
+                let page = 1u64 << (12 + 9 * (level - 1));
+                if v & (page - 1) != 0 {
+                    return Err(MapError::ParentHugePage);
+                }
+                unsafe { *ent = 0 };
+                unsafe { cpu::invlpg(v) };
+                return Ok(PhysAddr(e & ADDR_MASK));
             }
             table = PhysAddr(e & ADDR_MASK);
             level -= 1;
@@ -220,6 +265,11 @@ impl AddressSpaceOps for X86AddressSpace {
 
     fn translate(&self, virt: VirtAddr) -> Option<PhysAddr> {
         let v = virt.as_u64();
+        // Nicht kanonisch = von der MMU nie aufloesbar; niemals ein Ergebnis
+        // erfinden, das die Indexrechnung zufaellig liefern wuerde.
+        if !is_canonical(v) {
+            return None;
+        }
         let mut table = self.root;
         let mut level = 4u32;
         loop {

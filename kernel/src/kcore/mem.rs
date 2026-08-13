@@ -149,6 +149,26 @@ pub enum MapError {
     ParentHugePage,
 }
 
+impl MapError {
+    /// Klartextbegruendung fuer das Boot-Log: `Debug` liefert nur den
+    /// Variantennamen, hier steht, was der Fehler bedeutet.
+    pub const fn describe(self) -> &'static str {
+        match self {
+            MapError::OutOfFrames => "kein physischer Frame mehr verfuegbar",
+            MapError::AlreadyMapped => "Adresse ist bereits abgebildet",
+            MapError::NotMapped => "Adresse ist nicht abgebildet",
+            MapError::Misaligned => "Adresse nicht seitenausgerichtet",
+            MapError::ParentHugePage => "eine grosse Seite versperrt den Weg",
+        }
+    }
+}
+
+impl fmt::Display for MapError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:?} ({})", self, self.describe())
+    }
+}
+
 /// Quelle physischer Frames. Wird von `mm` implementiert und von `arch`
 /// verwendet (fuer Zwischen-Page-Tables) — deshalb steht der Trait hier
 /// in der neutralen core-Schicht.
@@ -164,8 +184,17 @@ pub trait FrameAllocator {
 static HHDM_OFFSET: AtomicU64 = AtomicU64::new(0);
 
 /// Setzt den HHDM-Offset (genau einmal im fruehen Boot).
-pub fn set_hhdm_offset(off: u64) {
-    HHDM_OFFSET.store(off, Ordering::SeqCst);
+///
+/// Der Offset darf nur ein einziges Mal von 0 auf einen echten Wert wechseln:
+/// jede spaetere Aenderung wuerde alle bereits berechneten Zeiger auf
+/// Seitentabellen und die Frame-Bitmap ungueltig machen. Ein zweiter Aufruf
+/// mit demselben Wert ist harmlos (`true`), einer mit einem anderen Wert wird
+/// abgewiesen (`false`) — statt stillschweigend den Kernel zu zerlegen.
+pub fn set_hhdm_offset(off: u64) -> bool {
+    HHDM_OFFSET
+        .compare_exchange(0, off, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+        || HHDM_OFFSET.load(Ordering::SeqCst) == off
 }
 
 /// Aktueller HHDM-Offset.
@@ -174,10 +203,28 @@ pub fn hhdm_offset() -> u64 {
     HHDM_OFFSET.load(Ordering::Relaxed)
 }
 
+/// Ist das Direct-Map-Fenster schon bekannt? Vor diesem Zeitpunkt darf kein
+/// physischer Speicher ueber [`phys_to_virt`] angefasst werden.
+#[inline]
+pub fn hhdm_ready() -> bool {
+    hhdm_offset() != 0
+}
+
 /// Physische Adresse ueber das Direct-Map-Fenster ansprechbar machen.
 #[inline]
 pub fn phys_to_virt(p: PhysAddr) -> VirtAddr {
     VirtAddr(p.0 + hhdm_offset())
+}
+
+/// Wie [`phys_to_virt`], aber ohne blindes Vertrauen: `None`, solange das
+/// Fenster nicht eingerichtet ist oder die Rechnung ueberlaufen wuerde.
+#[inline]
+pub fn phys_to_virt_checked(p: PhysAddr) -> Option<VirtAddr> {
+    let off = hhdm_offset();
+    if off == 0 {
+        return None;
+    }
+    p.0.checked_add(off).map(VirtAddr)
 }
 
 /// Umkehrung von [`phys_to_virt`] — nur fuer Adressen im HHDM-Fenster gueltig.

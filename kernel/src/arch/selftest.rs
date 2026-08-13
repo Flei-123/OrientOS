@@ -29,6 +29,16 @@ pub unsafe fn rodata_write() -> ! {
     unsafe { imp::rodata_write() }
 }
 
+/// Versucht, Daten als Code auszufuehren. Beweist, dass das NX-Bit der
+/// Seitentabellen wirklich gilt.
+///
+/// # Safety
+/// Loest einen Page Fault (Instruktionsabruf) aus, sofern NX wirkt;
+/// der Kernel haelt danach an.
+pub unsafe fn nx_exec() -> ! {
+    unsafe { imp::nx_exec() }
+}
+
 /// Erzwingt einen ECHTEN Double Fault.
 ///
 /// # Safety

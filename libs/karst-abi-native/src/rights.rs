@@ -66,6 +66,77 @@ impl core::ops::BitOr for Rights {
 mod tests {
     use super::*;
 
+    /// Alle einzeln definierten Rechte — Grundlage der erschoepfenden Tests.
+    const SINGLE: [Rights; 10] = [
+        Rights::READ,
+        Rights::WRITE,
+        Rights::EXEC,
+        Rights::DUPLICATE,
+        Rights::TRANSFER,
+        Rights::INSPECT,
+        Rights::MANAGE,
+        Rights::CREATE,
+        Rights::MAP,
+        Rights::WAIT,
+    ];
+
+    #[test]
+    fn all_covers_exactly_the_defined_bits() {
+        let mut u = Rights::NONE;
+        for r in SINGLE {
+            assert!(r.bits().is_power_of_two(), "{r:?} ist kein einzelnes Bit");
+            assert!(!u.contains(r), "{r:?} doppelt vergeben");
+            assert!(Rights::ALL.contains(r), "{r:?} fehlt in ALL");
+            u = u | r;
+        }
+        assert_eq!(u, Rights::ALL, "ALL passt nicht zu den Einzelrechten");
+        assert_eq!(Rights::ALL.bits(), 0x3ff);
+        assert_eq!(Rights::NONE.bits(), 0);
+    }
+
+    #[test]
+    fn none_is_neutral_and_always_contained() {
+        for r in SINGLE {
+            assert!(r.contains(Rights::NONE), "jedes Recht enthaelt NONE");
+            assert_eq!(r.union(Rights::NONE), r);
+            assert_eq!(r.restrict(Rights::ALL), r);
+            assert_eq!(r.restrict(Rights::NONE), Rights::NONE);
+        }
+        assert!(Rights::NONE.contains(Rights::NONE));
+        assert!(!Rights::NONE.contains(Rights::READ));
+    }
+
+    /// Erschoepfend ueber alle 1024 Rechtemengen: `restrict` darf NIE ein Bit
+    /// hinzufuegen, `union` nie eines verlieren, beide sind kommutativ.
+    #[test]
+    fn restrict_and_union_are_exhaustively_sound() {
+        for a in 0u32..=0x3ff {
+            let ra = Rights(a);
+            assert!(Rights::ALL.contains(ra));
+            for b in 0u32..=0x3ff {
+                let rb = Rights(b);
+                let res = ra.restrict(rb);
+                assert!(ra.contains(res), "restrict fuegt Rechte hinzu: {a:#x}/{b:#x}");
+                assert!(rb.contains(res));
+                assert_eq!(res, rb.restrict(ra), "restrict nicht kommutativ");
+                let un = ra | rb;
+                assert!(un.contains(ra) && un.contains(rb));
+                assert_eq!(un, rb.union(ra), "union nicht kommutativ");
+                // Nochmals mit derselben Maske einschraenken aendert nichts.
+                assert_eq!(res.restrict(rb), res);
+                assert_eq!(ra.contains(rb), a & b == b);
+            }
+        }
+    }
+
+    #[test]
+    fn undefined_bits_are_not_part_of_all() {
+        let bogus = Rights(1 << 31);
+        assert!(!Rights::ALL.contains(bogus));
+        // Weitergabe mit ALL als Maske filtert unbekannte Bits weg.
+        assert_eq!((Rights::READ | bogus).restrict(Rights::ALL), Rights::READ);
+    }
+
     #[test]
     fn rights_can_only_shrink() {
         let rw = Rights::READ | Rights::WRITE;

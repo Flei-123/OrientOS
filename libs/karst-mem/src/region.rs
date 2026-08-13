@@ -157,6 +157,7 @@ pub const fn frames_for(highest_address: u64) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testrand::Lcg;
 
     #[test]
     fn summary_counts_only_usable() {
@@ -192,5 +193,186 @@ mod tests {
         assert_eq!(r.page_aligned(), Some((0x2000, 0x3000)));
         let tiny = MemoryRegion::new(0x1001, 0x10, RegionKind::Usable);
         assert_eq!(tiny.page_aligned(), None);
+    }
+
+    /// Alle Kinds an einem Ort, damit eine neue Variante hier auffaellt.
+    const ALL_KINDS: [RegionKind; 8] = [
+        RegionKind::Usable,
+        RegionKind::BootloaderReclaimable,
+        RegionKind::KernelAndModules,
+        RegionKind::Reserved,
+        RegionKind::AcpiReclaimable,
+        RegionKind::AcpiNvs,
+        RegionKind::Framebuffer,
+        RegionKind::BadMemory,
+    ];
+
+    #[test]
+    fn every_kind_has_a_distinct_name() {
+        let mut seen = std::vec::Vec::new();
+        for k in ALL_KINDS {
+            let n = k.name();
+            assert!(!n.is_empty(), "{k:?} ohne Namen");
+            assert!(!seen.contains(&n), "Name {n} doppelt vergeben");
+            seen.push(n);
+        }
+        assert_eq!(seen.len(), 8);
+    }
+
+    #[test]
+    fn only_usable_memory_may_be_allocated_from() {
+        for k in ALL_KINDS {
+            assert_eq!(k.is_allocatable(), k == RegionKind::Usable, "{k:?}");
+            // Was vergeben werden darf, ist zwingend auch echter Speicher und
+            // muss im Direktfenster erreichbar sein.
+            if k.is_allocatable() {
+                assert!(k.is_real_memory(), "{k:?}");
+                assert!(k.needs_direct_map(), "{k:?}");
+            }
+        }
+        assert!(!RegionKind::Framebuffer.is_real_memory());
+        assert!(RegionKind::Framebuffer.needs_direct_map(), "MMIO-Fenster wird gemappt");
+        assert!(!RegionKind::BadMemory.is_real_memory());
+        assert!(!RegionKind::BadMemory.needs_direct_map());
+        assert!(!RegionKind::Reserved.needs_direct_map());
+        assert!(RegionKind::AcpiNvs.is_real_memory());
+        assert!(RegionKind::KernelAndModules.is_real_memory());
+    }
+
+    #[test]
+    fn empty_memory_map_summarizes_to_zero() {
+        // Entarteter Fall: Bootloader liefert keine einzige Region.
+        let s = summarize(&[]);
+        assert_eq!(s, MemorySummary::default());
+        assert_eq!(s.total_bytes, 0);
+        assert_eq!(s.ram_top, 0);
+        assert_eq!(s.mapped_top, 0);
+        assert_eq!(frames_for(s.ram_top), 0);
+    }
+
+    #[test]
+    fn map_without_usable_memory_yields_no_frames() {
+        // Zerrissene Map, in der NUR Reserviertes steht: der Frame-Allocator
+        // darf daraus keinen einzigen Frame ableiten.
+        let regions = [
+            MemoryRegion::new(0, 0x1000, RegionKind::Reserved),
+            MemoryRegion::new(0xa0000, 0x60000, RegionKind::Reserved),
+            MemoryRegion::new(0x1_0000_0000, 0x1000, RegionKind::BadMemory),
+        ];
+        let s = summarize(&regions);
+        assert_eq!(s.usable_bytes, 0);
+        assert_eq!(s.reclaimable_bytes, 0);
+        assert_eq!(s.ram_top, 0, "kein echter RAM -> keine Bitmap");
+        assert_eq!(s.mapped_top, 0, "nichts davon muss ins Direktfenster");
+        assert_eq!(s.highest_address, 0x1_0000_1000);
+        assert_eq!(frames_for(s.ram_top), 0);
+    }
+
+    #[test]
+    fn fragmented_map_is_summed_completely() {
+        // 64 winzige Loecher, wie sie eine reale Firmware liefert.
+        let mut regions = std::vec::Vec::new();
+        for i in 0..64u64 {
+            let kind = if i % 4 == 0 { RegionKind::Reserved } else { RegionKind::Usable };
+            regions.push(MemoryRegion::new(i * 0x2000, 0x1000, kind));
+        }
+        let s = summarize(&regions);
+        assert_eq!(s.total_bytes, 64 * 0x1000);
+        assert_eq!(s.usable_bytes, 48 * 0x1000);
+        assert_eq!(s.highest_address, 63 * 0x2000 + 0x1000);
+        assert_eq!(s.ram_top, s.highest_address, "letzte Region ist nutzbar");
+    }
+
+    #[test]
+    fn zero_length_regions_are_harmless() {
+        let regions = [
+            MemoryRegion::new(0x1000, 0, RegionKind::Usable),
+            MemoryRegion::new(0x2000, 0x1000, RegionKind::Usable),
+        ];
+        let s = summarize(&regions);
+        assert_eq!(s.total_bytes, 0x1000);
+        assert_eq!(s.usable_bytes, 0x1000);
+        assert_eq!(s.ram_top, 0x3000);
+        assert_eq!(MemoryRegion::new(0x1000, 0, RegionKind::Usable).page_aligned(), None);
+    }
+
+    #[test]
+    fn region_end_and_alignment_edge_cases() {
+        let exact = MemoryRegion::new(0x2000, 0x1000, RegionKind::Usable);
+        assert_eq!(exact.end(), 0x3000);
+        assert_eq!(exact.page_aligned(), Some((0x2000, 0x3000)));
+        // Genau eine Seite, aber verschoben -> nichts bleibt uebrig.
+        let shifted = MemoryRegion::new(0x2001, 0x1000, RegionKind::Usable);
+        assert_eq!(shifted.page_aligned(), None);
+        // Anderthalb Seiten verschoben -> genau eine Seite bleibt.
+        let one = MemoryRegion::new(0x2001, 0x1fff, RegionKind::Usable);
+        assert_eq!(one.page_aligned(), Some((0x3000, 0x4000)));
+        // Unterhalb einer Seite.
+        assert_eq!(MemoryRegion::new(1, 2, RegionKind::Usable).page_aligned(), None);
+    }
+
+    #[test]
+    fn frames_for_rounds_down_to_whole_frames() {
+        assert_eq!(frames_for(0), 0);
+        assert_eq!(frames_for(PAGE_SIZE - 1), 0);
+        assert_eq!(frames_for(PAGE_SIZE), 1);
+        assert_eq!(frames_for(PAGE_SIZE + 1), 1);
+        // 508 MiB wie in der QEMU-Standardkonfiguration dieses Projekts.
+        assert_eq!(frames_for(508 * 1024 * 1024), 130_048);
+    }
+
+    #[test]
+    fn reclaimable_counts_separately_from_usable() {
+        let regions = [
+            MemoryRegion::new(0x0, 0x4000, RegionKind::Usable),
+            MemoryRegion::new(0x4000, 0x2000, RegionKind::BootloaderReclaimable),
+            MemoryRegion::new(0x6000, 0x1000, RegionKind::KernelAndModules),
+            MemoryRegion::new(0x7000, 0x1000, RegionKind::AcpiReclaimable),
+        ];
+        let s = summarize(&regions);
+        assert_eq!(s.usable_bytes, 0x4000, "reclaimable ist noch nicht frei");
+        assert_eq!(s.reclaimable_bytes, 0x2000);
+        assert_eq!(s.total_bytes, 0x8000);
+        assert_eq!(s.ram_top, 0x8000);
+    }
+
+    /// Eigenschaftstest: fuer zufaellige Maps muessen die Kennzahlen immer in
+    /// derselben Beziehung stehen — sonst wuerde die Bitmap zu klein oder das
+    /// Direktfenster zu kurz berechnet.
+    #[test]
+    fn summary_invariants_hold_for_random_maps() {
+        let mut r = Lcg::new(0x5eed);
+        for _ in 0..500 {
+            let n = r.range(0, 30);
+            let mut regions = std::vec::Vec::new();
+            let mut cursor = 0u64;
+            for _ in 0..n {
+                cursor += (r.below(16) as u64) * PAGE_SIZE;
+                let len = (r.below(64) as u64) * PAGE_SIZE;
+                let kind = ALL_KINDS[r.below(ALL_KINDS.len())];
+                regions.push(MemoryRegion::new(cursor, len, kind));
+                cursor += len;
+            }
+            let s = summarize(&regions);
+            let sum: u64 = regions.iter().map(|x| x.len).sum();
+            assert_eq!(s.total_bytes, sum);
+            assert!(s.usable_bytes <= s.total_bytes);
+            assert!(s.reclaimable_bytes <= s.total_bytes);
+            assert!(s.ram_top <= s.highest_address, "RAM kann nicht ueber allem liegen");
+            assert!(s.mapped_top <= s.highest_address);
+            assert!(s.usable_bytes + s.reclaimable_bytes <= s.total_bytes);
+            for reg in &regions {
+                // Jede nutzbare Region muss vollstaendig unter ram_top liegen.
+                if reg.kind.is_allocatable() && reg.len > 0 {
+                    assert!(reg.end() <= s.ram_top);
+                    assert!(reg.end() <= s.mapped_top);
+                }
+                if let Some((a, b)) = reg.page_aligned() {
+                    assert!(a % PAGE_SIZE == 0 && b % PAGE_SIZE == 0);
+                    assert!(a >= reg.start && b <= reg.end() && a < b);
+                }
+            }
+            assert!(frames_for(s.ram_top) as u64 * PAGE_SIZE <= s.ram_top);
+        }
     }
 }

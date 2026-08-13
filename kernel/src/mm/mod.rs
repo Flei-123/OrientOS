@@ -10,6 +10,8 @@ pub mod selftest;
 
 use karst_mem::region::{summarize, MemoryRegion};
 
+use crate::klog;
+
 use crate::arch::AddressSpace;
 use crate::kcore::arch_iface::AddressSpaceOps;
 use crate::kcore::mem::{MapError, MapFlags, PhysAddr, VirtAddr, PAGE_SIZE};
@@ -110,6 +112,22 @@ pub unsafe fn build_kernel_space(
     let large = AddressSpace::LARGE_PAGE_SIZE as u64;
     let hhdm_len = (summary.mapped_top + large - 1) & !(large - 1);
 
+    // Haertung gegen widerspruechliche Bootloader-Angaben: ein falscher
+    // HHDM-Offset wuerde beim Umschalten zu einem Dreifachfehler fuehren,
+    // dessen Ursache im Nachhinein nicht mehr feststellbar ist.
+    assert!(
+        hhdm != 0 && hhdm == crate::kcore::mem::hhdm_offset(),
+        "HHDM-Offset des Bootloaders passt nicht zum eingetragenen Wert"
+    );
+    assert!(
+        hhdm_len >= large,
+        "Memory-Map ergibt ein leeres Direct-Map-Fenster"
+    );
+    assert!(
+        sections.text.1 > sections.text.0 && sections.image.1 > sections.image.0,
+        "Linkersymbole des Kernelabbilds sind unbrauchbar"
+    );
+
     let old = unsafe { AddressSpace::current() };
 
     let mut guard = frame::lock();
@@ -167,6 +185,40 @@ pub unsafe fn build_kernel_space(
         }
         v += PAGE_SIZE as u64;
     }
+
+    // Vor der Umschaltung: die drei Dinge pruefen, ohne die der naechste Befehl
+    // nach `activate()` einen nicht diagnostizierbaren Dreifachfehler ausloest —
+    // die laufende Funktion selbst, der aktuelle Stapel und das HHDM-Fenster
+    // (ueber das die Seitentabellen erreicht werden). Fehlt eines, wird NICHT
+    // umgeschaltet, sondern ein Fehler gemeldet; der alte Adressraum bleibt
+    // gueltig, und der Panic-Handler kann noch berichten.
+    let here = build_kernel_space as *const () as u64;
+    let checks = [
+        (here, "Kernelcode"),
+        (sp, "Stapel"),
+        (hhdm, "HHDM-Fenster"),
+        (sections.rodata.0, "rodata"),
+        (sections.data.0, "Daten"),
+    ];
+    let mut checked = 0u32;
+    for (addr, what) in checks {
+        if space.translate(VirtAddr(addr)).is_none() {
+            klog!(
+                "mm",
+                "Umschaltung abgebrochen: {} bei {:#018x} fehlt im neuen Adressraum",
+                what,
+                addr
+            );
+            return Err(MapError::NotMapped);
+        }
+        checked += 1;
+    }
+    klog!(
+        "mm",
+        "Vor Umschaltung geprueft: {}/{} Pflichtbereiche im neuen Adressraum erreichbar",
+        checked,
+        checks.len()
+    );
 
     // Umschalten. Ab hier gelten nur noch unsere Tabellen.
     unsafe { space.activate() };

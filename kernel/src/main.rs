@@ -18,7 +18,8 @@
 #![no_std]
 #![no_main]
 // Begruendung: `extern "x86-interrupt"` ist der einzige Weg, Ausnahmehandler
-// ohne handgeschriebene Assembler-Stubs korrekt aufzurufen (Fehlercode, iretq).
+// ohne handgeschriebene Assembler-Stubs korrekt aufzurufen (Fehlercode,
+// Rueckkehr aus der Ausnahme).
 #![feature(abi_x86_interrupt)]
 // Begruendung: erlaubt einen EIGENEN Handler fuer fehlgeschlagene Allokationen
 // (siehe [`mm::heap`]), der Heap-Kennzahlen statt einer nichtssagenden
@@ -43,7 +44,8 @@ use kcore::arch_iface::{AddressSpaceOps, TimerOps};
 use kcore::mem::{FrameAllocator, MapFlags, VirtAddr, PAGE_SIZE};
 
 /// Virtuelle Adresse, an der der Selbsttest der Seitentabellen arbeitet.
-/// Liegt im selben PML4-Eintrag wie der Heap, aber weit dahinter.
+/// Liegt im selben Eintrag der obersten Tabellenebene wie der Heap, aber weit
+/// dahinter.
 const PAGING_PROBE: u64 = 0xffff_ff00_1000_0000;
 
 fn fmt_bytes(b: u64) -> (u64, &'static str) {
@@ -195,7 +197,7 @@ pub extern "C" fn kmain() -> ! {
     klog!("mm", "  Stapel : {} Seiten vom Bootloader uebernommen", sp.stack_pages);
 
     // Beweis, dass die Seitentabellen-Abstraktion wirklich arbeitet.
-    {
+    let paging_ok = {
         let mut g = mm::frame::lock();
         let fa = g.as_mut().expect("Frame-Allocator");
         let frame = fa.alloc_frame().expect("kein Frame frei");
@@ -217,12 +219,15 @@ pub extern "C" fn kmain() -> ! {
             if resolved == Some(frame) { "ok" } else { "FEHLER" },
             if after.is_none() { "ok" } else { "FEHLER" }
         );
-    }
+        (back == 0x4B41_5253_544F_5321) as usize
+            + (resolved == Some(frame)) as usize
+            + after.is_none() as usize
+    };
 
     // Fehlerfaelle der Adressraum-Abstraktion nachweisen (mm/selftest.rs).
-    unsafe { mm::selftest::map_errors(&mut space) };
+    let maperr = unsafe { mm::selftest::map_errors(&mut space) };
     // Zusagen des Frame-Allocators nachweisen (mm/frame.rs).
-    mm::frame::selftest();
+    let frames_st = mm::frame::selftest();
 
     // ------------------------------------------------------------------- Heap
     let heap_bytes = {
@@ -261,7 +266,7 @@ pub extern "C" fn kmain() -> ! {
     }
     klog!("heap", "nach Freigabe: belegt {} B von {} B", mm::heap::used(), mm::heap::size());
     // Zusagen des Heaps nachweisen (mm/heap.rs).
-    mm::heap::selftest();
+    let heap_st = mm::heap::selftest();
 
     // -------------------------------------------------------------------- ABI
     let (ver, handles, stale) = abi::native::self_test();
@@ -305,6 +310,39 @@ pub extern "C" fn kmain() -> ! {
     // ist (kcore/sched.rs), und laeuft in jedem Fall nach kmain zurueck.
     kcore::sched::boot_selftest();
 
+    // ------------------------------------------------------------- Startbilanz
+    // Eine einzige, maschinell pruefbare Zeile mit dem Ergebnis aller
+    // Selbsttests dieses Boots (run-qemu.sh --check prueft sie).
+    // Gezaehlt werden: #BP-Rueckkehr (1), Paging-Selbsttest (3 Zusagen),
+    // MapError-Faelle, Frame-Zusagen, Heap-Zusagen.
+    let bestanden = 1 + paging_ok + maperr.0 + frames_st.0 + heap_st.0;
+    let gesamt = 1 + 3 + maperr.1 + frames_st.1 + heap_st.1;
+    klog!(
+        "boot",
+        "Selbsttestbilanz: {}/{} bestanden (#BP 1/1, Paging {}/3, MapError {}/{}, Frames {}/{}, Heap {}/{})",
+        bestanden,
+        gesamt,
+        paging_ok,
+        maperr.0,
+        maperr.1,
+        frames_st.0,
+        frames_st.1,
+        heap_st.0,
+        heap_st.1
+    );
+    klog!(
+        "boot",
+        "Startbilanz : {} Frames frei ({} belegt), Heap {} / {} B belegt, {} Ticks",
+        mm::frame::free_frames(),
+        mm::frame::used_frames(),
+        mm::heap::used(),
+        mm::heap::size(),
+        <arch::Timer as TimerOps>::ticks()
+    );
+    if bestanden != gesamt {
+        klog!("boot", "WARNUNG: {} Selbsttest(s) NICHT bestanden", gesamt - bestanden);
+    }
+
     klog!("boot", "Startvorgang abgeschlossen. karst laeuft.");
     serial_println!("================================================================");
 
@@ -318,6 +356,11 @@ pub extern "C" fn kmain() -> ! {
     {
         klog!("test", "versuche in .rodata zu schreiben (muss #PF ausloesen) ...");
         unsafe { arch::selftest::rodata_write() };
+    }
+    #[cfg(feature = "test-nx")]
+    {
+        klog!("test", "versuche Daten in .data auszufuehren (NX muss #PF ausloesen) ...");
+        unsafe { arch::selftest::nx_exec() };
     }
     #[cfg(feature = "test-doublefault")]
     {

@@ -26,6 +26,16 @@ fn panic(info: &PanicInfo) -> ! {
         crate::serial_println!("Ort     : {}:{}:{}", loc.file(), loc.line(), loc.column());
     }
     crate::serial_println!("Grund   : {}", info.message());
+    // Laufzeit aus dem Zeitgeber: rein atomar gelesen, deshalb auch dann
+    // gefahrlos, wenn der Panic mitten in einer gesperrten Datenstruktur
+    // auftritt (kein Lock, kein Deadlock im Panic-Pfad).
+    let hz = <crate::arch::Timer as crate::kcore::arch_iface::TimerOps>::hz() as u64;
+    let ticks = <crate::arch::Timer as crate::kcore::arch_iface::TimerOps>::ticks();
+    if hz > 0 {
+        crate::serial_println!("Laufzeit: {} Ticks bei {} Hz ({} s)", ticks, hz, ticks / hz);
+    } else {
+        crate::serial_println!("Laufzeit: Zeitgeber laeuft noch nicht ({} Ticks)", ticks);
+    }
     backtrace();
     crate::serial_println!("============================================");
 

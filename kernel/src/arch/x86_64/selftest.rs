@@ -48,6 +48,33 @@ pub unsafe fn rodata_write() -> ! {
     cpu::halt_forever()
 }
 
+/// Puffer im beschreibbaren Datenbereich, der eine gueltige Instruktionsfolge
+/// enthaelt (`0xC3` = `ret`). Der Linker legt ihn wegen des Initialwerts nach
+/// `.data`; diese Sektion bildet der Kernel mit gesetztem NX-Bit ab.
+#[used]
+#[unsafe(link_section = ".data.selftest")]
+static NX_PROBE: [u8; 8] = [0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3, 0xC3];
+
+/// Sprung in eine Seite ohne Ausfuehrungsrecht (`.data`, NX gesetzt).
+///
+/// Beweist, dass das NX-Bit der eigenen Seitentabellen wirklich in Hardware
+/// wirkt: die CPU muss einen `#PF` mit gesetztem Bit 4 des Fehlercodes
+/// (Instruktionsabruf) melden. Kehrt der Aufruf zurueck, ist NX wirkungslos —
+/// dann meldet der Test genau das im Klartext.
+///
+/// # Safety
+/// Loest im Erfolgsfall einen Page Fault aus; der Kernel haelt danach an.
+pub unsafe fn nx_exec() -> ! {
+    let p = &raw const NX_PROBE as *const u8;
+    let f: extern "C" fn() = unsafe { core::mem::transmute(p) };
+    f();
+    crate::serial_println!(
+        "[karst] test       FEHLER: Ausfuehren von .data bei {:p} war erlaubt — NX wirkungslos",
+        p
+    );
+    cpu::halt_forever()
+}
+
 /// Erzeugt einen ECHTEN Double Fault — keine Simulation per `int 8`.
 ///
 /// Vorgehen: Das Tor fuer `#PF` wird als "nicht praesent" markiert. Ein

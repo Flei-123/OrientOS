@@ -239,6 +239,7 @@ impl Heap {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testrand::Lcg;
     use std::alloc::{alloc as sys_alloc, Layout as SysLayout};
 
     /// Legt einen 64-KiB-Puffer an und baut daraus einen Heap.
@@ -351,5 +352,319 @@ mod tests {
         unsafe { h.dealloc(a, l) };
         unsafe { h.dealloc(b, l) };
         assert_eq!(h.used(), 0);
+    }
+
+    // ------------------------------------------------------- Zustand & Statistik
+
+    #[test]
+    fn empty_heap_serves_nothing() {
+        let mut h = Heap::empty();
+        assert_eq!(h.size(), 0);
+        assert_eq!(h.used(), 0);
+        assert_eq!(h.free(), 0);
+        assert_eq!(h.hole_count(), 0);
+        assert_eq!(h.stats(), HeapStats::default());
+        let l = Layout::from_size_align(8, 8).unwrap();
+        assert!(unsafe { h.alloc(l) }.is_null(), "leerer Heap darf nichts vergeben");
+        // dealloc(null) muss folgenlos bleiben (Aufraeumpfade rufen das auf).
+        unsafe { h.dealloc(ptr::null_mut(), l) };
+        assert_eq!(h.used(), 0);
+    }
+
+    #[test]
+    fn stats_are_internally_consistent() {
+        let (mut h, _) = heap_with(64 * 1024);
+        let s = h.stats();
+        assert_eq!(s.size, h.size());
+        assert_eq!(s.used + s.free, s.size);
+        assert_eq!(s.holes, 1);
+        assert_eq!(s.largest_hole, s.free);
+
+        let l = Layout::from_size_align(1000, 16).unwrap();
+        let a = unsafe { h.alloc(l) };
+        let b = unsafe { h.alloc(l) };
+        let c = unsafe { h.alloc(l) };
+        unsafe { h.dealloc(b, l) }; // Loch in der Mitte -> 2 Loecher
+        let s = h.stats();
+        assert_eq!(s.holes, h.hole_count());
+        assert_eq!(s.holes, 2, "mittleres Loch muss getrennt bleiben");
+        assert_eq!(s.used + s.free, s.size);
+        assert_eq!(s.used, h.used());
+        assert!(s.largest_hole <= s.free);
+        assert!(s.largest_hole >= 1000);
+
+        unsafe { h.dealloc(a, l) };
+        unsafe { h.dealloc(c, l) };
+        let s = h.stats();
+        assert_eq!(s.used, 0);
+        assert_eq!(s.holes, 1, "am Ende muss alles wieder ein Loch sein");
+        assert_eq!(s.largest_hole, s.size);
+    }
+
+    // ------------------------------------------------------------ add_region
+
+    #[test]
+    fn several_regions_are_all_usable() {
+        let l4k = SysLayout::from_size_align(4096, 4096).unwrap();
+        let p1 = unsafe { sys_alloc(l4k) };
+        let p2 = unsafe { sys_alloc(l4k) };
+        let mut h = Heap::empty();
+        unsafe { h.add_region(p1, 4096) };
+        unsafe { h.add_region(p2, 4096) };
+        assert_eq!(h.size(), 8192);
+        assert_eq!(h.hole_count(), 2, "getrennte Regionen duerfen nicht verschmelzen");
+
+        // Beide Regionen muessen wirklich Speicher hergeben.
+        let l = Layout::from_size_align(2048, 16).unwrap();
+        let mut got = std::vec::Vec::new();
+        while let p = unsafe { h.alloc(l) } {
+            if p.is_null() {
+                break;
+            }
+            got.push(p);
+        }
+        assert!(got.len() >= 2, "nur {} Bloecke aus 2 Regionen", got.len());
+        let in1 = got.iter().filter(|p| (**p as usize) < p2 as usize).count();
+        assert!(in1 > 0 && in1 < got.len() || p2 < p1, "eine Region blieb ungenutzt");
+        for p in got {
+            unsafe { h.dealloc(p, l) };
+        }
+        assert_eq!(h.used(), 0);
+        assert_eq!(h.hole_count(), 2);
+    }
+
+    #[test]
+    fn useless_regions_are_ignored() {
+        let l = SysLayout::from_size_align(4096, 4096).unwrap();
+        let p = unsafe { sys_alloc(l) };
+        let mut h = Heap::empty();
+        unsafe { h.add_region(p, 0) };
+        unsafe { h.add_region(p, MIN_BLOCK - 1) };
+        unsafe { h.add_region(p.add(1), 8) };
+        assert_eq!(h.size(), 0, "zu kleine Regionen duerfen nicht gezaehlt werden");
+        assert_eq!(h.hole_count(), 0);
+        assert!(unsafe { h.alloc(Layout::from_size_align(1, 1).unwrap()) }.is_null());
+    }
+
+    #[test]
+    fn unaligned_region_is_trimmed_but_stays_correct() {
+        let l = SysLayout::from_size_align(4096, 4096).unwrap();
+        let p = unsafe { sys_alloc(l) };
+        let mut h = Heap::empty();
+        // Start um 1 Byte versetzt, Ende um 3 Byte zu frueh.
+        unsafe { h.add_region(p.add(1), 4096 - 4) };
+        assert!(h.size() <= 4096 - 4);
+        assert_eq!(h.size() % ALIGN, 0, "Heapgroesse muss ausgerichtet sein");
+        let la = Layout::from_size_align(64, 64).unwrap();
+        let q = unsafe { h.alloc(la) };
+        assert!(!q.is_null());
+        assert_eq!(q as usize % 64, 0);
+        assert!(q as usize >= p as usize && (q as usize) + 64 <= p as usize + 4096);
+        unsafe { h.dealloc(q, la) };
+        assert_eq!(h.used(), 0);
+    }
+
+    // ------------------------------------------------------------- Fehlerpfade
+
+    #[test]
+    fn oversized_requests_fail_without_overflowing() {
+        let (mut h, _) = heap_with(8192);
+        let too_big = Layout::from_size_align(1 << 30, 16).unwrap();
+        assert!(unsafe { h.alloc(too_big) }.is_null());
+        // Ausrichtung groesser als der ganze Heap: darf nur scheitern, nie rechnen-
+        // ueberlaufen (die `checked_add`-Pruefung in `alloc`).
+        let wild = Layout::from_size_align(64, 1 << 20).unwrap();
+        assert!(unsafe { h.alloc(wild) }.is_null());
+        assert_eq!(h.used(), 0);
+        assert_eq!(h.free(), h.size(), "Fehlversuche duerfen nichts belegen");
+        // Danach muss der Heap weiter normal arbeiten.
+        let ok = Layout::from_size_align(64, 16).unwrap();
+        let q = unsafe { h.alloc(ok) };
+        assert!(!q.is_null());
+        unsafe { h.dealloc(q, ok) };
+        assert_eq!(h.hole_count(), 1);
+    }
+
+    #[test]
+    fn exact_fit_leaves_no_hole() {
+        // Ein Block, der den Rest bis unter MIN_BLOCK aufbraucht, wird NICHT
+        // gesplittet — sonst entstuenden unbrauchbare Splitter.
+        let (mut h, _) = heap_with(4096);
+        let all = h.free();
+        let l = Layout::from_size_align(all - HEADER, 16).unwrap();
+        let p = unsafe { h.alloc(l) };
+        assert!(!p.is_null(), "exakt passende Allokation muss gelingen");
+        assert_eq!(h.hole_count(), 0);
+        assert_eq!(h.free(), 0);
+        assert_eq!(h.used(), all);
+        unsafe { h.dealloc(p, l) };
+        assert_eq!(h.free(), all);
+        assert_eq!(h.hole_count(), 1);
+    }
+
+    #[test]
+    fn free_order_does_not_matter_for_coalescing() {
+        for reverse in [false, true] {
+            let (mut h, _) = heap_with(16 * 1024);
+            let l = Layout::from_size_align(128, 16).unwrap();
+            let mut ps: std::vec::Vec<*mut u8> = std::vec::Vec::new();
+            for _ in 0..40 {
+                let p = unsafe { h.alloc(l) };
+                assert!(!p.is_null());
+                ps.push(p);
+            }
+            if reverse {
+                ps.reverse();
+            }
+            for p in ps {
+                unsafe { h.dealloc(p, l) };
+            }
+            assert_eq!(h.used(), 0);
+            assert_eq!(h.hole_count(), 1, "reverse={reverse}: Loecher verschmelzen nicht");
+            assert_eq!(h.free(), h.size());
+        }
+    }
+
+    #[test]
+    fn first_fit_reuses_the_freed_address() {
+        let (mut h, _) = heap_with(8192);
+        let l = Layout::from_size_align(64, 16).unwrap();
+        let a = unsafe { h.alloc(l) };
+        let b = unsafe { h.alloc(l) };
+        unsafe { h.dealloc(a, l) };
+        let c = unsafe { h.alloc(l) };
+        assert_eq!(a, c, "First-Fit muss das vorderste Loch wiederverwenden");
+        unsafe { h.dealloc(b, l) };
+        unsafe { h.dealloc(c, l) };
+        assert_eq!(h.hole_count(), 1);
+    }
+
+    #[test]
+    fn very_large_alignments_are_honoured() {
+        let (mut h, _) = heap_with(256 * 1024);
+        for a in [1usize, 2, 4, 8, 8192, 16384] {
+            let l = Layout::from_size_align(32, a).unwrap();
+            let p = unsafe { h.alloc(l) };
+            assert!(!p.is_null(), "keine Allokation mit align {a}");
+            assert_eq!(p as usize % a.max(ALIGN), 0, "Ausrichtung {a} verletzt");
+            unsafe { ptr::write_bytes(p, 0xa5, 32) };
+            unsafe { h.dealloc(p, l) };
+            assert_eq!(h.used(), 0, "Fueller vor dem Block wurde nicht zurueckgegeben");
+        }
+        assert_eq!(h.hole_count(), 1);
+        assert_eq!(h.free(), h.size());
+    }
+
+    // -------------------------------------------------------- Eigenschaftstests
+
+    /// Zufaellige alloc/free-Folge gegen ein Referenzmodell.
+    ///
+    /// Das Modell fuehrt Buch ueber alle lebenden Bloecke (Adresse, Groesse,
+    /// Fuellmuster). Geprueft wird: kein Block ueberlappt einen anderen, jeder
+    /// Block liegt im Heapfenster, der Inhalt bleibt unveraendert, die
+    /// Buchhaltung (`used + free == size`) stimmt nach jedem Schritt, und am
+    /// Ende gibt der Heap seinen kompletten Speicher wieder her.
+    #[test]
+    fn random_alloc_free_matches_reference_model() {
+        const BYTES: usize = 128 * 1024;
+        for seed in 0..8u64 {
+            let (mut h, base) = heap_with(BYTES);
+            let total = h.size();
+            let mut r = Lcg::new(seed);
+            // (Zeiger, Groesse, Ausrichtung, Fuellbyte)
+            let mut live: std::vec::Vec<(usize, usize, usize, u8)> = std::vec::Vec::new();
+            let mut fill: u8 = 1;
+
+            for step in 0..1500 {
+                if live.is_empty() || r.chance(55) {
+                    let size = r.range(1, 900);
+                    let align = 1usize << r.range(0, 9); // 1 .. 512
+                    let l = Layout::from_size_align(size, align).unwrap();
+                    let p = unsafe { h.alloc(l) };
+                    if p.is_null() {
+                        // OOM ist erlaubt — dann muss aber auch wirklich wenig
+                        // zusammenhaengender Platz da sein.
+                        assert!(
+                            h.stats().largest_hole < size + HEADER + align,
+                            "Schritt {step}: null trotz Loch von {} Bytes",
+                            h.stats().largest_hole
+                        );
+                        continue;
+                    }
+                    let a = p as usize;
+                    assert_eq!(a % align.max(ALIGN), 0, "Schritt {step}: Ausrichtung verletzt");
+                    assert!(
+                        a >= base as usize && a + size <= base as usize + BYTES,
+                        "Schritt {step}: Block liegt ausserhalb des Heapfensters"
+                    );
+                    for (o, s, _, _) in &live {
+                        assert!(
+                            a + size <= *o || *o + *s <= a,
+                            "Schritt {step}: Block {a:#x}+{size} ueberlappt {o:#x}+{s}"
+                        );
+                    }
+                    fill = fill.wrapping_add(1).max(1);
+                    unsafe { ptr::write_bytes(p, fill, size) };
+                    live.push((a, size, align, fill));
+                } else {
+                    let idx = r.below(live.len());
+                    let (a, s, al, f) = live.swap_remove(idx);
+                    for k in 0..s {
+                        assert_eq!(
+                            unsafe { *(a as *const u8).add(k) },
+                            f,
+                            "Schritt {step}: Block {a:#x} wurde fremdbeschrieben"
+                        );
+                    }
+                    let l = Layout::from_size_align(s, al).unwrap();
+                    unsafe { h.dealloc(a as *mut u8, l) };
+                }
+                let st = h.stats();
+                assert_eq!(st.used + st.free, total, "Schritt {step}: Buchhaltung kaputt");
+                assert_eq!(st.holes, h.hole_count());
+                assert!(st.largest_hole <= st.free);
+                assert!(
+                    st.used >= live.iter().map(|(_, s, _, _)| *s).sum::<usize>(),
+                    "Schritt {step}: weniger belegt als vergeben"
+                );
+            }
+
+            for (a, s, al, _) in live {
+                unsafe { h.dealloc(a as *mut u8, Layout::from_size_align(s, al).unwrap()) };
+            }
+            assert_eq!(h.used(), 0, "Seed {seed}: Speicher versickert");
+            assert_eq!(h.free(), total);
+            assert_eq!(h.hole_count(), 1, "Seed {seed}: Heap bleibt fragmentiert");
+        }
+    }
+
+    /// Gleiche Groesse, viele Runden: der Heap darf nicht langsam "leerlaufen"
+    /// (jede Runde muss dieselbe Anzahl Bloecke liefern wie die erste).
+    #[test]
+    fn repeated_rounds_yield_the_same_capacity() {
+        let (mut h, _) = heap_with(32 * 1024);
+        let l = Layout::from_size_align(200, 32).unwrap();
+        let mut first = 0usize;
+        for round in 0..10 {
+            let mut ps = std::vec::Vec::new();
+            loop {
+                let p = unsafe { h.alloc(l) };
+                if p.is_null() {
+                    break;
+                }
+                ps.push(p);
+            }
+            if round == 0 {
+                first = ps.len();
+                assert!(first > 10);
+            } else {
+                assert_eq!(ps.len(), first, "Runde {round} liefert weniger Bloecke");
+            }
+            for p in ps {
+                unsafe { h.dealloc(p, l) };
+            }
+            assert_eq!(h.used(), 0);
+            assert_eq!(h.hole_count(), 1);
+        }
     }
 }

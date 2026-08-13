@@ -1,155 +1,685 @@
-//! Anbindung der nativen ABI an den Kernel.
+//! Anbindung der nativen ABI an den Kernel — Prozesse, Objekte, Verteiler.
 //!
-//! **Stand: Grundgeruest.** Die ABI selbst (Typen, Nummern, Rechte) ist in der
-//! Crate [`karst_abi_native`] vollstaendig definiert und host-getestet. Hier
-//! steht die Kernelseite: die Handle-Tabelle je Prozess und der Verteiler.
-//! Implementiert ist bislang nur [`Syscall::Version`] — alles andere meldet
-//! sauber [`Error::NotSupported`] statt zu `todo!()`. So bleibt der Kernel in
-//! jedem Zustand lauffaehig, und die Phase "Userspace" der ROADMAP fuellt die
-//! Faelle einzeln auf.
+//! **Schicht: abi.** Die ABI selbst (Typen, Nummern, Rechte, Handle-Tabelle)
+//! liegt in der Crate [`karst_abi_native`] und ist host-getestet. Hier steht
+//! die Kernelseite:
+//!
+//! * eine **Objekttafel** mit Verweiszaehler — Handles zeigen auf eine ZAHL,
+//!   nie auf einen Zeiger,
+//! * eine **Prozesstafel**, jeder Prozess mit EIGENER Handle-Tabelle und
+//!   eigenem Wuerfelwert,
+//! * `spawn` statt `fork`: ein neuer Prozess bekommt genau die Handles, die
+//!   ihm der Erzeuger namentlich uebergibt — nichts wird geerbt,
+//! * der Verteiler [`dispatch`], den der Systemaufrufpfad der Architektur
+//!   aufruft (Nummer + sechs Argumente, Rueckgabe [`karst_abi_native::encode`]).
+//!
+//! Was es hier bewusst NICHT gibt: keinen globalen Namensraum, keine
+//! Umgebungsrechte ("ambient authority"), kein `fork`, kein `errno`, keine
+//! Sonderrollen fuer die Handles 0/1/2. Wer etwas darf, hat ein Handle dafuer.
 
+use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use karst_abi_native::handle::HandleEntry;
-use karst_abi_native::{encode, Error, Handle, ObjectKind, Result, Rights, Syscall};
 
-/// Handle-Tabelle eines Prozesses.
-///
-/// Bewusst KEINE POSIX-Semantik: es gibt keine "kleinste freie Zahl", keine
-/// Sonderrollen 0/1/2 und kein implizites Erben. Freigewordene Plaetze werden
-/// mit erhoehter Generation wiederverwendet, damit ein altes Handle nach dem
-/// Schliessen niemals versehentlich ein neues Objekt trifft.
-pub struct HandleTable {
-    slots: Vec<Option<HandleEntry>>,
-    generations: Vec<u32>,
+use karst_abi_native::table::HandleTable;
+use karst_abi_native::{
+    encode, syscall::ABI_VERSION, Error, Handle, HandleEntry, ObjectKind, Result, Rights, Syscall,
+};
+
+use crate::kcore::arch_iface::TimerOps;
+use crate::klog;
+
+/// Groesste Nachricht, die ein Kanal traegt. Eine Grenze ist Pflicht: ohne sie
+/// koennte ein Prozess den Kernelspeicher durch Senden erschoepfen.
+const MAX_MESSAGE: usize = 4096;
+/// Groesste Anzahl Handles in einer Nachricht.
+const MAX_MESSAGE_HANDLES: usize = 4;
+/// Groesste Nachrichtenzahl je Kanalende.
+const MAX_QUEUE: usize = 16;
+
+// ---------------------------------------------------------------- Objekttafel
+
+/// Inhalt eines Kernelobjekts. Ein Handle traegt nur die Nummer des Objekts;
+/// diese Nummer wird hier — und nur hier — nachgeschlagen.
+enum ObjectData {
+    /// Platz frei (letztes Handle geschlossen).
+    Free,
+    /// Ausgabestrom auf die Systemkonsole.
+    Console,
+    /// Kanalende. `peer` ist die Objektnummer der Gegenseite.
+    Channel { peer: u64, queue: VecDeque<Message> },
+    /// Prozessobjekt (verweist auf einen Eintrag der Prozesstafel).
+    Process { pid: u32 },
+    /// Speicherobjekt fester Groesse.
+    Memory { len: u64 },
 }
 
-impl HandleTable {
-    /// Leere Tabelle.
-    pub fn new() -> Self {
-        HandleTable { slots: Vec::new(), generations: Vec::new() }
-    }
+/// Eine Nachricht auf einem Kanal: Bytes plus explizit uebergebene Handles.
+struct Message {
+    bytes: Vec<u8>,
+    handles: Vec<HandleEntry>,
+}
 
-    /// Traegt ein Objekt ein und liefert das Handle.
-    pub fn insert(&mut self, kind: ObjectKind, rights: Rights) -> Handle {
-        let slot = match self.slots.iter().position(|s| s.is_none()) {
-            Some(i) => i,
-            None => {
-                self.slots.push(None);
-                self.generations.push(0);
-                self.slots.len() - 1
-            }
-        };
-        self.generations[slot] = self.generations[slot].wrapping_add(1);
-        let h = Handle::new(slot as u32, self.generations[slot]);
-        self.slots[slot] = Some(HandleEntry::new(h, kind, rights));
-        h
-    }
+struct Object {
+    kind: ObjectKind,
+    /// Wie viele Handles zeigen auf dieses Objekt? Beim Erreichen von 0 wird
+    /// der Platz freigegeben — ein spaeter auftauchendes altes Handle findet
+    /// dann nichts mehr, weil auch die Generation nicht mehr passt.
+    refs: u32,
+    data: ObjectData,
+}
 
-    /// Sucht einen Eintrag und prueft die Generation.
-    pub fn get(&self, h: Handle) -> Result<&HandleEntry> {
-        let slot = h.slot() as usize;
-        let e = self.slots.get(slot).and_then(|s| s.as_ref()).ok_or(Error::BadHandle)?;
-        if e.handle.generation() != h.generation() {
-            return Err(Error::BadHandle);
+impl Object {
+    const fn free() -> Self {
+        Object { kind: ObjectKind::Memory, refs: 0, data: ObjectData::Free }
+    }
+}
+
+// --------------------------------------------------------------- Prozesstafel
+
+/// Ein Prozess aus Sicht der nativen ABI.
+pub struct Process {
+    /// Nummer des Prozesses in der Prozesstafel.
+    pub pid: u32,
+    /// Name fuer Diagnoseausgaben.
+    pub name: &'static str,
+    /// Laeuft der Prozess unprivilegiert? Nur dann gelten Zeiger aus Argumenten
+    /// als unprivilegierte Adressen.
+    pub user: bool,
+    handles: HandleTable,
+    exit_code: Option<i64>,
+}
+
+impl Process {
+    /// Anzahl der Handles, die dieser Prozess besitzt.
+    pub fn handle_count(&self) -> usize {
+        self.handles.len()
+    }
+}
+
+/// Der gesamte veraenderliche Zustand der nativen ABI.
+struct Native {
+    objects: Vec<Object>,
+    procs: Vec<Process>,
+    current: u32,
+    started: bool,
+    syscalls: u64,
+    denied: u64,
+    user_denied: u64,
+    spawns: u64,
+    /// Zustand des Wuerfels fuer die prozesseigenen Handle-Nonces.
+    seed: u64,
+}
+
+impl Native {
+    const fn new() -> Self {
+        Native {
+            objects: Vec::new(),
+            procs: Vec::new(),
+            current: 0,
+            started: false,
+            syscalls: 0,
+            denied: 0,
+            user_denied: 0,
+            spawns: 0,
+            seed: 0x2545_f491_4f6c_dd1d,
         }
-        Ok(e)
     }
 
-    /// Schliesst ein Handle.
-    pub fn close(&mut self, h: Handle) -> Result<()> {
-        let slot = h.slot() as usize;
-        let cur = self.slots.get_mut(slot).ok_or(Error::BadHandle)?;
-        match cur {
-            Some(e) if e.handle.generation() == h.generation() => {
-                *cur = None;
-                Ok(())
-            }
-            _ => Err(Error::BadHandle),
+    /// Wuerfelt einen Wert fuer die Handle-Nonce eines Prozesses.
+    /// Bewusst ein eigener 4-Zeiler statt einer Zufallscrate.
+    fn next_nonce(&mut self) -> u32 {
+        self.seed ^= self.seed << 13;
+        self.seed ^= self.seed >> 7;
+        self.seed ^= self.seed << 17;
+        self.seed = self.seed.wrapping_add(<crate::arch::Timer as TimerOps>::ticks());
+        (self.seed >> 32) as u32 | 1
+    }
+
+    fn ensure_started(&mut self) {
+        if self.started {
+            return;
+        }
+        self.started = true;
+        // Der Wurzelprozess ist der Kernel selbst. Auch er hat keine
+        // Umgebungsrechte: seine Konsole ist ein Handle wie jedes andere.
+        let pid = self.new_process("systemkern", false);
+        let obj = self.new_object(ObjectKind::Stream, ObjectData::Console);
+        let _ = self.grant(pid, obj, Rights::ALL);
+        self.current = pid;
+    }
+
+    fn new_process(&mut self, name: &'static str, user: bool) -> u32 {
+        let nonce = self.next_nonce();
+        let pid = self.procs.len() as u32;
+        self.procs.push(Process {
+            pid,
+            name,
+            user,
+            handles: HandleTable::with_nonce(karst_abi_native::table::DEFAULT_LIMIT, nonce),
+            exit_code: None,
+        });
+        pid
+    }
+
+    fn new_object(&mut self, kind: ObjectKind, data: ObjectData) -> u64 {
+        if let Some(i) = self.objects.iter().position(|o| matches!(o.data, ObjectData::Free)) {
+            self.objects[i] = Object { kind, refs: 0, data };
+            return i as u64;
+        }
+        self.objects.push(Object { kind, refs: 0, data });
+        (self.objects.len() - 1) as u64
+    }
+
+    /// Traegt ein bestehendes Objekt in die Tabelle eines Prozesses ein.
+    /// Die Objektart kommt aus der Objekttafel, nicht vom Aufrufer — ein
+    /// Handle kann damit nie eine falsche Art vorgeben.
+    fn grant(&mut self, pid: u32, obj: u64, rights: Rights) -> Result<Handle> {
+        let kind = self.objects.get(obj as usize).ok_or(Error::NotFound)?.kind;
+        let p = self.procs.get_mut(pid as usize).ok_or(Error::NotFound)?;
+        let h = p.handles.insert(kind, rights, obj)?;
+        if let Some(o) = self.objects.get_mut(obj as usize) {
+            o.refs += 1;
+        }
+        Ok(h)
+    }
+
+    fn proc_mut(&mut self, pid: u32) -> Result<&mut Process> {
+        self.procs.get_mut(pid as usize).ok_or(Error::NotFound)
+    }
+
+    /// Gibt einen Verweis frei; beim letzten Verweis verschwindet das Objekt.
+    fn release(&mut self, obj: u64) {
+        let Some(o) = self.objects.get_mut(obj as usize) else { return };
+        if o.refs > 0 {
+            o.refs -= 1;
+        }
+        if o.refs == 0 {
+            // Kanalende weg: die Gegenseite erfaehrt das beim naechsten Senden.
+            *o = Object::free();
         }
     }
 
-    /// Anzahl belegter Plaetze.
-    pub fn len(&self) -> usize {
-        self.slots.iter().filter(|s| s.is_some()).count()
-    }
-
-    /// Ist die Tabelle leer?
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    fn close(&mut self, pid: u32, h: Handle) -> Result<()> {
+        let e = self.proc_mut(pid)?.handles.close(h)?;
+        self.release(e.object);
+        Ok(())
     }
 }
 
-impl Default for HandleTable {
-    fn default() -> Self {
-        Self::new()
+static NATIVE: spin::Mutex<Native> = spin::Mutex::new(Native::new());
+
+/// Sperrt den ABI-Zustand und stellt sicher, dass der Wurzelprozess existiert.
+fn lock() -> spin::MutexGuard<'static, Native> {
+    let mut g = NATIVE.lock();
+    g.ensure_started();
+    g
+}
+
+// ------------------------------------------------------------ oeffentliche API
+
+/// Erzeugt einen Prozess im spawn-Stil: **keine Kopie eines Adressraums, kein
+/// Erben**. Der Erzeuger listet die Handles auf, die er abgeben will, jeweils
+/// mit einer Rechtemaske, die die Rechte nur verkleinern kann.
+///
+/// Fehlt einem der genannten Handles das Recht [`Rights::TRANSFER`], scheitert
+/// der ganze Aufruf — und der neue Prozess bekommt gar nichts.
+pub fn spawn(parent: u32, name: &'static str, grants: &[(Handle, Rights)]) -> Result<u32> {
+    spawn_with(parent, name, true, grants)
+}
+
+/// Wie [`spawn`], aber mit der Wahl, ob der neue Prozess unprivilegiert laeuft.
+/// Kerneldienste (`user = false`) duerfen Puffer im Kernelspeicher benutzen;
+/// unprivilegierte Prozesse niemals.
+pub fn spawn_with(
+    parent: u32,
+    name: &'static str,
+    user: bool,
+    grants: &[(Handle, Rights)],
+) -> Result<u32> {
+    let mut n = lock();
+    if grants.len() > karst_abi_native::table::DEFAULT_LIMIT {
+        return Err(Error::InvalidArgs);
+    }
+    // Erst pruefen, dann handeln: ein Fehler in der Mitte darf keinen halb
+    // ausgestatteten Prozess hinterlassen.
+    {
+        let p = n.procs.get(parent as usize).ok_or(Error::NotFound)?;
+        for (h, _) in grants {
+            p.handles.get_with(*h, Rights::TRANSFER)?;
+        }
+    }
+    let pid = n.new_process(name, user);
+    for (h, mask) in grants {
+        let entry = n.proc_mut(parent)?.handles.take_for_transfer(*h, *mask)?;
+        let neu = n.proc_mut(pid)?.handles.adopt(entry)?;
+        debug_assert!(neu.is_valid());
+    }
+    // Der Erzeuger bekommt ein Handle auf den neuen Prozess — auch das ist ein
+    // gewoehnliches Objekt mit Rechten, keine Sonderbeziehung.
+    let obj = n.new_object(ObjectKind::Process, ObjectData::Process { pid });
+    let _ = n.grant(parent, obj, Rights::INSPECT | Rights::MANAGE | Rights::WAIT);
+    n.spawns += 1;
+    Ok(pid)
+}
+
+/// Prozess des laufenden Aufrufs.
+pub fn current() -> u32 {
+    lock().current
+}
+
+/// Setzt den Prozess, dem die naechsten Systemaufrufe zugerechnet werden.
+/// Liefert den vorherigen Wert.
+pub fn set_current(pid: u32) -> u32 {
+    let mut n = lock();
+    let alt = n.current;
+    if (pid as usize) < n.procs.len() {
+        n.current = pid;
+    }
+    alt
+}
+
+/// Beendet einen Prozess: alle Handles fallen weg, die Objekte verlieren ihre
+/// Verweise. Danach ist mit den alten Handle-Werten nichts mehr zu holen.
+pub fn exit_process(pid: u32, code: i64) -> Result<()> {
+    let handles: Vec<Handle> = {
+        let mut n = lock();
+        let p = n.procs.get_mut(pid as usize).ok_or(Error::NotFound)?;
+        p.exit_code = Some(code);
+        p.handles.iter().map(|e| e.handle).collect()
+    };
+    let mut n = lock();
+    for h in handles {
+        if let Ok(e) = n.proc_mut(pid)?.handles.close(h) {
+            n.release(e.object);
+        }
+    }
+    if n.current == pid {
+        n.current = 0;
+    }
+    Ok(())
+}
+
+/// Anzahl Handles eines Prozesses (fuer Diagnose und Tests).
+pub fn handle_count(pid: u32) -> usize {
+    lock().procs.get(pid as usize).map(|p| p.handles.len()).unwrap_or(0)
+}
+
+/// Erzeugt ein Konsolenobjekt und gibt dem Prozess ein Handle darauf.
+pub fn grant_console(pid: u32, rights: Rights) -> Result<Handle> {
+    let mut n = lock();
+    let obj = n.new_object(ObjectKind::Stream, ObjectData::Console);
+    n.grant(pid, obj, rights)
+}
+
+/// Erzeugt ein verbundenes Kanalpaar und gibt beide Enden dem Prozess.
+pub fn channel_create(pid: u32) -> Result<(Handle, Handle)> {
+    let mut n = lock();
+    let a = n.new_object(ObjectKind::Channel, ObjectData::Channel { peer: 0, queue: VecDeque::new() });
+    let b = n.new_object(ObjectKind::Channel, ObjectData::Channel { peer: a, queue: VecDeque::new() });
+    if let Some(o) = n.objects.get_mut(a as usize) {
+        if let ObjectData::Channel { peer, .. } = &mut o.data {
+            *peer = b;
+        }
+    }
+    let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::DUPLICATE | Rights::INSPECT;
+    let ha = n.grant(pid, a, rights)?;
+    let hb = n.grant(pid, b, rights)?;
+    Ok((ha, hb))
+}
+
+// ------------------------------------------------------------------ Verteiler
+
+/// Systemaufruf aus der unprivilegierten Ebene.
+///
+/// Zeiger in den Argumenten werden als **unprivilegierte** Adressen behandelt
+/// und geprueft; eine Kerneladresse wird nie gelesen.
+pub fn dispatch(nr: u64, args: [u64; 6]) -> i64 {
+    encode(call(nr, args, true))
+}
+
+/// Systemaufruf aus dem Kernel selbst (Selbsttests, Dienste). Hier duerfen
+/// Zeiger auf Kernelspeicher zeigen — der Aufrufer ist der Kernel.
+pub fn dispatch_kernel(nr: u64, args: [u64; 6]) -> i64 {
+    encode(call(nr, args, false))
+}
+
+fn call(nr: u64, args: [u64; 6], from_user: bool) -> Result<u64> {
+    let Some(sc) = Syscall::from_raw(nr) else {
+        lock().denied += 1;
+        return Err(Error::InvalidArgs);
+    };
+    let (pid, ist_user) = {
+        let mut n = lock();
+        n.syscalls += 1;
+        let cur = n.current;
+        let user = n.procs.get(cur as usize).map(|p| p.user).unwrap_or(false);
+        (cur, user)
+    };
+    // Ein unprivilegierter Prozess bekommt IMMER die strenge Zeigerpruefung,
+    // auch wenn der Aufruf ueber den Kernelpfad hereinkommt.
+    let r = perform(pid, sc, args, from_user || ist_user);
+    if let Err(e) = r {
+        let mut n = lock();
+        n.denied += 1;
+        if ist_user {
+            n.user_denied += 1;
+            let name = n.procs.get(pid as usize).map(|p| p.name).unwrap_or("?");
+            drop(n);
+            // Sichtbarer Beleg: ein unprivilegierter Aufrufer wurde an der
+            // Capability-Pruefung abgewiesen — mit Aufruf, Prozess und Grund.
+            klog!(
+                "abi",
+                "Aufruf {} aus unprivilegiertem Prozess {} \"{}\" abgewiesen: {}",
+                sc.name(),
+                pid,
+                name,
+                e.name()
+            );
+        }
+    }
+    r
+}
+
+fn perform(pid: u32, sc: Syscall, args: [u64; 6], from_user: bool) -> Result<u64> {
+    match sc {
+        Syscall::Version => Ok(ABI_VERSION),
+        Syscall::ThreadYield => {
+            crate::kcore::sched::yield_now();
+            Ok(0)
+        }
+        Syscall::ClockRead => Ok(<crate::arch::Timer as TimerOps>::ticks()
+            .saturating_mul(1_000_000_000 / <crate::arch::Timer as TimerOps>::hz() as u64)),
+        Syscall::HandleClose => {
+            let mut n = lock();
+            n.close(pid, Handle(args[0]))?;
+            Ok(0)
+        }
+        Syscall::HandleDuplicate => {
+            let mut n = lock();
+            let h = Handle(args[0]);
+            let obj = n.procs.get(pid as usize).ok_or(Error::NotFound)?.handles.get(h)?.object;
+            let neu = n.proc_mut(pid)?.handles.duplicate(h, Rights(args[1] as u32))?;
+            if let Some(o) = n.objects.get_mut(obj as usize) {
+                o.refs += 1;
+            }
+            Ok(neu.0)
+        }
+        Syscall::HandleInspect => {
+            let n = lock();
+            let e = n
+                .procs
+                .get(pid as usize)
+                .ok_or(Error::NotFound)?
+                .handles
+                .get_with(Handle(args[0]), Rights::INSPECT)?;
+            // Verdichtete Auskunft im Rueckgabekanal: Typ und Rechte.
+            // Kein Zeiger nach draussen, keine Kerneladresse.
+            Ok(((e.kind as u64) << 32) | e.rights.bits() as u64)
+        }
+        Syscall::HandleWrite => {
+            let (obj, _) = {
+                let n = lock();
+                let e = n
+                    .procs
+                    .get(pid as usize)
+                    .ok_or(Error::NotFound)?
+                    .handles
+                    .get_with(Handle(args[0]), Rights::WRITE)?;
+                (e.object, e.kind)
+            };
+            let bytes = read_buffer(args[1], args[2], from_user)?;
+            let mut n = lock();
+            let o = n.objects.get_mut(obj as usize).ok_or(Error::NotFound)?;
+            match &mut o.data {
+                ObjectData::Console => {
+                    let len = bytes.len();
+                    drop(n);
+                    if len > 0 {
+                        print_from_user(&bytes);
+                    }
+                    Ok(len as u64)
+                }
+                ObjectData::Channel { peer, .. } => {
+                    let peer = *peer;
+                    let len = bytes.len();
+                    push_message(&mut n, peer, Message { bytes, handles: Vec::new() })?;
+                    Ok(len as u64)
+                }
+                _ => Err(Error::WrongType),
+            }
+        }
+        Syscall::HandleRead => {
+            let obj = {
+                let n = lock();
+                n.procs
+                    .get(pid as usize)
+                    .ok_or(Error::NotFound)?
+                    .handles
+                    .get_with(Handle(args[0]), Rights::READ)?
+                    .object
+            };
+            let mut n = lock();
+            let o = n.objects.get_mut(obj as usize).ok_or(Error::NotFound)?;
+            match &mut o.data {
+                // Die Konsole ist in diesem Stand nur Ausgabe — ehrlich gemeldet.
+                ObjectData::Console => Err(Error::WouldBlock),
+                ObjectData::Channel { queue, .. } => {
+                    let msg = queue.pop_front().ok_or(Error::WouldBlock)?;
+                    let len = msg.bytes.len().min(args[2] as usize);
+                    drop(n);
+                    if let Err(e) = write_buffer(args[1], &msg.bytes[..len], from_user) {
+                        // Zielpuffer untauglich: die Nachricht bleibt erhalten,
+                        // statt beim Fehlversuch verloren zu gehen.
+                        let mut n = lock();
+                        if let Some(o) = n.objects.get_mut(obj as usize) {
+                            if let ObjectData::Channel { queue, .. } = &mut o.data {
+                                queue.push_front(msg);
+                            }
+                        }
+                        return Err(e);
+                    }
+                    // Mitgeschickte Handles gehen in die Tabelle des Empfaengers.
+                    let mut n = lock();
+                    for e in msg.handles {
+                        let _ = n.proc_mut(pid)?.handles.adopt(e);
+                    }
+                    Ok(len as u64)
+                }
+                _ => Err(Error::WrongType),
+            }
+        }
+        Syscall::ChannelCreate => {
+            let (a, b) = channel_create(pid)?;
+            write_word(args[0], a.0, from_user)?;
+            write_word(args[1], b.0, from_user)?;
+            Ok(0)
+        }
+        Syscall::ChannelSend => {
+            let obj = {
+                let n = lock();
+                let e = n
+                    .procs
+                    .get(pid as usize)
+                    .ok_or(Error::NotFound)?
+                    .handles
+                    .get_with(Handle(args[0]), Rights::WRITE)?;
+                if e.kind != ObjectKind::Channel {
+                    return Err(Error::WrongType);
+                }
+                e.object
+            };
+            let bytes = read_buffer(args[1], args[2], from_user)?;
+            let count = args[4] as usize;
+            if count > MAX_MESSAGE_HANDLES {
+                return Err(Error::InvalidArgs);
+            }
+            let mut mitgegeben = Vec::new();
+            for i in 0..count {
+                let raw = read_word(args[3] + (i as u64) * 8, from_user)?;
+                let mut n = lock();
+                let e = n.proc_mut(pid)?.handles.take_for_transfer(Handle(raw), Rights::ALL)?;
+                mitgegeben.push(e);
+            }
+            let mut n = lock();
+            let peer = match n.objects.get(obj as usize).map(|o| &o.data) {
+                Some(ObjectData::Channel { peer, .. }) => *peer,
+                _ => return Err(Error::WrongType),
+            };
+            let len = bytes.len();
+            push_message(&mut n, peer, Message { bytes, handles: mitgegeben })?;
+            Ok(len as u64)
+        }
+        Syscall::ChannelRecv => perform(pid, Syscall::HandleRead, args, from_user),
+        Syscall::MemoryCreate => {
+            let len = args[0];
+            if len == 0 || len > 1 << 30 {
+                return Err(Error::InvalidArgs);
+            }
+            let mut n = lock();
+            let obj = n.new_object(ObjectKind::Memory, ObjectData::Memory { len });
+            let h = n.grant(
+                pid,
+                obj,
+                Rights::READ | Rights::WRITE | Rights::MAP | Rights::TRANSFER | Rights::INSPECT,
+            )?;
+            Ok(h.0)
+        }
+        Syscall::ProcessExit => {
+            // `(0, code)` beendet den eigenen Prozess; mit einem Prozesshandle
+            // und dem Recht MANAGE laesst sich ein anderer beenden.
+            let ziel = if args[0] == 0 {
+                pid
+            } else {
+                let n = lock();
+                let e = n
+                    .procs
+                    .get(pid as usize)
+                    .ok_or(Error::NotFound)?
+                    .handles
+                    .get_with(Handle(args[0]), Rights::MANAGE)?;
+                match n.objects.get(e.object as usize).map(|o| &o.data) {
+                    Some(ObjectData::Process { pid }) => *pid,
+                    _ => return Err(Error::WrongType),
+                }
+            };
+            exit_process(ziel, args[1] as i64)?;
+            Ok(0)
+        }
+        // Diese Aufrufe brauchen Teile, die dieser Stand noch nicht hat
+        // (Adressraumobjekte, Namensraumdienst, Ereignisports, Threads aus
+        // Ring 3). Sie melden das sauber — siehe ROADMAP.md.
+        Syscall::MemoryMap
+        | Syscall::MemoryUnmap
+        | Syscall::NamespaceOpen
+        | Syscall::NamespaceCreate
+        | Syscall::PortCreate
+        | Syscall::PortWait
+        | Syscall::PortBind
+        | Syscall::ProcessSpawn
+        | Syscall::ThreadCreate
+        | Syscall::ThreadSleep => Err(Error::NotSupported),
     }
 }
 
-/// Fuehrt einen nativen Aufruf aus.
-///
-/// Rueckgabe ist der kodierte ABI-Wert (>= 0 Erfolg, < 0 Fehler).
-pub fn dispatch(nr: u64, _args: [u64; 6]) -> i64 {
-    let Some(call) = Syscall::from_raw(nr) else {
-        return Error::InvalidArgs.as_raw();
-    };
-    let result: Result<u64> = match call {
-        Syscall::Version => Ok(karst_abi_native::syscall::ABI_VERSION),
-        // Alle weiteren Aufrufe brauchen Scheduler, VFS und Userspace —
-        // siehe ROADMAP.md, Phasen 2 bis 4.
-        _ => Err(Error::NotSupported),
-    };
-    encode(result)
+fn push_message(n: &mut Native, obj: u64, msg: Message) -> Result<()> {
+    let o = n.objects.get_mut(obj as usize).ok_or(Error::Closed)?;
+    match &mut o.data {
+        ObjectData::Channel { queue, .. } => {
+            if queue.len() >= MAX_QUEUE {
+                return Err(Error::WouldBlock);
+            }
+            queue.push_back(msg);
+            Ok(())
+        }
+        _ => Err(Error::Closed),
+    }
 }
 
-/// Negativtest der Handle-Tabelle: die drei Wege, ein Handle zu faelschen,
-/// muessen ALLE mit einem definierten Fehler enden — und keiner davon darf
-/// Zugriff gewaehren.
+// ------------------------------------------------------- Puffer aus dem Aufruf
+
+/// Prueft einen Pufferbereich und liefert eine Kopie.
 ///
-/// Geprueft werden
-/// 1. ein Index, den es nie gab,
-/// 2. eine veraltete Generation auf einem wiederverwendeten Platz,
-/// 3. ein gueltiges Handle ohne das benoetigte Recht.
-///
-/// Liefert `(bestanden, gesamt)` fuer die Selbsttestbilanz.
-pub fn capability_selftest() -> (usize, usize) {
-    let mut t = HandleTable::new();
-    let mut ok = 0usize;
-    let total = 3usize;
-
-    // 1. Index frei erfunden.
-    let fake = Handle::new(4242, 1);
-    let case1 = matches!(t.get(fake), Err(Error::BadHandle));
-    ok += case1 as usize;
-
-    // 2. Platz wiederverwenden: das alte Handle muss danach ungueltig sein,
-    //    obwohl der Index wieder belegt ist.
-    let old = t.insert(ObjectKind::Stream, Rights::READ);
-    let _ = t.close(old);
-    let fresh = t.insert(ObjectKind::Stream, Rights::READ);
-    let case2 = fresh.slot() == old.slot()
-        && fresh.generation() != old.generation()
-        && matches!(t.get(old), Err(Error::BadHandle));
-    ok += case2 as usize;
-
-    // 3. Recht fehlt.
-    let ro = t.insert(ObjectKind::Stream, Rights::READ);
-    let case3 = match t.get(ro) {
-        Ok(e) => e.check(Rights::WRITE).is_err(),
-        Err(_) => false,
-    };
-    ok += case3 as usize;
-
-    crate::klog!(
-        "abi",
-        "Handle-Negativtest: {}/{} abgewiesen (ungueltiger Index {}, veraltete Generation {}, fehlendes Recht {})",
-        ok,
-        total,
-        ergebnis(case1),
-        ergebnis(case2),
-        ergebnis(case3)
-    );
-    (ok, total)
+/// Aus der unprivilegierten Ebene sind ausschliesslich unprivilegierte
+/// Adressen erlaubt — ein Zeiger auf Kernelspeicher wird abgewiesen, bevor er
+/// gelesen wird (das ist die zweite Verteidigungslinie neben der Seitentabelle).
+fn read_buffer(ptr: u64, len: u64, from_user: bool) -> Result<Vec<u8>> {
+    let len = len as usize;
+    if len > MAX_MESSAGE {
+        return Err(Error::InvalidArgs);
+    }
+    if len == 0 {
+        return Ok(Vec::new());
+    }
+    check_range(ptr, len as u64, from_user)?;
+    let mut v = Vec::new();
+    v.try_reserve(len).map_err(|_| Error::Exhausted)?;
+    // SAFETY: Der Bereich wurde geprueft (Laenge begrenzt, im erlaubten
+    // Adressbereich) und wird nur gelesen.
+    let src = unsafe { core::slice::from_raw_parts(ptr as *const u8, len) };
+    v.extend_from_slice(src);
+    Ok(v)
 }
+
+fn write_buffer(ptr: u64, data: &[u8], from_user: bool) -> Result<()> {
+    if data.is_empty() {
+        return Ok(());
+    }
+    check_range(ptr, data.len() as u64, from_user)?;
+    // SAFETY: gepruefter Bereich, Laenge passt zur Quelle.
+    unsafe {
+        core::ptr::copy_nonoverlapping(data.as_ptr(), ptr as *mut u8, data.len());
+    }
+    Ok(())
+}
+
+fn read_word(ptr: u64, from_user: bool) -> Result<u64> {
+    check_range(ptr, 8, from_user)?;
+    if ptr % 8 != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    // SAFETY: geprueft und ausgerichtet.
+    Ok(unsafe { core::ptr::read_volatile(ptr as *const u64) })
+}
+
+fn write_word(ptr: u64, value: u64, from_user: bool) -> Result<()> {
+    check_range(ptr, 8, from_user)?;
+    if ptr % 8 != 0 {
+        return Err(Error::InvalidArgs);
+    }
+    // SAFETY: geprueft und ausgerichtet.
+    unsafe { core::ptr::write_volatile(ptr as *mut u64, value) };
+    Ok(())
+}
+
+fn check_range(ptr: u64, len: u64, from_user: bool) -> Result<()> {
+    if ptr == 0 || len == 0 {
+        return Err(Error::InvalidArgs);
+    }
+    let end = ptr.checked_add(len - 1).ok_or(Error::InvalidArgs)?;
+    if from_user && !(crate::kcore::user::is_user_addr(ptr) && crate::kcore::user::is_user_addr(end))
+    {
+        return Err(Error::InvalidArgs);
+    }
+    Ok(())
+}
+
+/// Gibt Bytes eines Aufrufers auf der Systemkonsole aus. Nicht darstellbare
+/// Zeichen werden ersetzt: ein Aufrufer soll die Konsole nicht steuern koennen.
+fn print_from_user(bytes: &[u8]) {
+    let mut buf = [0u8; 128];
+    let mut i = 0;
+    for &b in bytes.iter() {
+        buf[i] = if (0x20..0x7f).contains(&b) { b } else { b'.' };
+        i += 1;
+        if i == buf.len() {
+            break;
+        }
+    }
+    let text = core::str::from_utf8(&buf[..i]).unwrap_or("<nicht darstellbar>");
+    klog!("abi", "Ausgabe eines Aufrufers ueber Handle: \"{}\"", text);
+}
+
+// ------------------------------------------------------------- Selbsttests
 
 fn ergebnis(b: bool) -> &'static str {
     if b {
@@ -159,19 +689,346 @@ fn ergebnis(b: bool) -> &'static str {
     }
 }
 
+/// Negativtest der Handle-Tabelle: die Wege, ein Handle zu faelschen oder sich
+/// ein Recht zu nehmen, das man nicht hat, muessen ALLE mit einem definierten
+/// Fehler enden — und keiner davon darf Zugriff gewaehren.
+///
+/// Geprueft werden nacheinander
+/// 1. ein Index, den es nie gab,
+/// 2. eine veraltete Generation auf einem wiederverwendeten Platz,
+/// 3. ein gueltiges Handle ohne das benoetigte Recht,
+/// 4. ein Handle aus einem FREMDEN Prozess,
+/// 5. ein frisch erzeugter Prozess ohne uebergebene Handles (keine
+///    Umgebungsrechte),
+/// 6. Rechteausweitung beim Duplizieren,
+/// 7. Duplizieren ohne das Recht dazu,
+/// 8. Uebergeben ohne das Recht dazu,
+/// 9. eine unbekannte Aufrufnummer,
+/// 10. Erraten der Generation (4096 Versuche auf einem bekannten Index),
+/// 11. Benutzung nach dem Schliessen,
+/// 12. Benutzung eines Handles eines beendeten Prozesses.
+///
+/// Liefert `(bestanden, gesamt)` fuer die Selbsttestbilanz.
+pub fn capability_selftest() -> (usize, usize) {
+    let root = current();
+    let konsole = grant_console(root, Rights::ALL).unwrap_or(Handle(0));
+
+    // 1. Index frei erfunden.
+    let case1 = matches!(lookup(root, Handle::new(4242, 1), Rights::READ), Err(Error::BadHandle));
+
+    // 2. Platz wiederverwenden: das alte Handle bleibt ungueltig.
+    let alt = grant_console(root, Rights::READ).unwrap_or(Handle(0));
+    let _ = dispatch_kernel(Syscall::HandleClose as u64, [alt.0, 0, 0, 0, 0, 0]);
+    let frisch = grant_console(root, Rights::READ).unwrap_or(Handle(0));
+    let case2 = frisch.slot() == alt.slot()
+        && frisch.generation() != alt.generation()
+        && matches!(lookup(root, alt, Rights::READ), Err(Error::BadHandle));
+
+    // 3. Recht fehlt: Schreiben auf ein reines Lesehandle.
+    let nur_lesen = grant_console(root, Rights::READ).unwrap_or(Handle(0));
+    let case3 = matches!(lookup(root, nur_lesen, Rights::WRITE), Err(Error::RightsDenied));
+
+    // 4. Fremdes Handle: ein zweiter Prozess bekommt EIN Handle explizit
+    //    uebergeben und versucht danach, ein Handle des Erzeugers zu benutzen.
+    let uebergabe = grant_console(root, Rights::WRITE | Rights::TRANSFER).unwrap_or(Handle(0));
+    let kind = spawn(root, "gast", &[(uebergabe, Rights::WRITE)]);
+    let case4 = match kind {
+        Ok(gast) => {
+            let vorher = set_current(gast);
+            let fremd = dispatch_kernel(Syscall::HandleWrite as u64, [konsole.0, 0, 0, 0, 0, 0]);
+            let eigenes = handle_count(gast) == 1;
+            set_current(vorher);
+            fremd == Error::BadHandle.as_raw() && eigenes
+        }
+        Err(_) => false,
+    };
+
+    // 5. Keine Umgebungsrechte: ein Prozess ohne Uebergabe hat NICHTS.
+    let case5 = match spawn(root, "nackt", &[]) {
+        Ok(leer) => {
+            let vorher = set_current(leer);
+            // Alle plausiblen kleinen Handle-Werte durchprobieren.
+            let mut treffer = 0;
+            for slot in 0..8u32 {
+                for g in 0..8u32 {
+                    let h = Handle::new(slot, g);
+                    if lookup(leer, h, Rights::NONE).is_ok() {
+                        treffer += 1;
+                    }
+                }
+            }
+            let schreiben =
+                dispatch_kernel(Syscall::HandleWrite as u64, [Handle::new(0, 1).0, 0, 0, 0, 0, 0]);
+            set_current(vorher);
+            treffer == 0 && handle_count(leer) == 0 && schreiben < 0
+        }
+        Err(_) => false,
+    };
+
+    // 6./7. Duplizieren: Maske kann nur verkleinern, und ohne DUPLICATE
+    //       geht gar nichts.
+    let voll = grant_console(root, Rights::WRITE | Rights::DUPLICATE).unwrap_or(Handle(0));
+    let dup = dispatch_kernel(Syscall::HandleDuplicate as u64, [voll.0, Rights::ALL.bits() as u64, 0, 0, 0, 0]);
+    let case6 = dup >= 0
+        && lookup(root, Handle(dup as u64), Rights::READ).is_err()
+        && lookup(root, Handle(dup as u64), Rights::WRITE).is_ok();
+    let ohne_dup = grant_console(root, Rights::WRITE).unwrap_or(Handle(0));
+    let case7 = dispatch_kernel(
+        Syscall::HandleDuplicate as u64,
+        [ohne_dup.0, Rights::ALL.bits() as u64, 0, 0, 0, 0],
+    ) == Error::RightsDenied.as_raw();
+
+    // 8. Uebergeben ohne TRANSFER-Recht.
+    let case8 = matches!(spawn(root, "dieb", &[(ohne_dup, Rights::ALL)]), Err(Error::RightsDenied));
+
+    // 9. Unbekannte Aufrufnummer.
+    let case9 = dispatch_kernel(Syscall::MAX + 1, [0; 6]) == Error::InvalidArgs.as_raw()
+        && dispatch_kernel(u64::MAX, [0; 6]) == Error::InvalidArgs.as_raw();
+
+    // 10. Generation raten: 4096 Versuche auf einem bekannten Index.
+    let mut geraten = 0usize;
+    for g in 0..4096u32 {
+        if g == konsole.generation() {
+            continue;
+        }
+        if lookup(root, Handle::new(konsole.slot(), g), Rights::NONE).is_ok() {
+            geraten += 1;
+        }
+    }
+    let case10 = geraten == 0;
+
+    // 11. Benutzung nach dem Schliessen.
+    let zu = grant_console(root, Rights::WRITE).unwrap_or(Handle(0));
+    let _ = dispatch_kernel(Syscall::HandleClose as u64, [zu.0, 0, 0, 0, 0, 0]);
+    let case11 = dispatch_kernel(Syscall::HandleWrite as u64, [zu.0, 0, 0, 0, 0, 0])
+        == Error::BadHandle.as_raw()
+        && dispatch_kernel(Syscall::HandleClose as u64, [zu.0, 0, 0, 0, 0, 0])
+            == Error::BadHandle.as_raw();
+
+    // 12. Handles eines beendeten Prozesses sind weg.
+    let case12 = match spawn(root, "kurzlebig", &[]) {
+        Ok(p) => {
+            let h = grant_console(p, Rights::WRITE).unwrap_or(Handle(0));
+            let vorher = set_current(p);
+            let vor_ende = dispatch_kernel(Syscall::HandleWrite as u64, [h.0, 0, 0, 0, 0, 0]);
+            let _ = exit_process(p, 0);
+            set_current(p);
+            let nach_ende = dispatch_kernel(Syscall::HandleWrite as u64, [h.0, 0, 0, 0, 0, 0]);
+            set_current(vorher);
+            // Vor dem Ende ist der Aufruf gueltig (leerer Puffer, 0 Bytes),
+            // danach ist das Handle selbst ungueltig.
+            vor_ende == 0
+                && nach_ende == Error::BadHandle.as_raw()
+                && handle_count(p) == 0
+        }
+        Err(_) => false,
+    };
+
+    let faelle = [
+        ("ungueltiger Index", case1),
+        ("veraltete Generation", case2),
+        ("fehlendes Recht", case3),
+        ("fremdes Handle", case4),
+        ("ohne Uebergabe kein Zugriff", case5),
+        ("keine Rechteausweitung", case6),
+        ("Duplizieren ohne Recht", case7),
+        ("Uebergabe ohne Recht", case8),
+        ("unbekannte Aufrufnummer", case9),
+        ("Generation geraten", case10),
+        ("Benutzung nach Schliessen", case11),
+        ("Handle nach Prozessende", case12),
+    ];
+    let ok = faelle.iter().filter(|(_, b)| *b).count();
+
+    // Die drei Pflichtfaelle in genau der Form, die run-qemu.sh prueft.
+    klog!(
+        "abi",
+        "Handle-Negativtest: {}/3 abgewiesen (ungueltiger Index {}, veraltete Generation {}, fehlendes Recht {})",
+        case1 as usize + case2 as usize + case3 as usize,
+        ergebnis(case1),
+        ergebnis(case2),
+        ergebnis(case3)
+    );
+    klog!(
+        "abi",
+        "Capability-Negativtest: {}/{} abgewiesen — {} {}, {} {}, {} {}, {} {}, {} {}",
+        ok,
+        faelle.len(),
+        faelle[3].0,
+        ergebnis(case4),
+        faelle[4].0,
+        ergebnis(case5),
+        faelle[5].0,
+        ergebnis(case6),
+        faelle[6].0,
+        ergebnis(case7),
+        faelle[7].0,
+        ergebnis(case8)
+    );
+    klog!(
+        "abi",
+        "Capability-Negativtest: {} {}, {} ({} Treffer bei 4096 Versuchen), {} {}, {} {}",
+        faelle[8].0,
+        ergebnis(case9),
+        faelle[9].0,
+        geraten,
+        faelle[10].0,
+        ergebnis(case11),
+        faelle[11].0,
+        ergebnis(case12)
+    );
+    let demo = spawn_demo();
+    report();
+    (ok + demo.0, faelle.len() + demo.1)
+}
+
+/// Nachschlagen eines Handles mit Rechteprobe — ohne Nebenwirkung.
+fn lookup(pid: u32, h: Handle, needed: Rights) -> Result<HandleEntry> {
+    let n = lock();
+    let p = n.procs.get(pid as usize).ok_or(Error::NotFound)?;
+    p.handles.get_with(h, needed).copied()
+}
+
+/// Positivprobe: zwei Prozesse, ein Kanal, ein explizit uebergebenes Handle.
+/// Zeigt im Log, dass der spawn-Stil trägt — Rechte werden dabei verkleinert.
+///
+/// Liefert `(bestanden, gesamt)`.
+pub fn spawn_demo() -> (usize, usize) {
+    let root = current();
+    let mut ok = 0usize;
+    let gesamt = 3usize;
+
+    // Kanal im Erzeuger anlegen, ein Ende dem Kind geben — mit weniger Rechten.
+    let Ok((eltern, kind_ende)) = channel_create(root) else {
+        klog!("abi", "Prozessprobe: Kanal konnte nicht angelegt werden");
+        return (0, gesamt);
+    };
+    let kind = match spawn_with(root, "dienst", false, &[(kind_ende, Rights::READ)]) {
+        Ok(p) => p,
+        Err(e) => {
+            klog!("abi", "Prozessprobe: spawn abgewiesen ({})", e.name());
+            return (0, gesamt);
+        }
+    };
+    // 1. Das Kind hat GENAU ein Handle — kein Erben, kein Standardsatz.
+    if handle_count(kind) == 1 {
+        ok += 1;
+    }
+    // 2. Nachricht vom Erzeuger an das Kind.
+    let text = b"hallo aus dem Erzeuger";
+    let gesendet = dispatch_kernel(
+        Syscall::ChannelSend as u64,
+        [eltern.0, text.as_ptr() as u64, text.len() as u64, 0, 0, 0],
+    );
+    let mut puffer = [0u8; 64];
+    let vorher = set_current(kind);
+    let empfangen = dispatch_kernel(
+        Syscall::ChannelRecv as u64,
+        [
+            kind_handle(kind).map(|h| h.0).unwrap_or(0),
+            puffer.as_mut_ptr() as u64,
+            puffer.len() as u64,
+            0,
+            0,
+            0,
+        ],
+    );
+    // 3. Das Kind darf auf seinem Ende NICHT schreiben (Recht abgegeben).
+    let schreibversuch = dispatch_kernel(
+        Syscall::ChannelSend as u64,
+        [kind_handle(kind).map(|h| h.0).unwrap_or(0), text.as_ptr() as u64, 4, 0, 0, 0],
+    );
+    set_current(vorher);
+    if gesendet == text.len() as i64 && empfangen == text.len() as i64 {
+        ok += 1;
+    }
+    if schreibversuch == Error::RightsDenied.as_raw() {
+        ok += 1;
+    }
+    let inhalt = core::str::from_utf8(&puffer[..(empfangen.max(0) as usize).min(puffer.len())])
+        .unwrap_or("<nicht darstellbar>");
+    klog!(
+        "abi",
+        "Prozessprobe: spawn ohne fork, Kind \"dienst\" mit {} explizit uebergebenen Handle(n); Kanal: {} B gesendet, {} B empfangen (\"{}\"), Schreiben ohne Recht -> {}",
+        handle_count(kind),
+        gesendet.max(0),
+        empfangen.max(0),
+        inhalt,
+        if schreibversuch == Error::RightsDenied.as_raw() {
+            Error::RightsDenied.name()
+        } else {
+            "FEHLER: durchgelassen"
+        }
+    );
+    let _ = exit_process(kind, 0);
+    (ok, gesamt)
+}
+
+/// Erstes Handle eines Prozesses (die Kinder dieser Probe haben genau eines).
+fn kind_handle(pid: u32) -> Option<Handle> {
+    let n = lock();
+    let h = n.procs.get(pid as usize)?.handles.iter().next().map(|e| e.handle);
+    h
+}
+
 /// Kurzer Selbsttest der ABI-Kernelseite fuer das Boot-Log.
-/// Liefert (ABI-Version, Handles nach dem Test, Fehlercode eines
+/// Liefert (ABI-Version, Handles des Wurzelprozesses, Fehlercode eines
 /// absichtlich ungueltigen Handles).
 pub fn self_test() -> (i64, usize, &'static str) {
-    let version = dispatch(Syscall::Version as u64, [0; 6]);
-    let mut t = HandleTable::new();
-    let h = t.insert(ObjectKind::Stream, Rights::READ | Rights::WRITE);
+    let version = dispatch_kernel(Syscall::Version as u64, [0; 6]);
+    let root = current();
+    let h = grant_console(root, Rights::READ | Rights::WRITE).unwrap_or(Handle(0));
     let stale = h;
-    let _ = t.close(h);
-    let err = match t.get(stale) {
+    let _ = dispatch_kernel(Syscall::HandleClose as u64, [h.0, 0, 0, 0, 0, 0]);
+    let err = match lookup(root, stale, Rights::READ) {
         Err(e) => e.name(),
         Ok(_) => "FEHLER: geschlossenes Handle noch gueltig",
     };
-    let _ = t.insert(ObjectKind::Channel, Rights::ALL);
-    (version, t.len(), err)
+    (version, handle_count(root), err)
+}
+
+/// Hilfsanzeige: alle Prozessnamen in einer Zeile, ohne Zwischenpuffer.
+struct NameListe<'a>(&'a [Process]);
+
+impl core::fmt::Display for NameListe<'_> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        for (i, p) in self.0.iter().enumerate() {
+            if i > 0 {
+                f.write_str(", ")?;
+            }
+            write!(f, "{}:{}", p.pid, p.name)?;
+        }
+        Ok(())
+    }
+}
+
+/// Zaehlerstand der ABI fuer das Boot-Log.
+pub fn report() {
+    let n = lock();
+    klog!(
+        "abi",
+        "Prozesse    : {} in der Tafel, {} per spawn erzeugt, {} Aufrufe, {} abgewiesen (davon {} aus unprivilegierten Prozessen), {} Objekte",
+        n.procs.len(),
+        n.spawns,
+        n.syscalls,
+        n.denied,
+        n.user_denied,
+        n.objects.iter().filter(|o| !matches!(o.data, ObjectData::Free)).count()
+    );
+    let speicher: u64 = n
+        .objects
+        .iter()
+        .map(|o| match o.data {
+            ObjectData::Memory { len } => len,
+            _ => 0,
+        })
+        .sum();
+    klog!(
+        "abi",
+        "Prozesse    : {}, davon beendet {}, Speicherobjekte {} B; Namen: {}",
+        n.procs.len(),
+        n.procs.iter().filter(|p| p.exit_code.is_some()).count(),
+        speicher,
+        NameListe(&n.procs)
+    );
 }

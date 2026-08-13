@@ -71,9 +71,18 @@ pub unsafe fn invlpg(addr: u64) {
     unsafe { asm!("invlpg [{}]", in(reg) addr, options(nostack, preserves_flags)) }
 }
 
-/// Roher CPUID-Aufruf.
+/// Roher CPUID-Aufruf (Unterblatt 0).
 #[inline]
 fn cpuid(leaf: u32) -> (u32, u32, u32, u32) {
+    cpuid_count(leaf, 0)
+}
+
+/// CPUID mit Unterblatt in ECX — Blatt 7 (Schutzmerkmale) braucht das.
+///
+/// RBX ist unter dem SysV-ABI callee-saved und dient dem Compiler als
+/// Basiszeiger; deshalb der Umweg ueber ein Tauschregister.
+#[inline]
+pub(super) fn cpuid_count(leaf: u32, sub: u32) -> (u32, u32, u32, u32) {
     let (a, c, d): (u32, u32, u32);
     let b: u64;
     unsafe {
@@ -83,12 +92,30 @@ fn cpuid(leaf: u32) -> (u32, u32, u32, u32) {
             "xchg {tmp:r}, rbx",
             tmp = out(reg) b,
             inout("eax") leaf => a,
-            out("ecx") c,
+            inout("ecx") sub => c,
             out("edx") d,
             options(nostack, preserves_flags),
         );
     }
     (a, b as u32, c, d)
+}
+
+/// Liest CR4 (Merkmalsschalter der CPU, u. a. die Schutzbits gegen Zugriffe
+/// auf unprivilegierte Seiten).
+#[inline]
+pub(super) fn read_cr4() -> u64 {
+    let v: u64;
+    unsafe { asm!("mov {}, cr4", out(reg) v, options(nomem, nostack, preserves_flags)) };
+    v
+}
+
+/// Schreibt CR4.
+///
+/// # Safety
+/// Falsche Bits machen die laufende Ausfuehrung sofort unbrauchbar.
+#[inline]
+pub(super) unsafe fn write_cr4(v: u64) {
+    unsafe { asm!("mov cr4, {}", in(reg) v, options(nostack, preserves_flags)) }
 }
 
 /// Schreibt den CPU-Markennamen (CPUID 0x8000_0002..4) nach `buf`.

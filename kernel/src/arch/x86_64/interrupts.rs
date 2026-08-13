@@ -4,8 +4,14 @@
 //! `abi_x86_interrupt`, begruendet im ARCHITECTURE.md): der Compiler erzeugt
 //! damit selbst Prolog/Epilog samt `iretq` und dem korrekten Umgang mit dem
 //! Fehlercode. Von Hand geschriebene Stubs waeren fehleranfaelliger.
+//!
+//! **Ausnahmen aus Ring 3 sind kein Kernelfehler.** Trifft eine Ausnahme ein
+//! unprivilegiertes Programm (RPL des gesicherten Codesegments == 3), wird
+//! nicht angehalten: der Vorfall wird gemeldet, das Programm abgeraeumt
+//! ([`super::user::abort_user`]) und der Kernel laeuft weiter. Nur Ausnahmen
+//! aus privilegiertem Code fuehren weiterhin in den Panic-Handler.
 
-use super::{cpu, gdt, idt, pic, timer};
+use super::{cpu, gdt, idt, pic, timer, user};
 use crate::kcore::arch_iface::InterruptCtlOps;
 
 /// Der von der CPU auf den Stack gelegte Rahmen.
@@ -55,10 +61,34 @@ fn page_fault_reason(code: u64) -> (&'static str, &'static str, &'static str) {
     (present, access, mode)
 }
 
+/// Stammt die Ausnahme aus einem laufenden unprivilegierten Programm?
+///
+/// Beides muss stimmen: der gesicherte Selektor muss RPL 3 tragen UND der
+/// Kernel muss wissen, dass er gerade ein Programm gestartet hat. Sonst waere
+/// ein verbogener Rahmen ein Weg, den Notausstieg auszuloesen.
+fn from_user(frame: &TrapFrame) -> bool {
+    frame.cs & 3 == 3 && user::in_user()
+}
+
+/// Meldet eine Ausnahme aus Ring 3 und raeumt das Programm ab.
+///
+/// # Safety
+/// Nur aufrufen, wenn [`from_user`] wahr ist.
+unsafe fn kill_user(name: &str, frame: &TrapFrame, addr: u64) -> ! {
+    user::note_user_frame(frame.cs, frame.rsp);
+    crate::kcore::user::note_fault(addr, name, "Userspace");
+    unsafe { user::abort_user(1) }
+}
+
 macro_rules! fault {
     ($fn_name:ident, $text:expr) => {
         /// Ausnahmehandler.
         pub extern "x86-interrupt" fn $fn_name(frame: TrapFrame) {
+            if from_user(&frame) {
+                // SAFETY: `from_user` hat bestaetigt, dass ein
+                // unprivilegiertes Programm laeuft.
+                unsafe { kill_user($text, &frame, frame.rip) }
+            }
             report($text, &frame, None);
             panic!("nicht behandelte CPU-Ausnahme: {}", $text);
         }
@@ -69,6 +99,10 @@ macro_rules! fault_err {
     ($fn_name:ident, $text:expr) => {
         /// Ausnahmehandler mit Fehlercode.
         pub extern "x86-interrupt" fn $fn_name(frame: TrapFrame, code: u64) {
+            if from_user(&frame) {
+                // SAFETY: wie oben.
+                unsafe { kill_user($text, &frame, frame.rip) }
+            }
             report($text, &frame, Some(code));
             panic!("nicht behandelte CPU-Ausnahme: {} (code {:#x})", $text, code);
         }
@@ -98,6 +132,21 @@ fault_err!(control_protection, "#CP Kontrollflussschutz");
 /// kein Fehler. Wird vom Selbsttest `--test-breakpoint` benutzt.
 pub extern "x86-interrupt" fn breakpoint(frame: TrapFrame) {
     let rip = frame.rip;
+    if frame.cs & 3 == 3 {
+        // Der Messpunkt der unprivilegierten Ebene: Selektor, Privilegstufe
+        // und Stapel stehen hier so, wie die HARDWARE sie beim Uebergang
+        // gesichert hat — genau das ist der Nachweis, dass Ring 3 echt ist.
+        user::note_user_frame(frame.cs, frame.rsp);
+        crate::klog!(
+            "trap",
+            "#BP aus Ring 3: CS={:#06x} (CPL={}), RSP={:#018x}, RIP={:#018x} — setze fort",
+            frame.cs,
+            frame.cs & 3,
+            frame.rsp,
+            rip
+        );
+        return;
+    }
     crate::klog!("trap", "#BP Breakpoint bei RIP={:#018x} — setze fort", rip);
 }
 
@@ -105,6 +154,26 @@ pub extern "x86-interrupt" fn breakpoint(frame: TrapFrame) {
 pub extern "x86-interrupt" fn page_fault(frame: TrapFrame, code: u64) {
     let cr2 = cpu::read_cr2();
     let (present, access, mode) = page_fault_reason(code);
+    if from_user(&frame) {
+        // Ein unprivilegiertes Programm hat etwas angefasst, das ihm nicht
+        // gehoert. Der Kernel meldet den Vorfall und raeumt das Programm ab —
+        // anhalten waere hier der Fehler, nicht der Zugriff.
+        user::note_user_frame(frame.cs, frame.rsp);
+        crate::kcore::user::note_fault(cr2, present, mode);
+        crate::klog!(
+            "trap",
+            "#PF aus Ring 3: CS={:#06x} (CPL={}), RSP={:#018x}, RIP={:#018x}, {}, {}",
+            frame.cs,
+            frame.cs & 3,
+            frame.rsp,
+            frame.rip,
+            access,
+            present
+        );
+        // SAFETY: `from_user` hat bestaetigt, dass ein unprivilegiertes
+        // Programm laeuft und der Kernel einen Ruecksprungpunkt hat.
+        unsafe { user::abort_user(1) }
+    }
     report("#PF Page Fault", &frame, Some(code));
     crate::serial_println!("Adresse  : {:#018x} (CR2)", cr2);
     crate::serial_println!("Ursache  : {}, {}, ausgeloest im {}", present, access, mode);
@@ -128,9 +197,23 @@ pub extern "x86-interrupt" fn double_fault(frame: TrapFrame, code: u64) -> ! {
 }
 
 /// IRQ0 — Systemzeitgeber.
-pub extern "x86-interrupt" fn timer_irq(_frame: TrapFrame) {
+///
+/// Trifft ein Tick ein unprivilegiertes Programm, laeuft ausserdem der
+/// Wachhund mit: ein Programm, das sich nicht mehr meldet, wird nach einem
+/// festen Zeitbudget abgeraeumt, statt den Startvorgang anzuhalten.
+pub extern "x86-interrupt" fn timer_irq(frame: TrapFrame) {
     timer::on_tick();
     unsafe { pic::Pic8259::eoi(0) };
+    if from_user(&frame) && user::note_user_tick() {
+        user::note_user_frame(frame.cs, frame.rsp);
+        crate::klog!(
+            "trap",
+            "Zeitbudget von Ring 3 erschoepft (RIP={:#018x}) — Programm wird abgeraeumt",
+            frame.rip
+        );
+        // SAFETY: wie im Ausnahmepfad; der Interrupt ist bereits quittiert.
+        unsafe { user::abort_user(2) }
+    }
 }
 
 /// Sammelhandler fuer noch unbenutzte Hardware-IRQs: quittieren und ignorieren.

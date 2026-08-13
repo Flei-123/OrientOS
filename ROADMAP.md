@@ -22,7 +22,7 @@ Legende: **✔ fertig** · **▶ als Nächstes** · **○ geplant**
 * ✔ Eigener Heap-Allocator, `alloc` funktioniert (Box/Vec/String im Boot-Log)
 * ✔ arch-Trait-Grenze, POSIX per Feature abwählbar (Gegenprobe im Testlauf)
 
-## Phase 2 — Scheduler und Zeit ▶
+## Phase 2 — Scheduler und Zeit ✔ *(bis auf APIC und Nanosekundenuhr)*
 
 * ✔ Kontextwechsel in Assembler (`arch/x86_64/context.rs`, `naked_asm!`),
   Kernel-Threads mit eigenem Heap-Stapel und Wachzone
@@ -32,18 +32,50 @@ Legende: **✔ fertig** · **▶ als Nächstes** · **○ geplant**
 * ✔ `yield_now`, `block_current`/`unblock`, `sleep_ticks` — Wecken durch den
   Zeitgeber (der Scheduler wartet derweil mit `wait_for_interrupt`); im Boot-Log
   als drei Selbsttests nachweisbar (Wechselspiel, Schlafen/Wecken, Verklemmung)
-* ▶ Idle-Thread statt Warteschleife im Scheduler, Präemption durch den Zeitgeber
+* ✔ **Präemption durch den Zeitgeber**: eigener IRQ0-Einsprung mit vollem
+  Registersatz (`arch/x86_64/preempt.rs`, `naked_asm!`), Buchung und
+  Wechselentscheidung in `kcore/preempt.rs` + `kcore/sched.rs`. Nachweis im
+  Boot-Log: 30 erzwungene Wechsel zwischen drei Zählschleifen **ohne** ein
+  einziges `yield`, getrennt von 3 kooperativen Wechseln
+* ✔ **Zeitscheiben und Prioritäten** hinter demselben `Scheduler`-Trait
+  (`spawn_prio`, `charge_tick`, `preempt_current`); Tickverteilung 30 : 20 : 10
+  bei Prioritäten 3 : 2 : 1, im Log gemessen
+* ▶ Idle-Thread statt `wait_for_interrupt` im Scheduler; Verdrängung auch für
+  Ring-3-Programme (heute wird ein Tick in Ring 3 nur gezählt)
 * ○ APIC statt PIC: LAPIC-Timer, IOAPIC-Umleitungen, TSC-Deadline
 * ○ Monotone Uhr in Nanosekunden (`ClockRead`), Kalibrierung gegen HPET/PIT
 
-## Phase 3 — Userspace und Syscalls ○
+## Phase 3 — Userspace und Syscalls ▶ *(Grundlage steht, bootet, ist getestet)*
 
-* ○ `syscall`/`sysret` verdrahten (`STAR`/`LSTAR`/`SFMASK`), Per-CPU-Kernelstapel via `swapgs`
-* ○ Adressräume je Prozess, Kernelhälfte geteilt, User-Mappings mit `USER`-Bit
-* ○ ELF-Lader für statische Binaries
-* ○ `karst-native` implementieren: Handle-Tabelle, `MemoryCreate/Map`, `ChannelCreate/Send/Recv`, `PortCreate/Wait/Bind`, `ProcessSpawn`, `ThreadCreate`
-* ○ Erstes Userspace-Programm: `init`, das über einen Channel auf die Konsole schreibt
-* ○ POSIX-Schicht real anbinden (`sys_read`/`write`/`open`/`close` auf echte Handles)
+* ✔ `syscall`/`sysret` verdrahtet (Modellregister und SCE-Bit), Per-CPU-Block
+  mit Basisregisterwechsel, getrennte Kernel-/User-Stapel, Ring-0-Eintrag im
+  Aufgabensegment wird beim Threadwechsel nachgezogen — alles in
+  `arch/x86_64/user.rs`, nichts davon außerhalb von `arch/`
+* ✔ User-Seiten mit Benutzerbit, Kernelseiten ohne; Negativtest im Boot-Log:
+  Ring-3-Zugriff auf eine Kerneladresse endet in einem gemeldeten `#PF`, der
+  Kernel läuft weiter
+* ✔ SMEP/SMAP werden gesetzt, **wenn** CPUID sie meldet, sonst sauber
+  übersprungen und im Log vermerkt (QEMU-Standard-CPU meldet sie nicht)
+* ✔ ELF-Lader für statisch gebundene Binaries samt Rückrollen bei Fehlern;
+  11 ELF- und 7 Archiv-Negativfälle im Boot-Log
+* ✔ Startdateisystem als Limine-Modul, eigenes Format `IRFS0001`
+  (Begründung gegen cpio/tar in `kcore/initramfs.rs` und ARCHITECTURE.md § 5c)
+* ✔ Erstes unprivilegiertes Programm (`userland/hello.asm`) läuft **wirklich**
+  in Ring 3: `CS=0x0023 (RPL=3), CPL=3`, gibt über ein explizit übergebenes
+  Handle aus und beendet sich per Systemaufruf; der Kernel räumt es ab
+* ✔ `karst-native` gebaut: Handle-Tabelle je Prozess (Slot + Generation +
+  prozesseigener Würfelwert), Objekttafel mit Verweiszähler,
+  `HandleWrite/Read/Close/Duplicate/Inspect`, `ChannelCreate/Send/Recv`,
+  `MemoryCreate`, `ProcessExit`, `spawn`/`spawn_with` **statt `fork`**;
+  15 Negativfälle im Boot-Log
+* ▶ **Adressraum je Prozess** — heute liegen die unprivilegierten Seiten im
+  Kerneladressraum (mit Benutzerbit); zwei unprivilegierte Prozesse sind
+  voneinander noch nicht isoliert. Das ist der nächste echte Brocken
+* ▶ Ein `init`, das nach dem Boot **die Kontrolle behält**, statt als
+  Selbsttest zu enden
+* ○ `MemoryMap/Unmap`, `Port*`, `ThreadCreate/Sleep`, `ProcessSpawn` als
+  Syscall (heute `NotSupported`; Prozesserzeugung nur kernelseitig)
+* ○ POSIX-Schicht: `open`/`close` auf echte Handles — braucht das VFS aus Phase 4
 
 ## Phase 4 — Dateisysteme ○
 
@@ -185,20 +217,23 @@ abtrennbar. Wer erst beim Portieren anfängt zu abstrahieren, portiert nicht.
 
 ## Nächster konkreter Schritt
 
-Erledigt ist inzwischen der **kooperative** Teil von Phase 2:
-`arch/x86_64/context.rs` (`switch_context` in `naked_asm!`), `kcore/sched.rs`
-mit dem `Scheduler`-Trait und ein Boot-Selbsttest, der zwei Kernel-Threads
-abwechselnd ins Log schreiben lässt und sauber nach `kmain` zurückkehrt.
+Erledigt ist inzwischen der Sprung vom Boot-Kern zum System mit echtem
+unprivilegiertem Code: **Verdrängung** (30 erzwungene Wechsel ohne `yield`,
+Prioritäten messbar), **Ring 3** (`CPL=3`, Systemaufruf, Negativtest auf eine
+Kerneladresse), **ELF64 aus einem Startdateisystem** (11 + 7 Negativfälle) und
+die **capability-basierte ABI** (Handle-Tabelle je Prozess, 15 Negativfälle).
+Alles im Boot-Log belegt, `./test.sh` läuft mit 19 Schritten grün.
 
-Als Nächstes ansetzen:
+Ehrlich offen geblieben — und deshalb als Nächstes dran:
 
-1. **Präemption.** Der Timer-Interrupt ruft den Scheduler auf, statt nur zu
-   zählen. Dazu muss der Interrupt-Handler den vollen Registersatz sichern
-   (bisher rettet `switch_context` nur die vom SysV-ABI verlangten
-   Callee-saved-Register — das genügt für freiwillige Wechsel, nicht für
-   erzwungene). Nachweis: ein Thread ohne `yield` wird trotzdem verdrängt.
-2. **Zeitscheiben und Prioritäten** hinter demselben `Scheduler`-Trait, damit
-   der kooperative Planer als Vergleichsmaß erhalten bleibt.
-3. **Danach erst Ring 3**: `syscall`/`sysret` verdrahten (`STAR`/`LSTAR`/
-   `SFMASK`), Per-CPU-Kernelstapel über `swapgs`, ELF-Lader, erstes
-   Userspace-`init` über einen Channel.
+1. **Adressraum je Prozess.** Der unprivilegierte Code läuft heute im
+   Kerneladressraum auf Seiten mit Benutzerbit. Solange das so ist, sind zwei
+   unprivilegierte Prozesse nicht voneinander isoliert. Das ist die wichtigste
+   offene Lücke dieser Phase und wird nicht schöngeredet.
+2. **Verdrängung in Ring 3.** Ein Tick, der ein unprivilegiertes Programm
+   trifft, wird bisher nur gezählt. Für einen Wechsel muss der Zeitgeberpfad
+   den User-Rahmen mitsichern und den Kernelstapel des Ziels nachziehen.
+3. **Ein `init`, das bleibt.** Bisher endet der unprivilegierte Teil als
+   Selbsttest im Bootweg; danach läuft `kmain` weiter. Ein Prozess, der die
+   Kontrolle behält, braucht Punkt 1 und einen Weg, Handles nachzureichen.
+4. **Idle-Thread** statt Warteschleife, dann APIC statt PIC.

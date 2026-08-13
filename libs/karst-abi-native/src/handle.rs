@@ -59,11 +59,25 @@ pub struct HandleEntry {
     pub handle: Handle,
     pub kind: ObjectKind,
     pub rights: Rights,
+    /// Kennung des Kernelobjekts, auf das dieses Handle zeigt. Bewusst eine
+    /// ZAHL und kein Zeiger: aus einem Handle laesst sich damit auch bei einem
+    /// Fehler im Kernel keine Adresse gewinnen.
+    pub object: u64,
 }
 
 impl HandleEntry {
     pub const fn new(handle: Handle, kind: ObjectKind, rights: Rights) -> Self {
-        Self { handle, kind, rights }
+        Self { handle, kind, rights, object: 0 }
+    }
+
+    /// Eintrag mit Objektkennung.
+    pub const fn with_object(
+        handle: Handle,
+        kind: ObjectKind,
+        rights: Rights,
+        object: u64,
+    ) -> Self {
+        Self { handle, kind, rights, object }
     }
 
     /// Prueft die Rechte fuer eine Operation.

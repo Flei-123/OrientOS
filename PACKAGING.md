@@ -1,8 +1,10 @@
 # Software-Verteilung in Karstos
 
 Entwurfsentscheidung, festgelegt. Dieses Dokument beschreibt das **Ziel** und
-begründet es; gebaut ist davon in Phase 1 noch nichts — was der Kernel dafür
-heute schon mitbringt, steht in § 7.
+begründet es; vom Verteilmodell selbst (Store, Generationen, drei Datentöpfe)
+ist noch **nichts** gebaut — dafür fehlt das Dateisystem. Was der Kernel als
+Unterbau mitbringt, steht in § 7 und ist seit Phase 3 mehr als eine
+Absichtserklärung.
 
 ---
 
@@ -138,7 +140,10 @@ Userspace-Dokument steht: **Dieses Modell ist nur durchsetzbar, wenn der Kern
 keine Umgebungsautorität kennt.** Auf einem POSIX-Kern wäre es Kosmetik — jedes
 Programm könnte `/etc` öffnen und die Trennung unterlaufen.
 
-Drei Kerneleigenschaften sind Voraussetzung, alle drei sind bereits so gebaut:
+Drei Kerneleigenschaften sind Voraussetzung, alle drei sind so gebaut — und
+seit Phase 3 nicht nur als Typen, sondern als laufender Code mit Negativtests
+im Boot-Log (Handle-Tabelle je Prozess mit Slot + Generation + prozesseigenem
+Würfelwert, `kernel/src/abi/native.rs`, `libs/karst-abi-native/src/table.rs`):
 
 1. **Kein globaler Pfad-Namensraum im Core.**
    `karst-native` hat kein `open("/pfad")`. Es gibt nur
@@ -157,6 +162,14 @@ Drei Kerneleigenschaften sind Voraussetzung, alle drei sind bereits so gebaut:
    `ProcessSpawn(image, namespace, handles[])`: Der Elternprozess **listet auf**,
    was das Kind bekommt. In der POSIX-Schicht ist `fork` dauerhaft `-ENOSYS`.
    → `libs/karst-abi-posix/src/lib.rs`, `sys_fork_unsupported()`
+   Kernelseitig gebaut ist das als `spawn`/`spawn_with` in
+   `kernel/src/abi/native.rs`: eine frische Handle-Tabelle ist **leer**, das
+   Kind bekommt nur namentlich übergebene Handles, und Rechte können dabei nur
+   kleiner werden. Im Boot-Log nachweisbar (`Prozessprobe: spawn ohne fork,
+   Kind "dienst" mit 1 explizit uebergebenen Handle(n)`), samt Gegenprobe
+   `Schreiben ohne Recht -> RightsDenied`. Als Syscall aus Ring 3 ist
+   `ProcessSpawn` noch `NotSupported` — das kommt mit den Adressräumen je
+   Prozess.
 
 Der Start einer App sieht damit so aus:
 

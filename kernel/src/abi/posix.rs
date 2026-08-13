@@ -33,23 +33,11 @@ impl Default for PosixContext {
 
 impl NativeCalls for PosixContext {
     fn call(&mut self, nr: Syscall, args: [u64; 6]) -> NResult<u64> {
+        // Ein Prozess der POSIX-Schicht ist ein gewoehnlicher nativer
+        // Prozess: der Aufruf geht durch denselben Verteiler wie jeder andere.
+        // Uebersetzt wird nur das ERGEBNIS — Fehlernummern, kein errno im Core.
         let raw = super::native::dispatch(nr as u64, args);
-        if raw < 0 {
-            // Rueckuebersetzung der Fehlercodes der nativen ABI.
-            Err(match raw {
-                -1 => karst_abi_native::Error::BadHandle,
-                -2 => karst_abi_native::Error::RightsDenied,
-                -3 => karst_abi_native::Error::NotFound,
-                -4 => karst_abi_native::Error::InvalidArgs,
-                -5 => karst_abi_native::Error::Exhausted,
-                -6 => karst_abi_native::Error::WrongType,
-                -7 => karst_abi_native::Error::WouldBlock,
-                -8 => karst_abi_native::Error::Closed,
-                _ => karst_abi_native::Error::NotSupported,
-            })
-        } else {
-            Ok(raw as u64)
-        }
+        karst_abi_native::Error::decode(raw)
     }
 
     fn handle_for_fd(&self, fd: Fd) -> Option<Handle> {

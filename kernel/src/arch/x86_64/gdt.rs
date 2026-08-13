@@ -144,6 +144,28 @@ pub unsafe fn init() {
     }
 }
 
+/// Traegt den Kernelstapel ein, auf den die CPU umschaltet, wenn ein
+/// unprivilegierter Kontrollfluss durch eine Ausnahme oder einen Interrupt
+/// unterbrochen wird (Ring-0-Eintrag des TSS).
+///
+/// Muss bei jedem Threadwechsel nachgezogen werden — sonst liefe eine
+/// Ausnahme aus Ring 3 auf dem Stapel eines ganz anderen Threads.
+///
+/// # Safety
+/// `top` muss das obere Ende eines gueltigen, ausschliesslich dafuer
+/// benutzten Kernelstapels sein.
+pub unsafe fn set_kernel_stack(top: u64) {
+    unsafe {
+        let tss = addr_of_mut!(TSS);
+        (*tss).rsp[0] = top & !0xF;
+    }
+}
+
+/// Der gerade eingetragene Kernelstapel (Diagnose).
+pub fn kernel_stack() -> u64 {
+    unsafe { (*addr_of!(TSS)).rsp[0] }
+}
+
 /// Oberes Ende des Double-Fault-Stapels — nur fuer Diagnoseausgaben.
 pub fn double_fault_stack_top() -> u64 {
     addr_of!(DF_STACK) as u64 + IST_STACK_SIZE as u64

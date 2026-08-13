@@ -119,7 +119,8 @@ Zwei Beispiele, die niemand ignorieren sollte:
 
 Ein eigenes Dateisystem ist also kein Wochenendprojekt und darf nicht auf dem
 kritischen Pfad zu „Karstos bootet und ist benutzbar" liegen. Bis dahin tun es
-FAT32 und ein Initramfs.
+FAT32 und ein Initramfs — letzteres ist seit Phase 3 **gebaut** und lädt bereits
+das erste unprivilegierte Programm (siehe § 5 und ARCHITECTURE.md § 5c).
 
 ### Anforderungen, wenn es dann gebaut wird
 
@@ -160,7 +161,7 @@ Sonderfallcode.
 
 | Phase | Voraussetzung dafür |
 |---|---|
-| Initramfs (Phase 3) | nichts — liegt im Speicher, reicht für die ersten Userspace-Programme |
+| Initramfs (Phase 3) ✔ **gebaut** | nichts — liegt im Speicher. Format `IRFS0001` (Kopf + Tabelle fester Breite), gepackt von `userland/mkinitramfs.py`, als Limine-Modul in der ISO, gelesen von `kernel/src/kcore/initramfs.rs`. Bewusst **kein** cpio/tar: beide transportieren POSIX-Metadaten (Modus, uid/gid, Pfade), die dieser Kern nicht kennt, und sind stromorientiert statt wahlfrei. 7 Negativfälle im Boot-Log |
 | VFS + FAT32 (Phase 4) | Blockgeräte-Trait, also AHCI/NVMe |
 | ext4 lesend (Phase 4) | VFS steht |
 | eigenes FS (Phase 8) | alles darüber steht, und es gibt einen Testkorpus samt Absturzsimulation |

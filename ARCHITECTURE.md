@@ -1,6 +1,7 @@
 # Architektur von Karstos / karst
 
-Stand: Phase 1 (bootfähiger Kern). Dieses Dokument beschreibt **den gebauten
+Stand: Phase 1–3 (bootfähiger Kern, verdrängender Scheduler, Ring 3, ELF-Lader,
+capability-basierte ABI). Dieses Dokument beschreibt **den gebauten
 Zustand**, nicht Absichten. Alles, was hier steht, ist im Code nachprüfbar; wo
 etwas noch fehlt, steht es ausdrücklich als „noch nicht".
 
@@ -50,6 +51,9 @@ Drei Regeln machen das durchsetzbar:
 | Schicht | Verzeichnis | Darf kennen | Darf **nicht** kennen |
 |---|---|---|---|
 | `kcore` | `kernel/src/kcore/` | `core`, `alloc`, `libs/*` | jede Architektur, POSIX |
+| `kcore/sched`+`preempt` | `kernel/src/kcore/` | Zeitscheiben, Prioritäten, Wechselzähler | Registernamen, Interruptvektoren |
+| `kcore/user` | `kernel/src/kcore/user.rs` | *ob* und *was* unprivilegiert läuft | *wie* der Privilegwechsel geht |
+| `kcore/elf`+`initramfs` | `kernel/src/kcore/` | Dateiformate, Ladeaufträge | Seitentabellenbits |
 | `arch` | `kernel/src/arch/` | alles Hardwarenahe | `abi`, POSIX |
 | `mm` | `kernel/src/mm/` | `kcore`, `arch`-Traits | PTE-Bits, CR3, `asm!` |
 | `drivers` | `kernel/src/drivers/` | `kcore`, `arch` | `abi`, POSIX |
@@ -74,9 +78,13 @@ die Implementierung wählt und die Traitmethoden als freie Funktionen anbietet.
 **Nachprüfen** (liefert im aktuellen Stand keine Treffer):
 
 ```sh
-grep -rnE '\b(cr[0-3]|PML4|PTE|rdmsr|wrmsr|lgdt|lidt|outb|inb|asm!|invlpg|iretq)\b' \
+grep -rnE '\b(cr[0-4]|PML4|PTE|rdmsr|wrmsr|lgdt|lidt|outb|inb|asm!|invlpg|iretq|swapgs|sysret|STAR|LSTAR|SFMASK|SMEP|SMAP)\b' \
      kernel/src --include='*.rs' | grep -v '^kernel/src/arch/'
 ```
+
+Einziger Treffer im aktuellen Stand ist ein **Kommentar** in `arch_iface.rs`,
+der die Grenze erklärt; `test.sh` Schritt 15 unterscheidet ausdrücklich zwischen
+Code (fällt durch) und erklärendem Kommentar (zulässig, wird gemeldet).
 
 Eine Portierung auf aarch64 besteht deshalb aus: `arch/aarch64/` anlegen, die
 vier Traits implementieren, in `arch/mod.rs` zwei `cfg`-Zeilen ergänzen. Kein
@@ -117,6 +125,10 @@ Wichtig: Der Kernel **bleibt nicht** auf den Tabellen des Bootloaders. Er baut i
 | 6 | eigener Adressraum + CR3-Umschaltung | Bootloaderspeicher wird entbehrlich, Rechte werden korrekt |
 | 7 | Heap abbilden, `alloc` aktiv | ab jetzt sind `Vec`, `Box`, `String` benutzbar |
 | 8 | PIT starten, Interrupts freigeben | erster periodischer Interrupt, nachweisbar im Log |
+| 9 | kooperative Scheduler-Selbsttests | Kontextwechsel muss stehen, bevor er erzwungen wird |
+| 10 | verdrängenden Zeitgebereinsprung zuschalten | braucht Heap (Thread-Stapel) und laufenden Zeitgeber |
+| 11 | Startdateisystem lesen, ELF prüfen und laden | braucht Frames, Adressraum und Heap |
+| 12 | Systemaufrufpfad einrichten, nach Ring 3 springen | braucht geladene Seiten und einen Kernelstapel im Aufgabensegment |
 
 ---
 
@@ -235,6 +247,76 @@ Wechselspiel zweier Threads (`Threadwechsel: … Spur 121212`), Schlafen/Wecken
 (`Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck …`). Danach läuft
 `kmain` normal weiter — der Scheduler ist noch **nicht** dauerhaft aktiv.
 
+### 5a. Präemption: derselbe Planer, erzwungene Wechsel (Phase 3)
+
+Es gibt **keinen zweiten Scheduler**. Derselbe `Scheduler`-Trait bekam drei
+Methoden dazu — `spawn_prio`, `charge_tick`, `preempt_current` —, und ein Thread
+trägt jetzt `prio`, `left` (Restscheibe) und `ticks` (verbrauchte Ticks).
+
+| Ort | Aufgabe |
+|---|---|
+| `arch/x86_64/preempt.rs` | IRQ0-Einsprung `irq0_entry` als `naked_asm!`-Rumpf: **alle 15 GPR** plus den von der CPU gelegten Rahmen (`FullFrame`), Verteiler `irq0_dispatch`, Rückkehr per Interrupt-Rücksprung. Ein-/Ausschalten durch Austausch **eines** IDT-Tors |
+| `kcore/preempt.rs` | `on_tick` bucht den Tick über `sched::charge_tick` auf den laufenden Thread und zählt erzwungene und freiwillige Wechsel **getrennt**; `switch_now()` führt den Wechsel aus |
+| `kcore/sched.rs` | `quantum_for(prio)` = Grundscheibe × Prioritätsstufe; Auswahl bleibt Round-Robin; `tick_shares()` liefert die Verteilung für das Log |
+
+Zwei Regeln hält der Pfad strikt ein: der Interrupt wird **vor** dem Wechsel
+quittiert (sonst bliebe der nächste Tick aus, während der verdrängte Thread
+schläft), und gewechselt wird nur, wenn privilegierter Code unterbrochen wurde —
+ein Tick, der ein Ring-3-Programm trifft, wird nur gezählt.
+
+Nachweis (`./run-qemu.sh --test-preempt`, im Boot-Log wörtlich): drei Threads,
+die **nichts** tun außer zu zählen und nie `yield` rufen, teilen sich 60 Ticks
+im Verhältnis 30 : 20 : 10 bei den Prioritäten 3 : 2 : 1, bei
+`praeemptive Wechsel: 30, kooperative Wechsel: 3`.
+
+### 5b. Ring 3: der Privilegwechsel (Phase 3)
+
+Auch hier ist die Arbeit zweigeteilt, und die Grenze ist die interessante Stelle:
+
+* **`arch/x86_64/user.rs`** — und nur dort: Freischaltung des schnellen
+  Systemaufrufpfads (die drei Modellregister und das SCE-Bit), Per-CPU-Block
+  samt Basisregisterwechsel, getrennte Kernel-/User-Stapel, der Ring-0-Eintrag
+  im Aufgabensegment (wird beim Threadwechsel nachgezogen), der Einsprung nach
+  Ring 3 und der Rücksprung aus einem Systemaufruf, der Notausstieg bei einer
+  Ausnahme im Programm — und die Schutzbits SMEP/SMAP, **sofern CPUID sie
+  meldet**. Auf der QEMU-Standard-CPU meldet CPUID sie nicht; das Log sagt das
+  ehrlich: `Ausfuehrsperre nein (uebersprungen), Zugriffssperre nein (uebersprungen)`.
+* **`kcore/user.rs`** — entscheidet, *ob* und *was* unprivilegiert startet, legt
+  die Seiten an (User-Seiten **mit** Benutzerbit, Kernelseiten ohne), nimmt die
+  Systemaufrufe entgegen, prüft jeden Zeiger aus Ring 3 gegen den eigenen
+  Bereich (`USER_BASE`…`USER_LIMIT`) und räumt den Prozess ab.
+
+Der Nachweis kommt **aus der Hardware**, nicht aus einer Behauptung: das
+Programm löst ein `int3` aus, und der Ausnahmerahmen liefert Codesegment und
+Privilegstufe. Im Log steht `CS=0x0023 (RPL=3), CPL=3` und ein Stapel im
+unprivilegierten Bereich. Der Negativtest greift von Ring 3 auf
+`0xffffffff80000000` zu; das Ergebnis ist ein sauber gemeldeter `#PF`
+(Schutzverletzung, Userspace), der Prozess wird abgeräumt, der Kernel läuft
+weiter.
+
+### 5c. Startdateisystem und ELF64-Lader (Phase 3)
+
+`limine.conf` reicht `build/initramfs.img` als Bootloader-Modul herein.
+Das Archivformat ist **eigenbau** (`IRFS0001`): 16-Byte-Kopf, danach eine
+Tabelle fester Breite (Name 32 B, Offset, Länge). Begründung gegen cpio/tar
+steht im Modulkopf von `kcore/initramfs.rs`: beide transportieren POSIX-Metadaten
+(Modus, uid/gid, Pfade), die dieser Kern nicht kennt und sofort wegwerfen
+müsste — Code, der nur Angriffsfläche ist; außerdem sind beide stromorientiert,
+während hier jede Datei in O(1) auffindbar ist.
+
+Der Lader in `kcore/elf.rs` prüft **vor** dem ersten Zugriff: Kennung, Klasse,
+Bytereihenfolge, Typ, Zielarchitektur, Lage der Programmkopftabelle, jedes
+Segment gegen Dateilänge, gegen den unprivilegierten Adressbereich, gegen
+Überlappung und gegen sich selbst (`filesz > memsz`), zuletzt die
+Einsprungadresse. Alle Additionen sind `checked_*`. Rechte kommen aus `p_flags`
+(RX / R / RW+NX), `.bss` wird genullt, und schlägt ein Segment mittendrin fehl,
+werden die schon vergebenen Frames **zurückgerollt**.
+
+Nachweis: 11 Negativfälle für ELF, 7 für das Archiv, dazu vier echte Ladefälle
+(gutes Abbild, absichtlich kaputtes Abbild, Textdatei als Programm, zu großes
+Abbild). Das Programm aus dem Archiv (`userland/hello.asm`, `nasm` + `ld`,
+statisch, ohne Laufzeitbibliothek) läuft anschließend wirklich in Ring 3.
+
 ---
 
 ## 6. Panic und Backtrace
@@ -267,9 +349,35 @@ Definiert in `libs/karst-abi-native/`, bewusst ohne POSIX-Altlasten:
 | `open("/pfad")` | `NamespaceOpen(handle, name)` | kein prozessglobaler Root |
 
 23 Syscall-Nummern sind festgelegt und stabil; Rechte können beim Weitergeben
-nur **verkleinert** werden (`Rights::restrict`). Implementiert ist bislang
-`Version`; alle anderen liefern sauber `NotSupported` — **kein `todo!()`**, der
-Kernel bleibt in jedem Zustand lauffähig.
+nur **verkleinert** werden (`Rights::restrict`). Nicht Gebautes liefert sauber
+`NotSupported` — **kein `todo!()`**, der Kernel bleibt in jedem Zustand
+lauffähig.
+
+#### Handle-Tabelle je Prozess
+
+`libs/karst-abi-native/src/table.rs` (host-getestet) hält die Regeln, der Kernel
+nur die Verbindung zu echten Objekten:
+
+* Ein Handle ist **Slot + Generation**, dazu ein **prozesseigener Würfelwert**
+  im Generationsfeld. Derselbe Slot ergibt in zwei Prozessen also verschiedene
+  Handle-Werte — ein abgehörter Wert aus einem fremden Prozess trifft hier nie.
+* Die Generation lebt weiter, auch wenn der Platz frei ist: ein geschlossenes
+  Handle trifft nach Wiederverwendung des Slots **niemals** das neue Objekt.
+* **Kein Erben.** Eine frische Tabelle ist leer; `spawn`/`spawn_with` übergeben
+  Handles namentlich, Rechte dabei nur kleiner. Es gibt kein `fork`.
+* Ein Handle trägt eine **Objektnummer**, nie einen Zeiger. Nachgeschlagen wird
+  in der Objekttafel (`abi/native.rs`) mit Verweiszähler; Objektarten sind
+  Console, Channel, Process, Memory.
+* Ein Platzlimit je Prozess (1024) verhindert, dass ein Prozess den
+  Kernelspeicher durch Handle-Erzeugung erschöpft.
+
+Der Verteiler prüft bei jedem Aufruf aus Ring 3 zusätzlich, dass alle Puffer im
+eigenen Adressbereich liegen. **Negativtests im Boot-Log** (Pflicht, nicht Kür):
+ungültiger Index, veraltete Generation und fehlendes Recht werden je einzeln
+abgewiesen; dazu fremdes Handle, Zugriff ohne Übergabe, versuchte
+Rechteausweitung, Duplizieren/Übergeben ohne Recht, unbekannte Aufrufnummer,
+Benutzung nach `close`, Handle nach Prozessende — und 4096 geratene Generationen
+mit **0** Treffern.
 
 ### `posix` (abtrennbar)
 
@@ -319,12 +427,12 @@ Geladene Größe des Kernels (Release, gemessen mit
 
 | Sektion | Größe |
 |---|---|
-| `.text` | 76,0 KiB |
-| `.rodata` | 17,0 KiB |
+| `.text` | 127,1 KiB |
+| `.rodata` | 27,4 KiB |
 | `.limine_requests` | 0,4 KiB |
-| `.data` | 6,1 KiB |
-| `.bss` | 64,4 KiB |
-| **Summe im Speicher** | **163,8 KiB** |
+| `.data` | 6,3 KiB |
+| `.bss` | 80,7 KiB |
+| **Summe im Speicher** | **242,0 KiB** |
 
 Der größte Einzelposten in `.bss` sind die drei IST-Stapel zu je 20 KiB. Die
 ELF-Datei auf der Platte ist deutlich größer, weil Debug-Informationen für
@@ -383,14 +491,28 @@ Grund: Justin will sich den endgültigen Namen offenhalten. Ein Name, der über
 
 Ehrliche Liste, damit niemand mehr erwartet, als der Code hält:
 
-* kein Userspace (Ring 3 wird nie betreten); der Scheduler in `kcore/sched.rs`
-  ist **kooperativ** — keine Präemption, kein Idle-Thread, keine Prioritäten,
-  nur Kernel-Threads, und er läuft nur während der Selbsttests im Boot
-* keine Syscall-Einsprungstelle (`syscall`/`sysret` sind vorbereitet, nicht verdrahtet)
+* **Kein dauerhaft laufender Userspace.** Ring 3 wird echt betreten, aber als
+  Selbsttest im Bootweg: ein Programm läuft, gibt aus, endet, wird abgeräumt.
+  Danach läuft `kmain` weiter. Es gibt kein `init`, das die Kontrolle behält.
+* **Ein Adressraum.** Die unprivilegierten Seiten liegen im Kerneladressraum
+  (mit Benutzerbit); es gibt noch **keinen Adressraum je Prozess** und damit
+  keine Isolation zwischen zwei unprivilegierten Prozessen.
+* **Präemption nur für Kernel-Threads aus `spawn_prio`.** Kooperative Threads
+  bleiben absichtlich unverdrängt, und ein Tick in Ring 3 wird nur gezählt —
+  ein Ring-3-Programm wird noch **nicht** verdrängt.
+* kein Idle-Thread; der Scheduler wartet mit `wait_for_interrupt`
+* SMEP/SMAP werden nur gesetzt, wenn CPUID sie meldet — auf der
+  QEMU-Standard-CPU sind sie damit **aus** (im Log vermerkt)
+* die POSIX-Schicht übersetzt Fd → Handle durch **denselben** Verteiler, hat
+  aber noch keinen `open`-Weg — ohne VFS gibt es nichts zu öffnen
 * kein VFS, keine Blockgeräte, keine Tastatur (IRQ 1 wird nur quittiert)
 * kein SMP — genau eine CPU; die serielle Ausgabe ist deshalb ungesperrt
 * kein Rückgewinnen des Bootloader-Speichers (bleibt reserviert)
 * kein APIC, kein ACPI-Parser, keine PCI-Aufzählung
-* `karst-native` ist bis auf `Version` noch nicht implementiert
+* von den 23 Syscall-Nummern sind gebaut: `Version`, `ThreadYield`,
+  `ClockRead`, `HandleClose/Duplicate/Inspect/Write/Read`,
+  `ChannelCreate/Send/Recv`, `MemoryCreate`, `ProcessExit`. `MemoryMap/Unmap`,
+  `Namespace*`, `Port*`, `ProcessSpawn`, `ThreadCreate/Sleep` melden
+  `NotSupported` (Prozesserzeugung geht bislang nur kernelseitig über `spawn`)
 
 Der Weg dahin steht in [ROADMAP.md](ROADMAP.md).

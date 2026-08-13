@@ -15,9 +15,11 @@ bauen.
 **Regel:** Dieses Dokument wächst mit jeder Runde. Wer einen Workaround schreibt,
 trägt ihn hier ein. Kein Eintrag ohne Datei und Zeile.
 
-**Stand:** Runde 2, Phase 1–2 (bootfähiger Kern + kooperativer Scheduler).
-Messwerte: 308 `unsafe`-Vorkommen in `kernel/src`, 13 `static mut`,
-25 `addr_of!`/`&raw`, 2 nightly-Features, 1 `transmute`.
+**Stand:** Runde 3, Phase 1–3 (Boot-Kern, verdrängender Scheduler, Ring 3,
+ELF-Lader, Capabilities).
+Messwerte: 413 `unsafe`-Vorkommen in `kernel/src` (vorher 308), 16 `static mut`
+(vorher 13), 36 `addr_of!`/`&raw` (vorher 25), 2 nightly-Features (unverändert),
+1 `transmute` (unverändert), 3 Dateien mit `naked_asm!` (vorher 1).
 
 ---
 
@@ -170,32 +172,136 @@ Messwerte: 308 `unsafe`-Vorkommen in `kernel/src`, 13 `static mut`,
   gleich behandelt — es gibt keinen „eingebauten" und keinen „selbstgebauten"
   Fall.
 
+## L-11 · Der volle Registersatz ist Handarbeit — und niemand prüft ihn
+
+* **Dateien:** `kernel/src/arch/x86_64/preempt.rs:158` (`irq0_entry`,
+  `naked_asm!`), Struktur `FullFrame` ab Zeile 47 derselben Datei
+* **Problem:** Für Präemption muss der Einsprung **alle 15** GPR retten (der
+  kooperative Wechsel kommt mit den callee-saved aus). Der Assemblerteil pusht
+  sie in einer Reihenfolge; die Rust-Struktur `FullFrame`, mit der der Verteiler
+  sie liest, muss **exakt die umgekehrte** Reihenfolge auflisten. Beide stehen
+   zwar untereinander in einer Datei, sind aber durch nichts verbunden: vertauscht
+  jemand zwei Zeilen im Assembler und nicht in der Struktur, liest der Kernel
+  `r11` als `rax` — und zwar erst dann falsch, wenn ein Tick genau dort landet.
+  Der Compiler sieht davon nichts.
+* **Workaround:** Kommentar über der Struktur („umgekehrte Push-Reihenfolge"),
+  ein Selbsttest, der nach 60 Ticks prüft, dass alle drei Threads unversehrt
+  weiterrechnen.
+* **Eigene Sprache:** Registerrettung gehört **abgeleitet**, nicht abgeschrieben.
+  Aus einer Deklaration „dieser Einsprung erhält den Hardware-Rahmen X und
+  rettet Registersatz Y" sollte der Compiler Prolog, Epilog *und* den Typ, mit
+  dem man den Rahmen liest, gemeinsam erzeugen. Zwei Beschreibungen desselben
+  Sachverhalts, die von Hand synchron gehalten werden, sind ein Sprachmangel.
+
+## L-12 · Systemaufruf-Einsprung: eine Konvention, die Rust nicht kennt
+
+* **Dateien:** `kernel/src/arch/x86_64/user.rs:453` (`syscall_entry`),
+  `:499`, `:521`, `:570` — vier weitere `naked_asm!`-Rümpfe
+* **Problem:** Bei `syscall` liefert die CPU keinen Stapelrahmen, sondern legt
+  den Rücksprung in `rcx`, die Flags in `r11` und **behält den Stapel des
+  Aufrufers** — der Kernel muss selbst umschalten, vorher das Basisregister
+  tauschen und danach exakt in umgekehrter Reihenfolge zurück. Rust hat dafür
+  keine Aufrufkonvention; `extern "C"` wäre schlicht falsch. Ergebnis: fünf
+  nackte Funktionen in einer Datei, in denen der Compiler nichts prüfen kann,
+  und ein Per-CPU-Block als `static mut` (`user.rs:91`), weil „gehört diesem
+  Prozessorkern" keine Kategorie im Eigentumsmodell ist.
+* **Workaround:** alles in eine Datei, ausführlicher Ablaufkommentar im
+  Modulkopf, Messwerte (CS, CPL, Stapel) aus einem **echten** Ausnahmerahmen
+  statt aus Behauptungen.
+* **Eigene Sprache:** siehe L-01 — Aufrufkonventionen als deklarierbares
+  Sprachmittel. Zusätzlich: **Privilegstufe als Effekt.** „Diese Funktion läuft
+  auf Kernelseite eines Übergangs" ist prüfbar, sobald die Sprache den Begriff
+  kennt.
+
+## L-13 · Ein Zeiger aus Ring 3 sieht aus wie jeder andere Zeiger
+
+* **Dateien:** `kernel/src/kcore/user.rs:57` (`is_user_addr`), `:196`
+  (Abweisung im Log), Pufferprüfung im Verteiler `kernel/src/abi/native.rs`
+* **Problem:** Ein Systemaufruf bekommt Adresse und Länge als zwei `u64`. Im
+  Typsystem ist nichts daran anders als an einer Kerneladresse — die Prüfung
+  „liegt im eigenen Bereich, Länge läuft nicht über" ist reine Disziplin an
+  jeder einzelnen Aufrufstelle. Vergisst man sie an einer Stelle, schreibt ein
+  unprivilegiertes Programm in den Kernel, und **kein Werkzeug meldet das**.
+* **Workaround:** Jeder Puffer aus Ring 3 läuft durch dieselbe Prüfung; der
+  Negativtest steht als Zusage im Boot-Log („Zeiger … aus Ring 3 abgewiesen").
+* **Eigene Sprache:** Fortsetzung von L-05: Zeiger sollten ihren **Adressraum
+  und ihre Herkunft** im Typ tragen (`virt@user(pid)` vs. `virt@kernel`). Eine
+  Umwandlung ist dann eine Prüfung mit Ergebnis — nicht eine Konvention, an die
+  man sich erinnern muss.
+
+## L-14 · Bytes in Strukturen lesen: entweder `unsafe` oder von Hand
+
+* **Datei:** `kernel/src/kcore/elf.rs:133`–`143` (`u16/u32/u64`-Leser),
+  ähnlich in `kernel/src/kcore/initramfs.rs`
+* **Problem:** Ein ELF-Kopf und ein Archiveintrag sind Bytefolgen fester Lage.
+  Rust bietet dafür genau zwei Wege: `transmute`/Zeigerspiel (unsicher, und bei
+  falscher Ausrichtung schlicht undefiniert) oder Feld für Feld
+  `u64::from_le_bytes([b[o], b[o+1], …])`. Wir haben den zweiten gewählt — das
+  ist sicher, aber es sind acht Indexzugriffe für **eine** Zahl, und die
+  Feldversätze stehen als Konstanten daneben, statt aus einer
+  Formatbeschreibung zu folgen. Eine Crate wie `zerocopy` wäre eine
+  Fremdabhängigkeit für etwas, das die Sprache können sollte.
+* **Workaround:** eigene kleine Leser mit vorheriger Längenprüfung; alle
+  Additionen `checked_*`; 11 + 7 Negativfälle im Boot-Log als Beweis.
+* **Eigene Sprache:** **Formatbeschreibungen als Sprachmittel.** „Diese
+  Struktur liegt little-endian ab Versatz N in diesem Puffer" sollte deklariert
+  werden, woraus der Compiler Prüfung und Zugriff erzeugt — sicher, ohne
+  Ausrichtungsannahme und ohne Fremdcrate.
+
+## L-15 · Im Interrupt darf nicht allokiert werden — sagt nur der Kommentar
+
+* **Dateien:** `kernel/src/kcore/preempt.rs`, `kernel/src/kcore/sched.rs:557`
+  (`static mut ACTIVE`)
+* **Problem:** Der Zeitgebereinsprung entscheidet über einen Threadwechsel. Er
+  darf dabei weder den Heap anfassen (der Sperren nimmt) noch eine Sperre
+  nehmen, die der verdrängte Code gerade hält. Der Planer ist deshalb über
+  einen rohen Zeiger erreichbar statt über eine Sperre — funktioniert, ist aber
+  wieder nur Disziplin. Rust kann „diese Funktion allokiert nicht" nicht
+  ausdrücken; `#[no_alloc]` gibt es nicht.
+* **Workaround:** Der verdrängende Pfad allokiert nachweislich nicht (alle
+  Thread-Stapel entstehen beim `spawn`, nicht im Tick), Kommentar im Modulkopf.
+* **Eigene Sprache:** Effektsystem wie in L-07, aber mit der Kategorie
+  **Allokation**. „Darf nicht allokieren" ist die häufigste ungeschriebene
+  Regel im Kernel und gehört in die Signatur.
+
 ---
 
 ## Muster, die sich abzeichnen
 
-Nach Phase 1–2 wiederholen sich drei Themen:
+Nach Phase 1–3 wiederholen sich dieselben drei Themen — jetzt mit mehr Belegen:
 
-1. **Adressräume und Zeigerarten** (L-05, L-08) — Rust kennt genau eine Art
-   Zeiger. Ein Kernel braucht mindestens drei (physisch, virtuell-eigener
-   Raum, virtuell-fremder Raum) und will sie nicht verwechseln dürfen.
-2. **Hardware-Eigentum und Einzelinstanzen** (L-04) — Objekte, deren Eigentümer
-   die CPU ist, passen in kein Eigentumsmodell, das nur Programmteile kennt.
-3. **Ausführungskontext als Effekt** (L-03, L-07) — „läuft im Interrupt",
-   „wechselt den Kontext", „hält Sperre L" sind prüfbare Eigenschaften, die
-   heute nur in Kommentaren stehen.
+1. **Adressräume und Zeigerarten** (L-05, L-08, **L-13**) — Rust kennt genau
+   eine Art Zeiger. Ein Kernel braucht mindestens vier (physisch,
+   virtuell-eigener Raum, virtuell-fremder Raum, **aus Ring 3 hereingereicht**)
+   und will sie nicht verwechseln dürfen. Mit Ring 3 ist aus einem
+   Bequemlichkeitsproblem ein Sicherheitsproblem geworden.
+2. **Hardware-Eigentum und Einzelinstanzen** (L-04, **L-12**) — Objekte, deren
+   Eigentümer die CPU ist, passen in kein Eigentumsmodell, das nur Programmteile
+   kennt. Der Per-CPU-Block ist der dritte Fall derselben Art.
+3. **Ausführungskontext als Effekt** (L-03, L-07, **L-11**, **L-12**, **L-15**)
+   — „läuft im Interrupt", „wechselt den Kontext", „hält Sperre L", „allokiert
+   nicht", „läuft auf der Kernelseite eines Privilegübergangs" sind prüfbare
+   Eigenschaften, die heute alle nur in Kommentaren stehen. Dieses Muster ist in
+   dieser Runde am deutlichsten gewachsen.
 
-Das sind noch keine zehn erdrückenden Argumente, aber es sind drei klare Muster
-nach zwei Phasen. Die Liste wird fortgeschrieben.
+Neu hinzugekommen und (noch) kein Muster, aber notiert:
+**Formatbeschreibungen** (L-14) — ELF-Kopf, Archiveintrag, Seitentabelleneintrag
+sind alle „Bytes an festen Versätzen"; dreimal von Hand ausgelesen.
+
+Fünf neue Einträge in einer Runde, alle aus demselben Anlass (Präemption,
+Ring 3). Fünfzehn Einträge sind noch kein Zwang zur eigenen Sprache — aber die
+Richtung ist inzwischen eindeutig.
 
 ## Was gegen eine eigene Sprache spricht (auch das gehört hierher)
 
-* Rust hat 308 `unsafe`-Vorkommen **nicht verhindert**, aber sie **sichtbar
+* Rust hat 413 `unsafe`-Vorkommen **nicht verhindert**, aber sie **sichtbar
   gemacht**. Jede dieser Stellen ist markiert, begründet und auffindbar. Das ist
   mehr, als C je geboten hat.
-* Der Borrow-Checker hat in `libs/karst-mem` (Bitmap, Heap, Regionen) real
-  Fehler verhindert — dort liegt die Logik, dort ist er wertvoll, dort laufen
-  129 Host-Tests.
+* Der Borrow-Checker hat in `libs/karst-mem` (Bitmap, Heap, Regionen) und in
+  `libs/karst-abi-native` (Handle-Tabelle) real Fehler verhindert — dort liegt
+  die Logik, dort ist er wertvoll, dort laufen 141 Host-Tests. Die
+  Capability-Regeln dieser Runde waren auf dem Host fertig getestet, **bevor**
+  der Kernel sie zum ersten Mal ausgeführt hat.
 * Eine eigene Sprache heißt: Compiler, Optimierer, Debugger-Formate, Formatierer,
   Editorunterstützung, Bibliothek. Jede Stunde daran ist eine Stunde nicht am
   Betriebssystem.

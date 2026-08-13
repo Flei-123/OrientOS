@@ -92,13 +92,31 @@ pub fn on_tick() -> bool {
     if !ENABLED.load(Ordering::Relaxed) {
         return false;
     }
+    // Laeuft gerade ein verdraengbarer Kontrollfluss, bucht der Planer den
+    // Tick auf dessen Konto — er allein kennt dessen Zeitscheibe (Groesse nach
+    // Prioritaet) und meldet, wenn sie aufgebraucht ist.
+    if let Some(scheibe_zuende) = crate::kcore::sched::charge_tick() {
+        return scheibe_zuende;
+    }
+    // Sonst laeuft niemand, den man verdraengen koennte (z. B. der Planer
+    // selbst oder ein Thread, der keine Verdraengung zulaesst): Zeitscheibe
+    // fuer den naechsten Einlastvorgang frisch laden.
     let left = LEFT.load(Ordering::Relaxed);
     if left > 1 {
         LEFT.store(left - 1, Ordering::Relaxed);
-        return false;
+    } else {
+        LEFT.store(QUANTUM.load(Ordering::Relaxed), Ordering::Relaxed);
     }
-    LEFT.store(QUANTUM.load(Ordering::Relaxed), Ordering::Relaxed);
-    true
+    false
+}
+
+/// Fuehrt den vom Zeitgeber verlangten Wechsel durch.
+///
+/// Wird ausschliesslich aus dem Interruptpfad der Architektur gerufen, und nur
+/// wenn [`on_tick`] `true` geliefert hat. WIE gewechselt wird, weiss der
+/// Planer; er zaehlt den Wechsel ueber [`note_preemptive_switch`] mit.
+pub fn switch_now() {
+    crate::kcore::sched::preempt_current();
 }
 
 /// Meldet einen aus dem Zeitgeberpfad erzwungenen Wechsel.

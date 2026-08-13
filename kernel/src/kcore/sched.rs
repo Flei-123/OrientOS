@@ -22,11 +22,23 @@
 //!   Schlafen alle uebrigen Threads ohne Weckzeit, meldet `run` eine
 //!   **Verklemmung** und kehrt ebenfalls zurueck, statt haengen zu bleiben.
 //!
-//! Es gibt **keine** Praeemption: der Zeitgeberinterrupt zaehlt nur Ticks. Der
-//! Scheduler liest diesen Zaehler ([`crate::kcore::arch_iface::TimerOps`]), um
-//! Schlaefer faellig zu machen; wecken tut er sie erst, wenn er selbst wieder
-//! laeuft. Damit braucht er weder Sperren noch abgeschaltete Interrupts, und
-//! der Boot bleibt deterministisch.
+//! Der Scheduler liest den Tickzaehler
+//! ([`crate::kcore::arch_iface::TimerOps`]), um Schlaefer faellig zu machen;
+//! wecken tut er sie erst, wenn er selbst wieder laeuft. Damit braucht der
+//! kooperative Teil weder Sperren noch abgeschaltete Interrupts.
+//!
+//! Modell (Phase 3, verdraengend — **derselbe** Planer, kein zweiter):
+//!
+//! * Jeder Thread traegt eine Prioritaetsstufe; seine Zeitscheibe ist
+//!   `Grundscheibe * Stufe` Ticks ([`quantum_for`]).
+//! * Der Zeitgeberpfad der Architektur bucht jeden Tick ueber [`charge_tick`]
+//!   auf den laufenden Thread. Ist dessen Scheibe leer, nimmt ihm
+//!   [`preempt_current`] die CPU weg — ohne dass er `yield` gerufen haette.
+//! * Verdraengt werden nur Threads aus [`Scheduler::spawn_prio`]. Threads aus
+//!   [`Scheduler::spawn`] (die kooperativen Selbsttests) bleiben unberuehrt,
+//!   damit ein Thread nicht mitten in einer Protokollzeile unterbrochen wird.
+//! * Erzwungene und freiwillige Wechsel werden **getrennt** gezaehlt
+//!   ([`crate::kcore::preempt`]).
 
 use alloc::boxed::Box;
 use alloc::vec;
@@ -82,8 +94,36 @@ pub trait Scheduler {
     /// bereits laeuft (waehrend `run` darf niemand nachlegen, sonst koennte
     /// die Threadtabelle umziehen, waehrend Kontexte auf sie zeigen).
     fn spawn(&mut self, entry: extern "C" fn() -> !, stack_bytes: usize) -> Option<ThreadId>;
+    /// Wie [`Scheduler::spawn`], aber mit Prioritaet — und der Thread laesst
+    /// sich verdraengen.
+    ///
+    /// Die Prioritaet bemisst die Zeitscheibe: ein Thread der Stufe `p`
+    /// bekommt `p`-mal so viele Ticks am Stueck wie einer der Stufe 1. Sie
+    /// wird auf [`PRIO_MIN`]..=[`PRIO_MAX`] begrenzt.
+    fn spawn_prio(
+        &mut self,
+        entry: extern "C" fn() -> !,
+        stack_bytes: usize,
+        prio: u8,
+    ) -> Option<ThreadId>;
     /// Gerade laufender Thread (der Scheduler selbst hat die Kennung 0).
     fn current(&self) -> ThreadId;
+    /// Bucht einen Zeitgebertick auf das Konto des laufenden Threads.
+    ///
+    /// Liefert `None`, wenn gerade kein Thread laeuft (dann ist nichts zu
+    /// verdraengen), sonst `Some(true)`, wenn dessen Zeitscheibe damit
+    /// aufgebraucht ist. Wird aus dem Interruptpfad gerufen und darf deshalb
+    /// weder blockieren noch Speicher anfordern.
+    fn charge_tick(&mut self) -> Option<bool>;
+    /// Nimmt dem laufenden Thread die CPU weg, ohne dass er das wollte.
+    ///
+    /// Kehrt zurueck, sobald der Thread wieder an der Reihe ist. Ein Thread,
+    /// der Verdraengung nicht zulaesst, bleibt unberuehrt.
+    ///
+    /// # Safety
+    /// Wechselt den Stapel; nur aus dem Zeitgeberpfad der Architektur heraus
+    /// aufrufen, und nur waehrend ein Thread dieses Planers laeuft.
+    unsafe fn preempt_current(&mut self);
     /// Gibt die CPU freiwillig ab und laesst den naechsten Thread laufen.
     ///
     /// # Safety
@@ -115,6 +155,20 @@ pub trait Scheduler {
     unsafe fn run(&mut self) -> usize;
 }
 
+/// Niedrigste Prioritaetsstufe (kuerzeste Zeitscheibe).
+pub const PRIO_MIN: u8 = 1;
+/// Hoechste Prioritaetsstufe (laengste Zeitscheibe).
+pub const PRIO_MAX: u8 = 8;
+
+/// Zeitscheibe eines Threads in Ticks: Grundscheibe mal Prioritaetsstufe.
+///
+/// Damit wirkt die Prioritaet **messbar** und trotzdem verhungert niemand —
+/// jeder Thread kommt in jeder Runde dran, nur unterschiedlich lange.
+fn quantum_for(prio: u8) -> u32 {
+    let p = prio.clamp(PRIO_MIN, PRIO_MAX) as u64;
+    (crate::kcore::preempt::quantum() * p).max(1) as u32
+}
+
 /// Muster, mit dem ein frischer Stapel gefuellt wird. Am unteren Ende muss es
 /// nach dem Lauf noch stehen — sonst gab es einen Stapelueberlauf.
 const STACK_FILL: u8 = 0xa5;
@@ -135,6 +189,19 @@ struct Thread {
     slices: usize,
     /// Weckbedingung, solange `state == Blocked`.
     wake: WakeReason,
+    /// Prioritaetsstufe ([`PRIO_MIN`]..=[`PRIO_MAX`]); bemisst die Zeitscheibe.
+    prio: u8,
+    /// Verbleibende Ticks der laufenden Zeitscheibe.
+    left: u32,
+    /// Wie viele Zeitgebertick(s) dieser Thread verbraucht hat.
+    ticks: u64,
+    /// Darf der Zeitgeber diesem Thread die CPU wegnehmen?
+    ///
+    /// Nur Threads aus [`Scheduler::spawn_prio`] lassen das zu. Die
+    /// kooperativen Selbsttests laufen damit weiterhin deterministisch, und
+    /// ein Thread, der eine Sperre halten koennte (z. B. um zu protokollieren),
+    /// wird nicht mitten darin unterbrochen.
+    preemptible: bool,
 }
 
 /// Kooperativer Round-Robin-Scheduler.
@@ -211,6 +278,12 @@ impl CoopScheduler {
         self.threads.iter().map(|t| (t.id, t.slices))
     }
 
+    /// Prioritaet und verbrauchte Zeitgebertick(s) je Thread — der Nachweis,
+    /// dass Prioritaeten wirken.
+    pub fn tick_shares(&self) -> impl Iterator<Item = (ThreadId, u8, u64)> + '_ {
+        self.threads.iter().map(|t| (t.id, t.prio, t.ticks))
+    }
+
     /// Waehlt reihum den naechsten lauffaehigen Thread.
     fn pick(&mut self) -> Option<usize> {
         let n = self.threads.len();
@@ -269,23 +342,14 @@ impl CoopScheduler {
         }
     }
 
-    /// Groesste gemessene Stapelnutzung eines beendeten Threads in Bytes.
-    ///
-    /// Gemessen am Fuellmuster: alles unterhalb der tiefsten beruehrten Stelle
-    /// traegt noch [`STACK_FILL`].
-    pub fn peak_stack_bytes(&self) -> usize {
-        self.peak_stack
-    }
-}
-
-impl Default for CoopScheduler {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Scheduler for CoopScheduler {
-    fn spawn(&mut self, entry: extern "C" fn() -> !, stack_bytes: usize) -> Option<ThreadId> {
+    /// Gemeinsamer Rumpf von [`Scheduler::spawn`] und [`Scheduler::spawn_prio`].
+    fn spawn_inner(
+        &mut self,
+        entry: extern "C" fn() -> !,
+        stack_bytes: usize,
+        prio: u8,
+        preemptible: bool,
+    ) -> Option<ThreadId> {
         if self.running || stack_bytes < Ctx::MIN_STACK_BYTES {
             return None;
         }
@@ -304,8 +368,76 @@ impl Scheduler for CoopScheduler {
             stack: Some(stack),
             slices: 0,
             wake: WakeReason::Explicit,
+            prio,
+            left: quantum_for(prio),
+            ticks: 0,
+            preemptible,
         });
         Some(id)
+    }
+
+    /// Groesste gemessene Stapelnutzung eines beendeten Threads in Bytes.
+    ///
+    /// Gemessen am Fuellmuster: alles unterhalb der tiefsten beruehrten Stelle
+    /// traegt noch [`STACK_FILL`].
+    pub fn peak_stack_bytes(&self) -> usize {
+        self.peak_stack
+    }
+}
+
+impl Default for CoopScheduler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Scheduler for CoopScheduler {
+    fn spawn(&mut self, entry: extern "C" fn() -> !, stack_bytes: usize) -> Option<ThreadId> {
+        self.spawn_inner(entry, stack_bytes, PRIO_MIN, false)
+    }
+
+    fn spawn_prio(
+        &mut self,
+        entry: extern "C" fn() -> !,
+        stack_bytes: usize,
+        prio: u8,
+    ) -> Option<ThreadId> {
+        self.spawn_inner(entry, stack_bytes, prio.clamp(PRIO_MIN, PRIO_MAX), true)
+    }
+
+    fn charge_tick(&mut self) -> Option<bool> {
+        let i = self.current?;
+        let t = &mut self.threads[i];
+        t.ticks += 1;
+        if !t.preemptible || t.state != ThreadState::Ready {
+            return Some(false);
+        }
+        if t.left > 1 {
+            t.left -= 1;
+            Some(false)
+        } else {
+            t.left = quantum_for(t.prio);
+            Some(true)
+        }
+    }
+
+    unsafe fn preempt_current(&mut self) {
+        let i = match self.current {
+            Some(i) => i,
+            None => return,
+        };
+        if !self.threads[i].preemptible {
+            return;
+        }
+        self.switches += 1;
+        crate::kcore::preempt::note_preemptive_switch();
+        let from: *mut Ctx = addr_of_mut!(self.threads[i].ctx);
+        let to: *const Ctx = addr_of!(self.main);
+        // Sicher: derselbe Wechsel wie bei [`Scheduler::yield_now`] — nur
+        // ausgeloest vom Zeitgeber statt vom Thread. `main` gehoert dem Stapel
+        // von `run`, der weiterlebt; der Aufrufer ist der Interrupt-Einsprung
+        // der Architektur, der seine Register bereits gerettet hat.
+        unsafe { Ctx::switch(from, to) };
     }
 
     fn current(&self) -> ThreadId {
@@ -322,6 +454,7 @@ impl Scheduler for CoopScheduler {
             None => return,
         };
         self.switches += 1;
+        crate::kcore::preempt::note_cooperative_switch();
         let from: *mut Ctx = addr_of_mut!(self.threads[i].ctx);
         let to: *const Ctx = addr_of_mut!(self.main);
         // Sicher: `main` wurde beim Wechsel in diesen Thread gesichert und
@@ -395,6 +528,9 @@ impl Scheduler for CoopScheduler {
             };
             self.current = Some(i);
             self.threads[i].slices += 1;
+            // Frische Zeitscheibe: ein Thread, der gerade verdraengt wurde,
+            // faengt beim naechsten Zug wieder von vorne an.
+            self.threads[i].left = quantum_for(self.threads[i].prio);
             self.switches += 1;
             let from: *mut Ctx = addr_of_mut!(self.main);
             let to: *const Ctx = addr_of_mut!(self.threads[i].ctx);
@@ -449,6 +585,40 @@ pub fn yield_now() {
     // Sicher: `s` zeigt auf den Scheduler, der diesen Thread gestartet hat und
     // waehrend des gesamten Laufs an derselben Stelle liegt.
     unsafe { (*s).yield_now() };
+}
+
+/// Bucht einen Zeitgebertick auf den laufenden Thread des aktiven Planers.
+///
+/// Wird aus dem Interruptpfad gerufen (siehe [`crate::kcore::preempt::on_tick`])
+/// und liefert `Some(true)`, wenn dessen Zeitscheibe damit aufgebraucht ist.
+/// `None` heisst: es laeuft gerade kein Thread, es gibt nichts zu verdraengen.
+pub fn charge_tick() -> Option<bool> {
+    let s = active();
+    if s.is_null() {
+        return None;
+    }
+    // Sicher: einfaedig; der Zeiger zeigt auf den Planer, der gerade laeuft,
+    // und der Interrupt unterbricht genau dessen Thread.
+    unsafe { (*s).charge_tick() }
+}
+
+/// Nimmt dem laufenden Thread die CPU weg (Aufruf aus dem Zeitgeberpfad).
+///
+/// Liefert `false`, wenn es nichts zu verdraengen gab.
+pub fn preempt_current() -> bool {
+    let s = active();
+    if s.is_null() {
+        return false;
+    }
+    // Sicher: siehe [`charge_tick`]; der Wechsel kehrt zurueck, sobald der
+    // verdraengte Thread wieder an der Reihe ist.
+    unsafe {
+        if (*s).current() == ThreadId(0) {
+            return false;
+        }
+        (*s).preempt_current();
+    }
+    true
 }
 
 /// Kennung des laufenden Threads (0 = kein Scheduler bzw. der Scheduler selbst).
@@ -821,6 +991,51 @@ fn deadlock_selftest() -> bool {
 
 // ------------------------------------------------------ Selbsttest Verdraengung
 
+/// So viele Zaehlschleifen laufen im Verdraengungstest gegeneinander.
+const PREEMPT_THREADS: usize = 3;
+/// So viele Zeitgebertick(s) lang laufen sie (100 Hz -> 0,6 s).
+const PREEMPT_TICKS: u64 = 60;
+/// Stapelgroesse der Zaehlschleifen.
+const PREEMPT_STACK: usize = 16 * 1024;
+
+/// Schleifendurchlaeufe je Zaehlthread.
+static SPIN_COUNT: [AtomicU64; PREEMPT_THREADS] =
+    [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
+/// Tickstand, ab dem die Zaehlschleifen sich abmelden.
+static PREEMPT_DEADLINE: AtomicU64 = AtomicU64::new(0);
+
+/// Rumpf einer Zaehlschleife: **kein** `yield`, **kein** Protokolleintrag,
+/// **keine** Speicheranforderung — nur zaehlen, bis die Frist abgelaufen ist.
+///
+/// Dass sich diese Threads trotzdem abwechseln, kann nur am Zeitgeber liegen.
+/// Ohne Protokollierung im Rumpf kann eine Verdraengung auch keine Sperre
+/// mitten im Schreiben zerreissen.
+fn spin_body(slot: usize) -> ! {
+    let frist = PREEMPT_DEADLINE.load(Ordering::Relaxed);
+    loop {
+        SPIN_COUNT[slot].fetch_add(1, Ordering::Relaxed);
+        if now() >= frist {
+            break;
+        }
+    }
+    exit_current()
+}
+
+/// Zaehlschleife mit der hoechsten Prioritaet.
+extern "C" fn spin_a() -> ! {
+    spin_body(0)
+}
+
+/// Zaehlschleife mit mittlerer Prioritaet.
+extern "C" fn spin_b() -> ! {
+    spin_body(1)
+}
+
+/// Zaehlschleife mit der niedrigsten Prioritaet.
+extern "C" fn spin_c() -> ! {
+    spin_body(2)
+}
+
 /// Selbsttest der Verdraengung — **Baustelle des Moduls "preempt"**.
 ///
 /// Zu belegen sind (jeweils im Boot-Log, maschinell pruefbar):
@@ -832,10 +1047,116 @@ fn deadlock_selftest() -> bool {
 /// Wird nur aufgerufen, wenn die Architektur Verdraengung anbietet
 /// ([`crate::kcore::preempt::available`]); liefert `(bestanden, gesamt)`.
 pub fn preempt_selftest() -> (usize, usize) {
+    // Grundzeitscheibe 1 Tick: die Prioritaetsstufe vervielfacht sie, damit die
+    // Verteilung in 0,6 s Laufzeit deutlich messbar wird.
+    crate::kcore::preempt::set_quantum(1);
+    // Sicher: der Planer dieses Tests ist gleich lauffaehig, und der
+    // Interruptpfad fragt ausschliesslich ueber `charge_tick` nach.
+    let aktiv = unsafe { crate::kcore::preempt::enable() };
+    if !aktiv {
+        klog!("sched", "Praeemption : Einschalten abgelehnt — bleibe kooperativ");
+        return (0, 5);
+    }
     klog!(
         "sched",
-        "Praeemption : Pfad vorhanden, Zeitscheibe {} Tick(s) — Selbsttest noch nicht eingebaut",
+        "Praeemption : aktiv, Zeitscheibe {} Tick(s) je Prioritaetsstufe, voller Registersatz im Zeitgebereinsprung",
         crate::kcore::preempt::quantum()
     );
-    (0, 0)
+
+    for c in SPIN_COUNT.iter() {
+        c.store(0, Ordering::Relaxed);
+    }
+    let mut s = CoopScheduler::new();
+    let mut angelegt = 0;
+    for (i, entry) in [spin_a as extern "C" fn() -> !, spin_b, spin_c].into_iter().enumerate() {
+        // Prioritaet 3, 2, 1 — absteigend, damit die Verteilung eindeutig ist.
+        if s.spawn_prio(entry, PREEMPT_STACK, (PREEMPT_THREADS - i) as u8).is_some() {
+            angelegt += 1;
+        }
+    }
+    if angelegt != PREEMPT_THREADS {
+        klog!("sched", "FEHLER: Verdraengungstest konnte keine {} Threads anlegen", PREEMPT_THREADS);
+        return (0, 5);
+    }
+
+    let p_vorher = crate::kcore::preempt::preemptive_switches();
+    let k_vorher = crate::kcore::preempt::cooperative_switches();
+    PREEMPT_DEADLINE.store(now() + PREEMPT_TICKS, Ordering::Relaxed);
+    with_active(&mut s, |s| {
+        // Sicher: genau ein Lauf, aus dem Kontext von `kmain`.
+        unsafe { s.run() }
+    });
+    let erzwungen = crate::kcore::preempt::preemptive_switches() - p_vorher;
+    let freiwillig = crate::kcore::preempt::cooperative_switches() - k_vorher;
+
+    klog!(
+        "sched",
+        "praeemptive Wechsel: {}, kooperative Wechsel: {} (nur die {} Abmeldungen)",
+        erzwungen,
+        freiwillig,
+        PREEMPT_THREADS
+    );
+    klog!(
+        "sched",
+        "ohne yield: {} Wechsel zwischen {} Threads (reine Zaehlschleifen, kein einziges yield)",
+        erzwungen,
+        PREEMPT_THREADS
+    );
+
+    let mut ticks = [0u64; PREEMPT_THREADS];
+    let mut prios = [0u8; PREEMPT_THREADS];
+    let mut alle_liefen = true;
+    for (n, (id, prio, t)) in s.tick_shares().enumerate() {
+        if n < PREEMPT_THREADS {
+            ticks[n] = t;
+            prios[n] = prio;
+        }
+        alle_liefen &= t > 0 && SPIN_COUNT[n.min(PREEMPT_THREADS - 1)].load(Ordering::Relaxed) > 0;
+        klog!(
+            "sched",
+            "Thread {}: Prio {}, {} Ticks, {} Schleifendurchlaeufe",
+            id.0,
+            prio,
+            t,
+            SPIN_COUNT[n.min(PREEMPT_THREADS - 1)].load(Ordering::Relaxed)
+        );
+    }
+    let prio_wirkt = ticks[0] > ticks[1] && ticks[1] > ticks[2];
+    klog!(
+        "sched",
+        "Prioritaet wirkt: Thread 1 (Prio {}) {} Ticks > Thread 2 (Prio {}) {} Ticks > Thread 3 (Prio {}) {} Ticks",
+        prios[0],
+        ticks[0],
+        prios[1],
+        ticks[1],
+        prios[2],
+        ticks[2]
+    );
+
+    let erzwungen_ok = erzwungen > 0;
+    let sauber = !s.deadlocked() && s.blocked() == 0 && s.stacks_intact() && s.count() == PREEMPT_THREADS;
+    let zusagen = (aktiv as usize)
+        + (erzwungen_ok as usize)
+        + (alle_liefen as usize)
+        + (prio_wirkt as usize)
+        + (sauber as usize);
+    if zusagen != 5 {
+        klog!(
+            "sched",
+            "FEHLER: Verdraengung (aktiv {}, erzwungen {}, alle liefen {}, Prioritaet {}, Abschluss {})",
+            aktiv,
+            erzwungen_ok,
+            alle_liefen,
+            prio_wirkt,
+            sauber
+        );
+    }
+    klog!(
+        "sched",
+        "Verdraengung: {} erzwungene Wechsel in {} Ticks, {}/5 Zusagen",
+        erzwungen,
+        PREEMPT_TICKS,
+        zusagen
+    );
+    (zusagen, 5)
 }

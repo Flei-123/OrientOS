@@ -1,3 +1,8 @@
 /target/
 /build/*.iso
 /build/isoroot/
+/build/*.log
+/build/boot.*.log
+/build/karstos.*.iso
+/build/initramfs.img
+/build/userland/

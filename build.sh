@@ -43,11 +43,50 @@ if command -v nm >/dev/null; then
     nm -n --demangle "$KERNEL" > build/karst.map || true
 fi
 
+# --------------------------------------------------------------- Userland
+# Die unprivilegierten Programme werden mit nasm+ld gebaut (statisch, ET_EXEC,
+# keine Laufzeitbibliothek) und zusammen mit einer Textdatei und einem
+# absichtlich kaputten Abbild in ein Startdateisystem gepackt. Format und
+# Begruendung: userland/mkinitramfs.py.
+echo ">> Userland und Startdateisystem"
+UROOT=build/userland
+mkdir -p "$UROOT"
+INITRAMFS=build/initramfs.img
+PACK=()
+if command -v nasm >/dev/null && command -v ld >/dev/null && command -v python3 >/dev/null; then
+    nasm -f elf64 -o "$UROOT/hello.o" userland/hello.asm
+    ld -n --build-id=none -T userland/user.ld -o "$UROOT/hello" "$UROOT/hello.o"
+    python3 userland/mkbroken.py "$UROOT/hello" "$UROOT/kaputt.elf"
+    PACK+=("hello=$UROOT/hello" "kaputt.elf=$UROOT/kaputt.elf")
+    echo "   hello: $(stat -c%s "$UROOT/hello") B (ELF64, statisch)"
+else
+    echo "   Hinweis: nasm/ld/python3 fehlen — kein unprivilegiertes Programm im Archiv" >&2
+fi
+# Bewusst laenger als ein ELF-Kopf (64 B): so scheitert der Ladeversuch an der
+# KENNUNG und nicht schon an der Laenge — der Negativtest prueft damit die
+# Stelle, die er pruefen soll.
+{
+    echo 'Startdateisystem von build.sh — dies ist absichtlich kein Programm,'
+    echo 'sondern eine Textdatei fuer den Negativtest des ELF-Laders.'
+} > "$UROOT/liesmich.txt"
+PACK+=("liesmich.txt=$UROOT/liesmich.txt")
+if command -v python3 >/dev/null; then
+    python3 userland/mkinitramfs.py "$INITRAMFS" "${PACK[@]}"
+else
+    # Ohne Packer kein Archiv — der Kernel meldet das ehrlich und bootet
+    # trotzdem. Ein halb geschriebenes Abbild waere schlimmer als keines.
+    rm -f "$INITRAMFS"
+    echo "   Hinweis: python3 fehlt — Startdateisystem wird nicht gebaut" >&2
+fi
+
 echo ">> ISO bauen"
 ROOT=build/isoroot
 rm -rf "$ROOT"
 mkdir -p "$ROOT/boot/limine" "$ROOT/EFI/BOOT"
 cp "$KERNEL" "$ROOT/boot/karst"
+if [[ -s "$INITRAMFS" ]]; then
+    cp "$INITRAMFS" "$ROOT/boot/initramfs.img"
+fi
 cp limine.conf "$ROOT/boot/limine/limine.conf"
 cp vendor/limine/limine-bios.sys \
    vendor/limine/limine-bios-cd.bin \

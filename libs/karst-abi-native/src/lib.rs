@@ -18,16 +18,20 @@
 //! bzw. fuer Tests direkt verwendbar.
 #![no_std]
 
+extern crate alloc;
+
 #[cfg(test)]
 extern crate std;
 
 pub mod handle;
 pub mod rights;
 pub mod syscall;
+pub mod table;
 
-pub use handle::{Handle, ObjectKind, HANDLE_INVALID};
+pub use handle::{Handle, HandleEntry, ObjectKind, HANDLE_INVALID};
 pub use rights::Rights;
 pub use syscall::Syscall;
+pub use table::HandleTable;
 
 /// Fehlerwerte der nativen ABI. Bewusst klein, bewusst nicht POSIX-kompatibel:
 /// Die POSIX-Schicht uebersetzt diese Werte, nicht umgekehrt.
@@ -59,6 +63,36 @@ impl Error {
     #[inline]
     pub const fn as_raw(self) -> i64 {
         self as i64
+    }
+
+    /// Rueckuebersetzung eines Rohwerts. Nur die vergebenen Nummern gelten;
+    /// alles andere ist [`Error::NotSupported`] — ein unbekannter Fehlercode
+    /// darf nie versehentlich als "Erfolg" oder als fremder Fehler gelten.
+    pub const fn from_raw(raw: i64) -> Option<Error> {
+        Some(match raw {
+            -1 => Error::BadHandle,
+            -2 => Error::RightsDenied,
+            -3 => Error::NotFound,
+            -4 => Error::InvalidArgs,
+            -5 => Error::Exhausted,
+            -6 => Error::WrongType,
+            -7 => Error::WouldBlock,
+            -8 => Error::Closed,
+            -9 => Error::NotSupported,
+            _ => return None,
+        })
+    }
+
+    /// Wandelt einen Rueckgabewert der ABI zurueck in ein [`Result`].
+    pub const fn decode(raw: i64) -> Result<u64> {
+        if raw >= 0 {
+            Ok(raw as u64)
+        } else {
+            match Error::from_raw(raw) {
+                Some(e) => Err(e),
+                None => Err(Error::NotSupported),
+            }
+        }
     }
 
     pub const fn name(self) -> &'static str {
@@ -116,6 +150,22 @@ mod tests {
             self.0 ^= self.0 >> 7;
             self.0 ^= self.0 << 17;
             self.0
+        }
+    }
+
+    #[test]
+    fn decode_is_the_exact_inverse_of_encode() {
+        for e in ALL_ERRORS {
+            assert_eq!(Error::from_raw(e.as_raw()), Some(e));
+            assert_eq!(Error::decode(encode(Err(e))), Err(e));
+        }
+        for v in [0u64, 1, 42, 4096, i64::MAX as u64] {
+            assert_eq!(Error::decode(encode(Ok(v))), Ok(v));
+        }
+        // Unbekannte negative Werte gelten als "nicht angeboten", nie als Erfolg.
+        for raw in [-10i64, -1000, i64::MIN] {
+            assert_eq!(Error::from_raw(raw), None);
+            assert_eq!(Error::decode(raw), Err(Error::NotSupported));
         }
     }
 

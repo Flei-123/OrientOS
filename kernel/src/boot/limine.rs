@@ -14,7 +14,7 @@
 use ::limine::memory_map::EntryType;
 use ::limine::request::{
     BootloaderInfoRequest, ExecutableAddressRequest, FramebufferRequest, HhdmRequest,
-    MemoryMapRequest, RequestsEndMarker, RequestsStartMarker, StackSizeRequest,
+    MemoryMapRequest, ModuleRequest, RequestsEndMarker, RequestsStartMarker, StackSizeRequest,
 };
 use ::limine::BaseRevision;
 use karst_mem::region::{MemoryRegion, RegionKind};
@@ -56,6 +56,10 @@ static FRAMEBUFFER: FramebufferRequest = FramebufferRequest::new();
 #[used]
 #[unsafe(link_section = ".limine_requests")]
 static EXEC_ADDR: ExecutableAddressRequest = ExecutableAddressRequest::new();
+
+#[used]
+#[unsafe(link_section = ".limine_requests")]
+static MODULES: ModuleRequest = ModuleRequest::new();
 
 #[used]
 #[unsafe(link_section = ".limine_requests_end")]
@@ -164,6 +168,33 @@ pub unsafe fn take_memory_map() -> &'static [MemoryRegion] {
         REGION_COUNT = n;
         core::slice::from_raw_parts(regions as *const MemoryRegion, n)
     }
+}
+
+/// Anzahl der Module, die der Bootloader mitgeladen hat.
+pub fn module_count() -> usize {
+    MODULES.get_response().map(|r| r.modules().len()).unwrap_or(0)
+}
+
+/// Sucht ein mitgeladenes Modul anhand der Zeichenkette aus der
+/// Bootkonfiguration (`module_string`) und liefert Adresse und Laenge.
+///
+/// Bewusst ueber die Zeichenkette und nicht ueber den Pfad: der Kern kennt
+/// keinen Pfadnamensraum, und der Ablageort im Abbild soll die Kernellogik
+/// nicht bestimmen. Die Adresse liegt bereits im Direct-Map-Fenster und
+/// bleibt gueltig, weil der Bereich in der Memory-Map als "kernel+modules"
+/// gefuehrt wird und der Frame-Allocator ihn deshalb nie vergibt.
+pub fn module_by_string(want: &str) -> Option<(u64, usize)> {
+    let resp = MODULES.get_response()?;
+    for m in resp.modules() {
+        if m.string().to_bytes() == want.as_bytes() {
+            let addr = m.addr() as u64;
+            let len = m.size() as usize;
+            if addr != 0 && len != 0 {
+                return Some((addr, len));
+            }
+        }
+    }
+    None
 }
 
 /// Die bereits uebernommene Memory-Map.

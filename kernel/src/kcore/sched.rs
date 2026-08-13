@@ -818,3 +818,24 @@ fn deadlock_selftest() -> bool {
     );
     zusagen == 3
 }
+
+// ------------------------------------------------------ Selbsttest Verdraengung
+
+/// Selbsttest der Verdraengung — **Baustelle des Moduls "preempt"**.
+///
+/// Zu belegen sind (jeweils im Boot-Log, maschinell pruefbar):
+/// 1. mehrere Threads, die NIE freiwillig abgeben (reine Zaehlschleifen),
+///    wechseln sich trotzdem ab,
+/// 2. die Zahl der erzwungenen Wechsel steht getrennt von der der freiwilligen,
+/// 3. die Verteilung der Ticks je Thread zeigt, dass Prioritaeten wirken.
+///
+/// Wird nur aufgerufen, wenn die Architektur Verdraengung anbietet
+/// ([`crate::kcore::preempt::available`]); liefert `(bestanden, gesamt)`.
+pub fn preempt_selftest() -> (usize, usize) {
+    klog!(
+        "sched",
+        "Praeemption : Pfad vorhanden, Zeitscheibe {} Tick(s) — Selbsttest noch nicht eingebaut",
+        crate::kcore::preempt::quantum()
+    );
+    (0, 0)
+}

@@ -185,6 +185,9 @@ pub struct UserExit {
     pub code_selector: u16,
     /// Gemessene Privilegstufe waehrend des Laufs (3 = unprivilegiert).
     pub privilege_level: u8,
+    /// Stapelzeiger, mit dem das Programm lief (muss im unprivilegierten
+    /// Adressbereich liegen — sonst lief es in Wahrheit privilegiert).
+    pub stack_pointer: u64,
     /// Wie viele Systemaufrufe das Programm abgesetzt hat.
     pub syscalls: u64,
     /// Klartextgrund, falls `entered == false`.

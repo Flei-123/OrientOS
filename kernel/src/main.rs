@@ -81,6 +81,14 @@ fn active_selftests() -> &'static str {
         "test-doublefault"
     } else if cfg!(feature = "test-panic") {
         "test-panic"
+    } else if cfg!(feature = "test-preempt") {
+        "test-preempt"
+    } else if cfg!(feature = "test-ring3") {
+        "test-ring3"
+    } else if cfg!(feature = "test-elf") {
+        "test-elf"
+    } else if cfg!(feature = "test-handles") {
+        "test-handles"
     } else {
         "keine (normaler Boot)"
     }
@@ -360,16 +368,54 @@ pub extern "C" fn kmain() -> ! {
     // ist (kcore/sched.rs), und laeuft in jedem Fall nach kmain zurueck.
     kcore::sched::boot_selftest();
 
+    // ------------------------------------------------------------ Verdraengung
+    // Phase 3: der Zeitgeber nimmt dem Kernel die Entscheidung ab. Meldet
+    // ehrlich, ob die Architektur das anbietet (arch/<name>/preempt.rs).
+    let preempt_st = kcore::preempt::boot_selftest();
+
+    // -------------------------------------------------------- Startdateisystem
+    // Was der Bootloader an Archiv mitgegeben hat, und ob der ELF-Lader Muell
+    // sauber abweist (kcore/elf.rs, kcore/initramfs.rs).
+    kcore::initramfs::report();
+    let elf_st = kcore::elf::selftest();
+
+    // -------------------------------------------------- unprivilegierte Ebene
+    // Phase 4: Ring 3. Auch hier gilt: kann die Architektur es nicht, sagt sie
+    // das im Log, und der Boot laeuft weiter (arch/<name>/user.rs).
+    let _user_ready = unsafe { kcore::user::init() };
+    let user_st = kcore::user::boot_selftest(&mut space);
+
+    // ------------------------------------------------------------ Capabilities
+    // Handles muessen unfaelschbar sein — der Negativtest gehoert deshalb in
+    // JEDEN Boot, nicht in einen Sonderlauf (abi/native.rs).
+    let cap_st = abi::native::capability_selftest();
+
     // ------------------------------------------------------------- Startbilanz
     // Eine einzige, maschinell pruefbare Zeile mit dem Ergebnis aller
     // Selbsttests dieses Boots (run-qemu.sh --check prueft sie).
     // Gezaehlt werden: #BP-Rueckkehr (1), Paging-Selbsttest (3 Zusagen),
     // MapError-Faelle, Frame-Zusagen, Heap-Zusagen.
-    let bestanden = 1 + paging_ok + maperr.0 + frames_st.0 + heap_st.0;
-    let gesamt = 1 + 3 + maperr.1 + frames_st.1 + heap_st.1;
+    let bestanden = 1
+        + paging_ok
+        + maperr.0
+        + frames_st.0
+        + heap_st.0
+        + preempt_st.0
+        + elf_st.0
+        + user_st.0
+        + cap_st.0;
+    let gesamt = 1
+        + 3
+        + maperr.1
+        + frames_st.1
+        + heap_st.1
+        + preempt_st.1
+        + elf_st.1
+        + user_st.1
+        + cap_st.1;
     klog!(
         "boot",
-        "Selbsttestbilanz: {}/{} bestanden (#BP 1/1, Paging {}/3, MapError {}/{}, Frames {}/{}, Heap {}/{})",
+        "Selbsttestbilanz: {}/{} bestanden (#BP 1/1, Paging {}/3, MapError {}/{}, Frames {}/{}, Heap {}/{}, Praeemption {}/{}, ELF {}/{}, Ring3 {}/{}, Handles {}/{})",
         bestanden,
         gesamt,
         paging_ok,
@@ -378,7 +424,15 @@ pub extern "C" fn kmain() -> ! {
         frames_st.0,
         frames_st.1,
         heap_st.0,
-        heap_st.1
+        heap_st.1,
+        preempt_st.0,
+        preempt_st.1,
+        elf_st.0,
+        elf_st.1,
+        user_st.0,
+        user_st.1,
+        cap_st.0,
+        cap_st.1
     );
     klog!(
         "boot",

@@ -101,6 +101,64 @@ pub fn dispatch(nr: u64, _args: [u64; 6]) -> i64 {
     encode(result)
 }
 
+/// Negativtest der Handle-Tabelle: die drei Wege, ein Handle zu faelschen,
+/// muessen ALLE mit einem definierten Fehler enden — und keiner davon darf
+/// Zugriff gewaehren.
+///
+/// Geprueft werden
+/// 1. ein Index, den es nie gab,
+/// 2. eine veraltete Generation auf einem wiederverwendeten Platz,
+/// 3. ein gueltiges Handle ohne das benoetigte Recht.
+///
+/// Liefert `(bestanden, gesamt)` fuer die Selbsttestbilanz.
+pub fn capability_selftest() -> (usize, usize) {
+    let mut t = HandleTable::new();
+    let mut ok = 0usize;
+    let total = 3usize;
+
+    // 1. Index frei erfunden.
+    let fake = Handle::new(4242, 1);
+    let case1 = matches!(t.get(fake), Err(Error::BadHandle));
+    ok += case1 as usize;
+
+    // 2. Platz wiederverwenden: das alte Handle muss danach ungueltig sein,
+    //    obwohl der Index wieder belegt ist.
+    let old = t.insert(ObjectKind::Stream, Rights::READ);
+    let _ = t.close(old);
+    let fresh = t.insert(ObjectKind::Stream, Rights::READ);
+    let case2 = fresh.slot() == old.slot()
+        && fresh.generation() != old.generation()
+        && matches!(t.get(old), Err(Error::BadHandle));
+    ok += case2 as usize;
+
+    // 3. Recht fehlt.
+    let ro = t.insert(ObjectKind::Stream, Rights::READ);
+    let case3 = match t.get(ro) {
+        Ok(e) => e.check(Rights::WRITE).is_err(),
+        Err(_) => false,
+    };
+    ok += case3 as usize;
+
+    crate::klog!(
+        "abi",
+        "Handle-Negativtest: {}/{} abgewiesen (ungueltiger Index {}, veraltete Generation {}, fehlendes Recht {})",
+        ok,
+        total,
+        ergebnis(case1),
+        ergebnis(case2),
+        ergebnis(case3)
+    );
+    (ok, total)
+}
+
+fn ergebnis(b: bool) -> &'static str {
+    if b {
+        "ok"
+    } else {
+        "FEHLER"
+    }
+}
+
 /// Kurzer Selbsttest der ABI-Kernelseite fuer das Boot-Log.
 /// Liefert (ABI-Version, Handles nach dem Test, Fehlercode eines
 /// absichtlich ungueltigen Handles).

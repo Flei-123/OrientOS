@@ -47,3 +47,14 @@ test-rodata = []
 test-gp = []
 # Ausfuehrung von `ud2` (erwartet: #UD) — prueft die Handler OHNE Fehlercode.
 test-ud = []
+# --- Nachweise der Userspace-Phase (Runde 3) -------------------------------
+# Diese vier loesen KEINEN Fehler aus; sie schalten je einen Nachweislauf zu,
+# dessen Ergebnis run-qemu.sh und tests/step-*.sh pruefen.
+# Verdraengung: Zaehlschleifen ohne yield, Wechsel- und Tickverteilung.
+test-preempt = []
+# Ring 3: unprivilegiertes Programm samt Negativtest auf eine Kerneladresse.
+test-ring3 = []
+# ELF-Lader: echtes Abbild aus dem Startdateisystem plus Muellfaelle.
+test-elf = []
+# Capabilities: Handle-Negativtests aus einem unprivilegierten Programm.
+test-handles = []

@@ -4,54 +4,63 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 FAIL=0
-step() { echo; echo "################ $* ################"; }
+# Die Grundschritte stehen hier, die Nachweise der einzelnen Baustellen als
+# eigene Dateien in tests/step-*.sh (jede Datei ruft `step` und `run` selbst).
+# Dadurch kann an mehreren Modulen gleichzeitig gearbeitet werden, ohne dass
+# sich zwei Leute in dieser Datei ins Gehege kommen.
+EXTRA=(tests/step-*.sh)
+[[ -e "${EXTRA[0]}" ]] || EXTRA=()
+BASE_STEPS=15
+TOTAL=$((BASE_STEPS + ${#EXTRA[@]}))
+NR=0
+step() { NR=$((NR + 1)); echo; echo "################ $NR/$TOTAL $* ################"; }
 run()  { if "$@"; then echo "  => bestanden"; else echo "  => FEHLGESCHLAGEN"; FAIL=1; fi }
 
-step "1/15 Host-Tests der architekturunabhaengigen Crates"
+step "Host-Tests der architekturunabhaengigen Crates"
 run cargo test --target x86_64-unknown-linux-gnu \
       -p karst-mem -p karst-abi-native -p karst-abi-posix
 
-step "2/15 Kernel baut (Release, mit POSIX)"
+step "Kernel baut (Release, mit POSIX)"
 run ./build.sh
 
-step "3/15 Kernel baut OHNE POSIX-Schicht"
+step "Kernel baut OHNE POSIX-Schicht"
 run ./build.sh --no-posix
 
-step "4/15 Boot in QEMU (BIOS)"
+step "Boot in QEMU (BIOS)"
 run ./run-qemu.sh --check
 
-step "5/15 Boot in QEMU ohne POSIX-Schicht"
+step "Boot in QEMU ohne POSIX-Schicht"
 run ./run-qemu.sh --check --no-posix
 
-step "6/15 Selbsttest Page Fault"
+step "Selbsttest Page Fault"
 run ./run-qemu.sh --test-pagefault
 
-step "7/15 Selbsttest Double Fault (echter #DF auf IST-Stapel)"
+step "Selbsttest Double Fault (echter #DF auf IST-Stapel)"
 run ./run-qemu.sh --test-doublefault
 
-step "8/15 Selbsttest Panic-Handler"
+step "Selbsttest Panic-Handler"
 run ./run-qemu.sh --test-panic
 
-step "9/15 Selbsttest .rodata schreibgeschuetzt (#PF erwartet)"
+step "Selbsttest .rodata schreibgeschuetzt (#PF erwartet)"
 run ./run-qemu.sh --test-rodata
 
-step "10/15 Selbsttest NX: Daten ausfuehren (#PF mit Instruktionsabruf erwartet)"
+step "Selbsttest NX: Daten ausfuehren (#PF mit Instruktionsabruf erwartet)"
 run ./run-qemu.sh --test-nx
 
-step "11/15 Selbsttest #GP: nicht kanonische Adresse (kein #PF, sondern #GP)"
+step "Selbsttest #GP: nicht kanonische Adresse (kein #PF, sondern #GP)"
 run ./run-qemu.sh --test-gp
 
-step "12/15 Selbsttest #UD: ungueltige Instruktion (ud2)"
+step "Selbsttest #UD: ungueltige Instruktion (ud2)"
 run ./run-qemu.sh --test-ud
 
-step "13/15 Boot ueber UEFI (OVMF)"
+step "Boot ueber UEFI (OVMF)"
 if ls /usr/share/OVMF/OVMF_CODE*.fd >/dev/null 2>&1; then
     run ./run-qemu.sh --check --uefi
 else
     echo "  => uebersprungen (OVMF nicht installiert)"
 fi
 
-step "14/15 Produktname kommt nur aus branding.rs"
+step "Produktname kommt nur aus branding.rs"
 branding_check() {
     # Kein Produktname als Literal im Quelltext. branding.rs selbst und
     # Verweise auf die eigenen Crates (karst_mem, karst-abi-*) sind erlaubt —
@@ -80,10 +89,10 @@ branding_check() {
 }
 run branding_check
 
-step "15/15 Architekturgrenze und Codehygiene"
+step "Architekturgrenze und Codehygiene"
 arch_leak() {
     local hits
-    hits=$(grep -rnE '\b(cr[0-3]|PML4|PTE|rdmsr|wrmsr|lgdt|lidt|outb|inb|asm!|invlpg|iretq)\b' \
+    hits=$(grep -rnE '\b(cr[0-4]|PML4|PTE|rdmsr|wrmsr|lgdt|lidt|outb|inb|asm!|invlpg|iretq|swapgs|sysret|STAR|LSTAR|SFMASK|SMEP|SMAP)\b' \
              kernel/src --include='*.rs' | grep -v '^kernel/src/arch/')
     # Nur echter Code ist ein Verstoss; ein Kommentar, der die Grenze ERKLAERT,
     # ist keiner. Beides wird gemeldet, aber nur Code laesst den Schritt fallen.
@@ -128,7 +137,7 @@ arch_leak() {
     # einen Schalter in run-qemu.sh — sonst gibt es tote Testpfade, die nie
     # jemand ausfuehrt.
     local feat missing=""
-    for feat in $(grep -oE '^test-[a-z]+' kernel/Cargo.toml); do
+    for feat in $(grep -oE '^test-[a-z0-9]+' kernel/Cargo.toml); do
         grep -q -- "--$feat)" run-qemu.sh || missing="$missing $feat"
     done
     if [[ -n "$missing" ]]; then
@@ -144,6 +153,11 @@ arch_leak() {
     return 0
 }
 run arch_leak
+
+for f in "${EXTRA[@]}"; do
+    # shellcheck source=/dev/null
+    source "$f"
+done
 
 echo
 if [[ $FAIL -eq 0 ]]; then

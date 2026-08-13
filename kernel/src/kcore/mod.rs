@@ -14,7 +14,11 @@
 
 pub mod arch_iface;
 pub mod branding;
+pub mod elf;
+pub mod initramfs;
 pub mod mem;
 pub mod panic;
+pub mod preempt;
 pub mod print;
 pub mod sched;
+pub mod user;

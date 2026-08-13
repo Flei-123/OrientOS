@@ -11,6 +11,10 @@
 #   ./run-qemu.sh --test-nx        Sprung in eine NX-Seite (muss #PF geben)
 #   ./run-qemu.sh --test-gp        nicht kanonische Adresse (muss #GP geben)
 #   ./run-qemu.sh --test-ud        ungueltige Instruktion (muss #UD geben)
+#   ./run-qemu.sh --test-preempt   Verdraengung: Wechsel ohne freiwilliges yield
+#   ./run-qemu.sh --test-ring3     unprivilegiertes Programm + Negativtest
+#   ./run-qemu.sh --test-elf       ELF-Lader aus dem Startdateisystem
+#   ./run-qemu.sh --test-handles   Handle-Negativtests aus Ring 3
 set -uo pipefail
 cd "$(dirname "$0")"
 
@@ -32,6 +36,10 @@ while [[ $# -gt 0 ]]; do
         --test-nx) FEATURES=test-nx; MODE=check; shift ;;
         --test-gp) FEATURES=test-gp; MODE=check; shift ;;
         --test-ud) FEATURES=test-ud; MODE=check; shift ;;
+        --test-preempt) FEATURES=test-preempt; MODE=check; shift ;;
+        --test-ring3) FEATURES=test-ring3; MODE=check; shift ;;
+        --test-elf) FEATURES=test-elf; MODE=check; shift ;;
+        --test-handles) FEATURES=test-handles; MODE=check; shift ;;
         --no-posix) NOPOSIX=1; shift ;;
         --timeout) TIMEOUT="$2"; shift 2 ;;
         -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
@@ -257,6 +265,38 @@ if [[ "$MODE" == check ]]; then
             check "ud2 gibt #UD"                  '#UD ungueltige Instruktion'
             check "RIP der Ausnahme wird genannt" 'RIP      : 0xffffffff8[0-9a-f]+'
             checknot "ud2 nicht uebergangen"      'ud2 hat keine Ausnahme ausgeloest'
+            ;;
+        # --------------------------------------------------------------------
+        # Die folgenden vier Bloecke sind der VERTRAG der Runde-3-Module: genau
+        # diese Zeilen muss der Kernel ins Log schreiben. Wer sein Modul baut,
+        # baut gegen diese Muster (siehe PLAN.md, Abschnitt "Log-Vertrag").
+        test-preempt)
+            check "Verdraengung ist aktiv"        'Praeemption : aktiv'
+            check "erzwungene Wechsel gezaehlt"   'praeemptive Wechsel: [1-9][0-9]*'
+            check "freiwillige Wechsel getrennt"  'kooperative Wechsel: [0-9]+'
+            check "Threads ohne yield wechseln"   'ohne yield: [0-9]+ Wechsel zwischen [2-9] Threads'
+            check "Tickverteilung je Thread"      'Thread [0-9]+: Prio [0-9]+, [0-9]+ Ticks'
+            check "Prioritaet wirkt messbar"      'Prioritaet wirkt: .* (>|mehr) '
+            ;;
+        test-ring3)
+            check "unprivilegiert gelaufen"       'Ring 3      : CS=0x[0-9a-f]+ \(RPL=3\), CPL=3'
+            check "Stapel im User-Bereich"        'Stapel=0x0000[0-9a-f]+'
+            check "Systemaufruf kam an"           '[0-9]+ Systemaufruf\(e\)'
+            check "Programm sauber beendet"       'Ring 3      : .*Ende [0-9]+'
+            check "Negativtest: Kernelzugriff"    'Ring-3-Zugriff auf Kerneladresse .*abgewiesen'
+            check "Kernel laeuft danach weiter"   'Startvorgang abgeschlossen'
+            ;;
+        test-elf)
+            check "Archiv gefunden"               'Initramfs   : [1-9][0-9]* Eintraege'
+            check "Abbild geladen"                'ELF-Lader   : .* Segmente? geladen, Einsprung 0x'
+            check "Segmentrechte gemeldet"        'Segment [0-9]+: 0x[0-9a-f]+ .* (RX|RW|R)\b'
+            check "Muell wird abgewiesen"         'ELF-Negativtest: ([0-9]+)/\1 Faelle wie erwartet abgewiesen'
+            ;;
+        test-handles)
+            check "Handle-Negativtest lief"       'Handle-Negativtest: ([0-9]+)/\1 abgewiesen'
+            check "ungueltiger Index abgewiesen"  'ungueltiger Index ok'
+            check "alte Generation abgewiesen"    'veraltete Generation ok'
+            check "fehlendes Recht abgewiesen"    'fehlendes Recht ok'
             ;;
     esac
     if [[ $fail -eq 0 ]]; then

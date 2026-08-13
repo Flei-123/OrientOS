@@ -12,11 +12,14 @@ pub mod msr;
 pub mod paging;
 pub mod pic;
 pub mod port;
+pub mod preempt;
 pub mod selftest;
 pub mod serial;
 pub mod timer;
+pub mod user;
 
-use crate::kcore::arch_iface::{ArchOps, InterruptCtlOps};
+use crate::kcore::arch_iface::{ArchOps, CpuFeatures, InterruptCtlOps, UserExit};
+use crate::kcore::mem::VirtAddr;
 
 /// Markertyp der Architektur.
 pub struct X86_64;
@@ -80,8 +83,45 @@ impl ArchOps for X86_64 {
         cpu::cpu_brand(buf)
     }
 
-    fn fault_stack_top() -> Option<crate::kcore::mem::VirtAddr> {
-        Some(crate::kcore::mem::VirtAddr(gdt::double_fault_stack_top()))
+    fn fault_stack_top() -> Option<VirtAddr> {
+        Some(VirtAddr(gdt::double_fault_stack_top()))
+    }
+
+    // Die folgenden Methoden sind bewusst reine Weiterleitungen: die Arbeit
+    // steht in `preempt.rs` bzw. `user.rs`, damit diese Datei die Uebersicht
+    // ueber die Architektur bleibt und zwei Baustellen sich nicht ins Gehege
+    // kommen.
+
+    unsafe fn set_preemption(on: bool) -> bool {
+        unsafe { preempt::set_enabled(on) }
+    }
+
+    fn preemption_available() -> bool {
+        preempt::available()
+    }
+
+    fn cpu_features() -> CpuFeatures {
+        user::features()
+    }
+
+    unsafe fn init_user_support() -> bool {
+        unsafe { user::init() }
+    }
+
+    fn user_support_ready() -> bool {
+        user::ready()
+    }
+
+    fn set_kernel_stack(top: VirtAddr) {
+        user::set_kernel_stack(top)
+    }
+
+    unsafe fn enter_user(entry: VirtAddr, stack_top: VirtAddr) -> UserExit {
+        unsafe { user::enter(entry, stack_top) }
+    }
+
+    fn code_selector() -> u16 {
+        user::code_selector()
     }
 }
 

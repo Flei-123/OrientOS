@@ -5,6 +5,11 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+# Der OS-Name lebt hier und NUR hier. kernel/build.rs reicht ihn als
+# env!("BRANDING_OS_NAME") an kcore::branding weiter.
+[package.metadata.branding]
+os-name = "Karstos"
+
 [[bin]]
 name = "karst"
 path = "src/main.rs"

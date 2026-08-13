@@ -79,6 +79,10 @@ impl ArchOps for X86_64 {
     fn cpu_brand(buf: &mut [u8]) -> usize {
         cpu::cpu_brand(buf)
     }
+
+    fn fault_stack_top() -> Option<crate::kcore::mem::VirtAddr> {
+        Some(crate::kcore::mem::VirtAddr(gdt::double_fault_stack_top()))
+    }
 }
 
 /// Beendet QEMU mit einem Statuscode (`-device isa-debug-exit,iobase=0xf4`).

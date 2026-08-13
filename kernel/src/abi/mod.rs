@@ -11,6 +11,15 @@
 //! Der Kernel-Core darf NIEMALS aus `posix` importieren. Umgekehrt kennt `posix`
 //! ausschliesslich die ABI-Crate, keine Kernelinterna.
 
+/// Beschreibung fuer das Boot-Log, wenn die POSIX-Schicht dabei ist.
+#[cfg(feature = "posix")]
+const NATIVE_WITH_POSIX: &str =
+    concat!(env!("BRANDING_KERNEL_NAME"), "-native + posix (abwaehlbar)");
+/// Beschreibung fuer das Boot-Log ohne POSIX-Schicht.
+#[cfg(not(feature = "posix"))]
+const NATIVE_ONLY: &str =
+    concat!(env!("BRANDING_KERNEL_NAME"), "-native (POSIX nicht einkompiliert)");
+
 pub mod native;
 
 #[cfg(feature = "posix")]
@@ -20,10 +29,10 @@ pub mod posix;
 pub fn enabled() -> &'static str {
     #[cfg(feature = "posix")]
     {
-        "karst-native + posix (abwaehlbar)"
+        NATIVE_WITH_POSIX
     }
     #[cfg(not(feature = "posix"))]
     {
-        "karst-native (POSIX nicht einkompiliert)"
+        NATIVE_ONLY
     }
 }

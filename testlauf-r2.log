@@ -1,0 +1,2106 @@
+
+################ 1/15 Host-Tests der architekturunabhaengigen Crates ################
+    Finished `test` profile [optimized + debuginfo] target(s) in 0.01s
+     Running unittests src/lib.rs (target/x86_64-unknown-linux-gnu/debug/build/karst-abi-native/ce7c006e3993868c/out/karst_abi_native-ce7c006e3993868c)
+
+running 33 tests
+test handle::tests::check_accepts_supersets_and_rejects_missing_bits ... ok
+test handle::tests::entry_keeps_handle_kind_and_rights ... ok
+test handle::tests::different_generations_are_different_handles ... ok
+test handle::tests::closed_handles_never_reopen_a_reused_slot ... ok
+test handle::tests::object_kinds_have_stable_distinct_numbers ... ok
+test handle::tests::rights_are_enforced ... ok
+test handle::tests::rights_survive_the_table_and_are_checked_per_operation ... ok
+test handle::tests::slot_and_generation_fields_do_not_bleed_into_each_other ... ok
+test handle::tests::slot_and_generation_roundtrip_over_the_whole_range ... ok
+test handle::tests::slot_generation_roundtrip ... ok
+test handle::tests::table_rejects_invalid_and_out_of_range_handles ... ok
+test rights::tests::all_covers_exactly_the_defined_bits ... ok
+test rights::tests::none_is_neutral_and_always_contained ... ok
+test rights::tests::restrict_and_union_are_exhaustively_sound ... ok
+test rights::tests::rights_can_only_shrink ... ok
+test rights::tests::undefined_bits_are_not_part_of_all ... ok
+test syscall::tests::abi_version_is_reported_and_nonzero ... ok
+test syscall::tests::all_numbers_roundtrip ... ok
+test syscall::tests::max_matches_the_table_size ... ok
+test syscall::tests::names_are_unique_and_in_snake_case ... ok
+test syscall::tests::syscalls_are_copy_and_comparable ... ok
+test syscall::tests::the_native_abi_has_no_posix_shaped_calls ... ok
+test syscall::tests::unknown_numbers_are_rejected_without_panicking ... ok
+test tests::encoding_is_unambiguous ... ok
+test tests::error_names_are_unique_and_nonempty ... ok
+test tests::error_numbers_are_dense_distinct_and_negative ... ok
+test tests::encode_never_confuses_success_and_error ... ok
+test tests::out_of_contract_success_values_are_clamped_not_wrapped ... ok
+test tests::result_alias_carries_the_error_type ... ok
+test tests::success_values_stay_non_negative ... ok
+test handle::tests::full_table_reports_exhausted_and_recovers_after_close ... ok
+test handle::tests::invalid_handle_stays_invalid ... ok
+test tests::every_error_encodes_to_its_own_raw_value ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/x86_64-unknown-linux-gnu/debug/build/karst-abi-posix/8b17b5b105b38195/out/karst_abi_posix-8b17b5b105b38195)
+
+running 21 tests
+test errno::tests::errno_is_copy_and_comparable ... ok
+test errno::tests::names_match_the_variants_and_are_unique ... ok
+test errno::tests::all_values_match_the_linux_numbering ... ok
+test errno::tests::negation_stays_in_the_return_channel ... ok
+test errno::tests::values_are_distinct_and_strictly_positive ... ok
+test errno::tests::values_match_posix ... ok
+test tests::errors_become_negative_errno ... ok
+test tests::every_native_error_maps_to_a_distinct_positive_errno ... ok
+test tests::fork_stays_unsupported_and_says_so_in_posix_terms ... ok
+test tests::full_fd_table_reports_emfile ... ok
+test tests::native_errors_are_translated_on_every_call ... ok
+test tests::oflags_map_to_capabilities ... ok
+test tests::oflags_never_grant_unrelated_rights ... ok
+test tests::open_maps_flags_to_rights_in_the_native_call ... ok
+test tests::open_read_close_translates_to_native ... ok
+test tests::open_uses_the_lowest_free_fd_and_close_frees_it ... ok
+test tests::posix_return_convention_is_negative_errno ... ok
+test tests::read_and_write_pass_handle_buffer_and_length_through ... ok
+test tests::the_layer_holds_no_state_of_its_own ... ok
+test tests::unknown_fds_never_reach_the_native_layer ... ok
+test errno::tests::table_is_complete_and_sorted ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/x86_64-unknown-linux-gnu/debug/build/karst-mem/e38ff07ac65c2542/out/karst_mem-e38ff07ac65c2542)
+
+running 75 tests
+test bitmap::tests::alloc_and_free_roundtrip ... ok
+test bitmap::tests::all_used_initially ... ok
+test bitmap::tests::allocations_never_overlap ... ok
+test bitmap::tests::allocation_spans_word_boundaries ... ok
+test bitmap::tests::alloc_rejects_impossible_counts ... ok
+test bitmap::tests::contiguous_allocation_skips_used ... ok
+test bitmap::tests::contiguous_request_at_the_very_end_fits_exactly ... ok
+test bitmap::tests::cursor_wraps_around_and_reuses_freed_frames ... ok
+test bitmap::tests::empty_and_reversed_ranges_do_nothing ... ok
+test bitmap::tests::fragmentation_blocks_large_contiguous_requests ... ok
+test bitmap::tests::frame_count_need_not_be_a_multiple_of_64 ... ok
+test bitmap::tests::free_with_wrapping_index_is_rejected ... ok
+test bitmap::tests::cursor_never_points_outside_after_free ... ok
+test bitmap::tests::exhaustion_reports_oom ... ok
+test bitmap::tests::allocator_recovers_full_capacity_after_random_churn ... ok
+test bitmap::tests::free_outside_bitmap_is_rejected ... ok
+test bitmap::tests::ranges_beyond_the_end_are_clamped_not_wrapped ... ok
+test bitmap::tests::reserve_and_free_are_idempotent ... ok
+test bitmap::tests::undersized_backing_store_panics_at_construction - should panic ... ok
+test bitmap::tests::single_frame_bitmap_works ... ok
+test bitmap::tests::zero_frame_bitmap_never_allocates ... ok
+test bitmap::tests::words_needed_rounds_up ... ok
+test heap::tests::absurd_sizes_fail_without_wrapping ... ok
+test heap::tests::alloc_free_roundtrip_restores_space ... ok
+test heap::tests::dealloc_accepts_a_different_but_compatible_layout ... ok
+test heap::tests::exhaustion_returns_null_and_recovers ... ok
+test heap::tests::free_order_does_not_matter_for_coalescing ... ok
+test heap::tests::empty_heap_serves_nothing ... ok
+test heap::tests::header_survives_alignment_padding ... ok
+test heap::tests::exact_fit_leaves_no_hole ... ok
+test heap::tests::first_fit_reuses_the_freed_address ... ok
+test heap::tests::oversized_requests_fail_without_overflowing ... ok
+test heap::tests::many_allocations_do_not_overlap ... ok
+test heap::tests::repeated_rounds_yield_the_same_capacity ... ok
+test heap::tests::several_regions_are_all_usable ... ok
+test heap::tests::respects_large_alignment ... ok
+test heap::tests::regions_that_would_overflow_the_address_space_are_ignored ... ok
+test heap::tests::stats_are_internally_consistent ... ok
+test heap::tests::stats_report_fragmentation_honestly ... ok
+test heap::tests::useless_regions_are_ignored ... ok
+test heap::tests::writes_do_not_corrupt_neighbours ... ok
+test heap::tests::zero_sized_allocation_is_unique_and_freeable ... ok
+test heap::tests::very_large_alignments_are_honoured ... ok
+test heap::tests::unaligned_region_is_trimmed_but_stays_correct ... ok
+test region::tests::empty_memory_map_summarizes_to_zero ... ok
+test region::tests::every_kind_has_a_distinct_name ... ok
+test region::tests::fragmented_map_is_summed_completely ... ok
+test region::tests::frames_for_rounds_down_to_whole_frames ... ok
+test region::tests::map_without_usable_memory_yields_no_frames ... ok
+test region::tests::only_usable_memory_may_be_allocated_from ... ok
+test region::tests::page_alignment_shrinks_region ... ok
+test region::tests::reclaimable_counts_separately_from_usable ... ok
+test region::tests::regions_at_the_top_of_the_address_space_yield_no_frames ... ok
+test region::tests::summary_counts_only_usable ... ok
+test region::tests::region_end_and_alignment_edge_cases ... ok
+test region::tests::region_end_saturates_instead_of_wrapping ... ok
+test region::tests::summary_saturates_on_absurd_lengths ... ok
+test region::tests::zero_length_regions_are_harmless ... ok
+test region::tests::tops_ignore_far_mmio_holes ... ok
+test testrand::tests::range_and_chance_stay_in_bounds ... ok
+test region::tests::summary_invariants_hold_for_random_maps ... ok
+test testrand::tests::lcg_is_deterministic_and_spread ... ok
+test tests::align_edge_cases ... ok
+test tests::align_is_idempotent ... ok
+test tests::align_up_checked_reports_overflow_instead_of_wrapping ... ok
+test tests::align_up_checked_agrees_with_align_up_where_defined ... ok
+test tests::align_properties_hold_for_random_values ... ok
+test tests::overlapping_and_unsorted_map_never_yields_reserved_frames ... ok
+test tests::align_works ... ok
+test tests::bitmap_from_map_only_hands_out_usable_frames ... ok
+test tests::page_size_is_a_power_of_two ... ok
+test tests::torn_map_with_unaligned_edges_is_trimmed_inward ... ok
+test tests::random_torn_maps_never_leak_frames_outside_usable_memory ... ok
+test heap::tests::random_alloc_free_matches_reference_model ... ok
+test bitmap::tests::random_alloc_free_matches_reference_model ... ok
+
+test result: ok. 75 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+   Doc-tests karst_abi_native
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests karst_abi_posix
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests karst_mem
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+  => bestanden
+
+################ 2/15 Kernel baut (Release, mit POSIX) ################
+>> cargo build (release)
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.06s
+>> Symboltabelle fuer Backtraces
+>> ISO bauen
+xorriso 1.5.4 : RockRidge filesystem manipulator, libburnia project.
+
+Physical block size of 512 bytes.
+Installing to GPT. Logical block size of 512 bytes.
+Secondary header at LBA 0x2f17.
+Secondary header valid.
+Detected ISOHYBRID with a GUID partition table (GPT).
+Converting to MBR for improved compatibility...
+Conversion successful.
+No active partition found, some systems may not boot.
+Setting partition 1 as active to work around the issue...
+Installing to MBR.
+Stage 2 to be located at 0x200 and 0x2800.
+Reminder: Remember to copy the limine-bios.sys file in either
+          the root, /boot, /limine, or /boot/limine directories of
+          one of the partitions on the device, or boot will fail!
+Limine BIOS stages installed successfully!
+>> fertig: build/karstos.iso (6028 KiB), Kernel 2252 KiB
+  => bestanden
+
+################ 3/15 Kernel baut OHNE POSIX-Schicht ################
+>> cargo build (release)
+   Compiling karst v0.1.0 (/root/jarvis/projects/u_DiS4in7esMF1/karstos/kernel)
+    Finished `release` profile [optimized + debuginfo] target(s) in 3.02s
+>> Symboltabelle fuer Backtraces
+>> ISO bauen
+xorriso 1.5.4 : RockRidge filesystem manipulator, libburnia project.
+
+Physical block size of 512 bytes.
+Installing to GPT. Logical block size of 512 bytes.
+Secondary header at LBA 0x2f13.
+Secondary header valid.
+Detected ISOHYBRID with a GUID partition table (GPT).
+Converting to MBR for improved compatibility...
+Conversion successful.
+No active partition found, some systems may not boot.
+Setting partition 1 as active to work around the issue...
+Installing to MBR.
+Stage 2 to be located at 0x200 and 0x2800.
+Reminder: Remember to copy the limine-bios.sys file in either
+          the root, /boot, /limine, or /boot/limine directories of
+          one of the partitions on the device, or boot will fail!
+Limine BIOS stages installed successfully!
+>> fertig: build/karstos.iso (6026 KiB), Kernel 2251 KiB
+  => bestanden
+
+################ 4/15 Boot in QEMU (BIOS) ################
+>> cargo build (release)
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.06s
+>> Symboltabelle fuer Backtraces
+>> ISO bauen
+xorriso 1.5.4 : RockRidge filesystem manipulator, libburnia project.
+
+Physical block size of 512 bytes.
+Installing to GPT. Logical block size of 512 bytes.
+Secondary header at LBA 0x2f17.
+Secondary header valid.
+Detected ISOHYBRID with a GUID partition table (GPT).
+Converting to MBR for improved compatibility...
+Conversion successful.
+No active partition found, some systems may not boot.
+Setting partition 1 as active to work around the issue...
+Installing to MBR.
+Stage 2 to be located at 0x200 and 0x2800.
+Reminder: Remember to copy the limine-bios.sys file in either
+          the root, /boot, /limine, or /boot/limine directories of
+          one of the partitions on the device, or boot will fail!
+Limine BIOS stages installed successfully!
+>> fertig: build/karstos.iso (6028 KiB), Kernel 2252 KiB
+--- serielle Ausgabe (build/boot.270503.log) ---
+
+================================================================
+[karst] boot       karst v0.1.0 — Kernel von Karstos
+[karst] boot       Architektur : x86_64 (Basisseite 4096 B)
+[karst] boot       ABI         : karst-native + posix (abwaehlbar)
+[karst] boot       Konfiguration: Bauart release, POSIX ja, Fehler-Selbsttest keine (normaler Boot)
+[karst] boot       CPU         : QEMU Virtual CPU version 2.5+
+[karst] boot       Bootloader  : Limine 9.6.7
+[karst] boot       Stapel      : 64 KiB angefordert, gewaehrt
+[karst] mm         HHDM-Fenster: virt = phys + 0xffff800000000000
+[karst] mm         Kernelabbild: phys 0x000000001fcdd000 -> virt 0xffffffff80000000
+[karst] mm           .text  0xffffffff80000000..0xffffffff80014000  (80 KiB, R+X)
+[karst] mm           .rodata0xffffffff80014000..0xffffffff80019000  (20 KiB, R)
+[karst] mm           .data  0xffffffff80019000..0xffffffff8002b000  (72 KiB, R+W, NX)
+[karst] mm           gesamt 172 KiB geladenes Abbild (43 Seiten a 4096 B)
+[karst] video      Framebuffer : 1280x800 @ 32 bpp -> Textkonsole 160x50
+[karst] cpu        GDT + TSS geladen, Datensegmente flach
+[karst] cpu        IDT: 256 Tore, Ausnahmen 0..21 belegt
+[karst] cpu        schwerste Ausnahme laeuft auf eigenem Notfallstapel (0xffffffff8001fa20)
+[karst] cpu        NX aktiv, CR0.WP aktiv
+[karst] irq        8259A-PIC (umgeleitet auf 0x20) initialisiert, alle Leitungen maskiert
+[karst] trap       #BP Breakpoint bei RIP=0xffffffff80006da0 — setze fort
+[karst] cpu        Selbsttest: #BP ausgeloest und sauber fortgesetzt
+[karst] mm         Memory-Map (16 Eintraege):
+[karst] mm           0x000000001000..0x000000052000    324 KiB  bootloader-reclaimable
+[karst] mm           0x000000052000..0x00000009f000    308 KiB  usable
+[karst] mm           0x00000009fc00..0x0000000a0000      1 KiB  reserved
+[karst] mm           0x0000000f0000..0x000000100000     64 KiB  reserved
+[karst] mm           0x000000100000..0x00001fcd8000    507 MiB  usable
+[karst] mm           0x00001fcd8000..0x00001fcdd000     20 KiB  bootloader-reclaimable
+[karst] mm           0x00001fcdd000..0x00001fd08000    172 KiB  kernel+modules
+[karst] mm           0x00001fd08000..0x00001ff42000      2 MiB  bootloader-reclaimable
+[karst] mm           0x00001ff42000..0x00001ff5c000    104 KiB  usable
+[karst] mm           0x00001ff5c000..0x00001ffdf000    524 KiB  bootloader-reclaimable
+[karst] mm           0x00001ffdf000..0x000020000000    132 KiB  reserved
+[karst] mm           0x0000b0000000..0x0000c0000000    256 MiB  reserved
+[karst] mm           0x0000fd000000..0x0000fd3e8000      3 MiB  framebuffer
+[karst] mm           0x0000fed1c000..0x0000fed20000     16 KiB  reserved
+[karst] mm           0x0000fffc0000..0x000100000000    256 KiB  reserved
+[karst] mm           0x00fd00000000..0x010000000000     12 GiB  reserved
+[karst] mm         Memory-Map  : 16 Regionen, 77 Frames unter 1 MiB gesperrt, 0 Frames wegen Ueberschneidung nachreserviert
+[karst] mm         Speicher    : 12 GiB gesamt, davon 508 MiB nutzbar
+[karst] mm         Frames      : 131039 verwaltet, 130030 frei (507 MiB)
+[karst] mm         Frame-Bitmap: 16 KiB bei phys 0x000000100000
+[karst] mm         Vor Umschaltung geprueft: 5/5 Pflichtbereiche im neuen Adressraum erreichbar
+[karst] mm         Abbild nachgeprueft: 43 Seiten virt->phys korrekt (.text RX, .rodata R, .data RW), HHDM-Raender ok
+[karst] mm         Eigener Adressraum aktiv (CR3 = 0x000000104000)
+[karst] mm           HHDM   : 3 GiB als 2026 grosse Seiten
+[karst] mm           Abbild : 43 Seiten mit getrennten Rechten
+[karst] mm           Stapel : 0 Seiten vom Bootloader uebernommen
+[karst] mm         Selbsttest Paging: map 0xffffff0010000000 -> 0x00000010d000, schreiben/lesen ok, translate ok, unmap ok
+[karst] mm         Selbsttest MapError: 23/23 Fehlerfaelle nachweisbar ausgeloest (Misaligned 10, AlreadyMapped 3, NotMapped 4, OutOfFrames 4, ParentHugePage 2)
+[karst] mm         Selbsttest Grenzfaelle: 13/13 Zusagen erfuellt (translate mit Versatz, 2-MiB-Seite abbilden/uebersetzen/aufloesen, Tabellengrenze, Ruecknahme halber Teilbaeume), 7 Frames als Tabellen im Probebaum
+[karst] mm         Selbsttest Adressrechnung: 8/8 Zusagen erfuellt (Ausrichtung, Ueberlauf, Kanonizitaet, HHDM-Fenster, Rechte, Fehlertexte)
+[karst] mm         Selbsttest Memory-Map: 6/6 Zusagen erfuellt (4 kaputte Karten abgewiesen, zerrissene Karte: 257 Frames nachreserviert)
+[karst] mm         Selbsttest Frames: 26/26 Zusagen erfuellt, 130011 frei
+[karst] mm           Frame-Fehlerpfade: 4 abgewiesene Rueckgaben, 20 erschoepfte Anforderungen, Tiefstand 0 frei
+[karst] mm           Frame-Buchhaltung: 1028 belegt + 130011 frei = 131039 verwaltet, stimmig: ja
+[karst] heap       Kernel-Heap : 1024 KiB bei virt 0xffffff0000000000 (eigener Free-List-Allocator)
+[karst] heap       Testallokation: Box@0xffffff0000000010 = 0xdeadbeef
+[karst] heap       Testallokation: Vec mit 1024 Elementen, Summe 357389824, String "Karstos lebt"
+[karst] heap       belegt 8272 B von 1048576 B
+[karst] heap       nach Freigabe: belegt 0 B von 1048576 B
+[karst] heap         Heap-Wachstum: 2166784 B abgebildet (vorher 1048576 B), 1 Erweiterung(en), 5 abgelehnt, Grenze 16777216 B, Spielraum 14610432 B
+[karst] heap         Heap-Wachstumsfehler nachweisbar: Groesse 0 ok, ueber der Grenze ok, Frame-Allocator besetzt ok (Frame-Allocator gerade gesperrt)
+[karst] heap       Selbsttest Heap: 13/13 Zusagen erfuellt, 0 B belegt, 1 Loecher
+[karst] heap         Heap-Fehlerpfade: 16781312 B Anforderung abgewiesen (groesstes Loch 2166784 B), Zustand unveraendert: ja
+[karst] heap         Heap-Randfaelle: Groesse 0 ok, Loch wiederverwendet ok, alle 8 Zeiger im Fenster 0xffffff0000000000..0xffffff0000211000 ok
+[karst] abi        karst-native: Version=1, Handles=1, altes Handle -> BadHandle
+[karst] abi        posix-Schicht aktiv: read(2) auf unbekannten Fd -> -9 (erwartet -9 = -EBADF)
+[karst] irq        Zeitgeber laeuft mit 100 Hz, Interrupts frei (IF gesetzt)
+[karst] irq        Tick 1 — 1 s Laufzeit, 100 Ticks gezaehlt
+[karst] irq        Tick 2 — 2 s Laufzeit, 200 Ticks gezaehlt
+[karst] irq        Tick 3 — 3 s Laufzeit, 300 Ticks gezaehlt
+[karst] irq        Tick 4 — 4 s Laufzeit, 400 Ticks gezaehlt
+[karst] irq        Tick 5 — 5 s Laufzeit, 500 Ticks gezaehlt
+[karst] sched      Thread A (Kennung 1): Durchlauf 1/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 1/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 2/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 2/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 3/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 3/3
+[karst] sched      Threadwechsel: 16 Wechsel, zurueck in kmain (2 Threads a 16 KiB Stapel, Spur 121212, 5/5 Zusagen)
+[karst] sched      Thread W (Kennung 1): blockiert bis zum Wecken
+[karst] sched      Thread S (Kennung 2): schlaeft 3 Ticks
+[karst] sched      Thread S: nach 3 Ticks aufgewacht
+[karst] sched      Thread S: weckt Thread W (Kennung 1)
+[karst] sched      Thread W: geweckt, laeuft weiter
+[karst] sched      Schlafen/Wecken: 3 Ticks geschlafen (>= 3), 1 Zeitweckung(en), 3 Leerlaufwarten, Wartender geweckt: ja, 7/7 Zusagen
+[karst] sched      Stapelnutzung: hoechstens 576 von 16384 B je Thread benutzt, Wachzonen unversehrt
+[karst] sched      Thread V (Kennung 1): blockiert ohne Wecker
+[karst] sched      Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck, 1 Thread(s) blockiert, Meldung gesetzt, 3/3 Zusagen
+[karst] boot       Selbsttestbilanz: 79/79 bestanden (#BP 1/1, Paging 3/3, MapError 36/36, Frames 26/26, Heap 13/13)
+[karst] boot       Startbilanz : 129480 Frames frei (1559 belegt), Heap 0 / 2166784 B belegt, 508 Ticks
+[karst] boot       Startvorgang abgeschlossen. karst laeuft.
+================================================================
+--- Auswertung ---
+  [ ok ] Abbruchmarke 'Startvorgang abgeschlossen' nach 6 s erreicht (Grenze 25 s)
+  [ ok ] Kernel meldet sich
+  [ ok ] Bootloader nennt sich
+  [ ok ] HHDM-Fenster bekannt
+  [ ok ] Kernelabbild vermessen
+  [ ok ] Rechte je Sektion gemeldet
+  [ ok ] #DF hat eigenen Notfallstapel
+  [ ok ] CPU erkannt
+  [ ok ] Framebuffer-Textkonsole steht
+  [ ok ] Stapel vom Bootloader
+  [ ok ] native ABI antwortet
+  [ ok ] Memory-Map gelesen
+  [ ok ] Frame-Allocator laeuft
+  [ ok ] eigener Adressraum aktiv
+  [ ok ] Paging-Selbsttest ok
+  [ ok ] Heap eingerichtet
+  [ ok ] Heap-Allokation funktioniert
+  [ ok ] Breakpoint-Trap kehrt zurueck
+  [ ok ] Timer-Interrupts kommen an
+  [ ok ] MapError-Selbsttest laeuft
+  [ ok ] Frame-Selbsttest laeuft
+  [ ok ] Heap-Selbsttest laeuft
+  [ ok ] Heap nach Freigabe wieder leer
+  [ ok ] Scheduler meldet seinen Stand
+  [ ok ] Startbilanz vorhanden
+  [ ok ] Startvorgang abgeschlossen
+  [ ok ] Konfiguration: normaler Boot
+  [ ok ] Konfiguration: POSIX ja
+  [ ok ] Adressraum vor Heap (Zeile 47 vor Zeile 59)
+  [ ok ] Heap vor Timer (Zeile 59 vor Zeile 71)
+  [ ok ] Timer vor Startbilanz (Zeile 71 vor Zeile 94)
+  [ ok ] alle Selbsttests bestanden (79/79)
+  [ ok ] kein Selbsttest meldet FEHLER
+  [ ok ] keine FEHLER-Meldung im Log
+  [ ok ] keine WARNUNG im Log
+  [ ok ] keine unerwartete CPU-Ausnahme
+  [ ok ] kein Panic beim normalen Boot
+  [ ok ] POSIX uebersetzt EBADF
+ERGEBNIS: alle Pruefungen bestanden.
+  => bestanden
+
+################ 5/15 Boot in QEMU ohne POSIX-Schicht ################
+>> cargo build (release)
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.05s
+>> Symboltabelle fuer Backtraces
+>> ISO bauen
+xorriso 1.5.4 : RockRidge filesystem manipulator, libburnia project.
+
+Physical block size of 512 bytes.
+Installing to GPT. Logical block size of 512 bytes.
+Secondary header at LBA 0x2f13.
+Secondary header valid.
+Detected ISOHYBRID with a GUID partition table (GPT).
+Converting to MBR for improved compatibility...
+Conversion successful.
+No active partition found, some systems may not boot.
+Setting partition 1 as active to work around the issue...
+Installing to MBR.
+Stage 2 to be located at 0x200 and 0x2800.
+Reminder: Remember to copy the limine-bios.sys file in either
+          the root, /boot, /limine, or /boot/limine directories of
+          one of the partitions on the device, or boot will fail!
+Limine BIOS stages installed successfully!
+>> fertig: build/karstos.iso (6026 KiB), Kernel 2251 KiB
+--- serielle Ausgabe (build/boot.270674.log) ---
+
+================================================================
+[karst] boot       karst v0.1.0 — Kernel von Karstos
+[karst] boot       Architektur : x86_64 (Basisseite 4096 B)
+[karst] boot       ABI         : karst-native (POSIX nicht einkompiliert)
+[karst] boot       Konfiguration: Bauart release, POSIX nein, Fehler-Selbsttest keine (normaler Boot)
+[karst] boot       CPU         : QEMU Virtual CPU version 2.5+
+[karst] boot       Bootloader  : Limine 9.6.7
+[karst] boot       Stapel      : 64 KiB angefordert, gewaehrt
+[karst] mm         HHDM-Fenster: virt = phys + 0xffff800000000000
+[karst] mm         Kernelabbild: phys 0x000000001fcde000 -> virt 0xffffffff80000000
+[karst] mm           .text  0xffffffff80000000..0xffffffff80014000  (80 KiB, R+X)
+[karst] mm           .rodata0xffffffff80014000..0xffffffff80019000  (20 KiB, R)
+[karst] mm           .data  0xffffffff80019000..0xffffffff8002b000  (72 KiB, R+W, NX)
+[karst] mm           gesamt 172 KiB geladenes Abbild (43 Seiten a 4096 B)
+[karst] video      Framebuffer : 1280x800 @ 32 bpp -> Textkonsole 160x50
+[karst] cpu        GDT + TSS geladen, Datensegmente flach
+[karst] cpu        IDT: 256 Tore, Ausnahmen 0..21 belegt
+[karst] cpu        schwerste Ausnahme laeuft auf eigenem Notfallstapel (0xffffffff8001fa20)
+[karst] cpu        NX aktiv, CR0.WP aktiv
+[karst] irq        8259A-PIC (umgeleitet auf 0x20) initialisiert, alle Leitungen maskiert
+[karst] trap       #BP Breakpoint bei RIP=0xffffffff80006da0 — setze fort
+[karst] cpu        Selbsttest: #BP ausgeloest und sauber fortgesetzt
+[karst] mm         Memory-Map (16 Eintraege):
+[karst] mm           0x000000001000..0x000000052000    324 KiB  bootloader-reclaimable
+[karst] mm           0x000000052000..0x00000009f000    308 KiB  usable
+[karst] mm           0x00000009fc00..0x0000000a0000      1 KiB  reserved
+[karst] mm           0x0000000f0000..0x000000100000     64 KiB  reserved
+[karst] mm           0x000000100000..0x00001fcd9000    507 MiB  usable
+[karst] mm           0x00001fcd9000..0x00001fcde000     20 KiB  bootloader-reclaimable
+[karst] mm           0x00001fcde000..0x00001fd09000    172 KiB  kernel+modules
+[karst] mm           0x00001fd09000..0x00001ff42000      2 MiB  bootloader-reclaimable
+[karst] mm           0x00001ff42000..0x00001ff5c000    104 KiB  usable
+[karst] mm           0x00001ff5c000..0x00001ffdf000    524 KiB  bootloader-reclaimable
+[karst] mm           0x00001ffdf000..0x000020000000    132 KiB  reserved
+[karst] mm           0x0000b0000000..0x0000c0000000    256 MiB  reserved
+[karst] mm           0x0000fd000000..0x0000fd3e8000      3 MiB  framebuffer
+[karst] mm           0x0000fed1c000..0x0000fed20000     16 KiB  reserved
+[karst] mm           0x0000fffc0000..0x000100000000    256 KiB  reserved
+[karst] mm           0x00fd00000000..0x010000000000     12 GiB  reserved
+[karst] mm         Memory-Map  : 16 Regionen, 77 Frames unter 1 MiB gesperrt, 0 Frames wegen Ueberschneidung nachreserviert
+[karst] mm         Speicher    : 12 GiB gesamt, davon 508 MiB nutzbar
+[karst] mm         Frames      : 131039 verwaltet, 130031 frei (507 MiB)
+[karst] mm         Frame-Bitmap: 16 KiB bei phys 0x000000100000
+[karst] mm         Vor Umschaltung geprueft: 5/5 Pflichtbereiche im neuen Adressraum erreichbar
+[karst] mm         Abbild nachgeprueft: 43 Seiten virt->phys korrekt (.text RX, .rodata R, .data RW), HHDM-Raender ok
+[karst] mm         Eigener Adressraum aktiv (CR3 = 0x000000104000)
+[karst] mm           HHDM   : 3 GiB als 2026 grosse Seiten
+[karst] mm           Abbild : 43 Seiten mit getrennten Rechten
+[karst] mm           Stapel : 0 Seiten vom Bootloader uebernommen
+[karst] mm         Selbsttest Paging: map 0xffffff0010000000 -> 0x00000010d000, schreiben/lesen ok, translate ok, unmap ok
+[karst] mm         Selbsttest MapError: 23/23 Fehlerfaelle nachweisbar ausgeloest (Misaligned 10, AlreadyMapped 3, NotMapped 4, OutOfFrames 4, ParentHugePage 2)
+[karst] mm         Selbsttest Grenzfaelle: 13/13 Zusagen erfuellt (translate mit Versatz, 2-MiB-Seite abbilden/uebersetzen/aufloesen, Tabellengrenze, Ruecknahme halber Teilbaeume), 7 Frames als Tabellen im Probebaum
+[karst] mm         Selbsttest Adressrechnung: 8/8 Zusagen erfuellt (Ausrichtung, Ueberlauf, Kanonizitaet, HHDM-Fenster, Rechte, Fehlertexte)
+[karst] mm         Selbsttest Memory-Map: 6/6 Zusagen erfuellt (4 kaputte Karten abgewiesen, zerrissene Karte: 257 Frames nachreserviert)
+[karst] mm         Selbsttest Frames: 26/26 Zusagen erfuellt, 130012 frei
+[karst] mm           Frame-Fehlerpfade: 4 abgewiesene Rueckgaben, 20 erschoepfte Anforderungen, Tiefstand 0 frei
+[karst] mm           Frame-Buchhaltung: 1027 belegt + 130012 frei = 131039 verwaltet, stimmig: ja
+[karst] heap       Kernel-Heap : 1024 KiB bei virt 0xffffff0000000000 (eigener Free-List-Allocator)
+[karst] heap       Testallokation: Box@0xffffff0000000010 = 0xdeadbeef
+[karst] heap       Testallokation: Vec mit 1024 Elementen, Summe 357389824, String "Karstos lebt"
+[karst] heap       belegt 8272 B von 1048576 B
+[karst] heap       nach Freigabe: belegt 0 B von 1048576 B
+[karst] heap         Heap-Wachstum: 2166784 B abgebildet (vorher 1048576 B), 1 Erweiterung(en), 5 abgelehnt, Grenze 16777216 B, Spielraum 14610432 B
+[karst] heap         Heap-Wachstumsfehler nachweisbar: Groesse 0 ok, ueber der Grenze ok, Frame-Allocator besetzt ok (Frame-Allocator gerade gesperrt)
+[karst] heap       Selbsttest Heap: 13/13 Zusagen erfuellt, 0 B belegt, 1 Loecher
+[karst] heap         Heap-Fehlerpfade: 16781312 B Anforderung abgewiesen (groesstes Loch 2166784 B), Zustand unveraendert: ja
+[karst] heap         Heap-Randfaelle: Groesse 0 ok, Loch wiederverwendet ok, alle 8 Zeiger im Fenster 0xffffff0000000000..0xffffff0000211000 ok
+[karst] abi        karst-native: Version=1, Handles=1, altes Handle -> BadHandle
+[karst] abi        posix-Schicht NICHT einkompiliert — Core laeuft ohne sie
+[karst] irq        Zeitgeber laeuft mit 100 Hz, Interrupts frei (IF gesetzt)
+[karst] irq        Tick 1 — 1 s Laufzeit, 100 Ticks gezaehlt
+[karst] irq        Tick 2 — 2 s Laufzeit, 200 Ticks gezaehlt
+[karst] irq        Tick 3 — 3 s Laufzeit, 300 Ticks gezaehlt
+[karst] irq        Tick 4 — 4 s Laufzeit, 400 Ticks gezaehlt
+[karst] irq        Tick 5 — 5 s Laufzeit, 500 Ticks gezaehlt
+[karst] sched      Thread A (Kennung 1): Durchlauf 1/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 1/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 2/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 2/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 3/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 3/3
+[karst] sched      Threadwechsel: 16 Wechsel, zurueck in kmain (2 Threads a 16 KiB Stapel, Spur 121212, 5/5 Zusagen)
+[karst] sched      Thread W (Kennung 1): blockiert bis zum Wecken
+[karst] sched      Thread S (Kennung 2): schlaeft 3 Ticks
+[karst] sched      Thread S: nach 3 Ticks aufgewacht
+[karst] sched      Thread S: weckt Thread W (Kennung 1)
+[karst] sched      Thread W: geweckt, laeuft weiter
+[karst] sched      Schlafen/Wecken: 3 Ticks geschlafen (>= 3), 1 Zeitweckung(en), 3 Leerlaufwarten, Wartender geweckt: ja, 7/7 Zusagen
+[karst] sched      Stapelnutzung: hoechstens 576 von 16384 B je Thread benutzt, Wachzonen unversehrt
+[karst] sched      Thread V (Kennung 1): blockiert ohne Wecker
+[karst] sched      Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck, 1 Thread(s) blockiert, Meldung gesetzt, 3/3 Zusagen
+[karst] boot       Selbsttestbilanz: 79/79 bestanden (#BP 1/1, Paging 3/3, MapError 36/36, Frames 26/26, Heap 13/13)
+[karst] boot       Startbilanz : 129481 Frames frei (1558 belegt), Heap 0 / 2166784 B belegt, 508 Ticks
+[karst] boot       Startvorgang abgeschlossen. karst laeuft.
+================================================================
+--- Auswertung ---
+  [ ok ] Abbruchmarke 'Startvorgang abgeschlossen' nach 6 s erreicht (Grenze 25 s)
+  [ ok ] Kernel meldet sich
+  [ ok ] Bootloader nennt sich
+  [ ok ] HHDM-Fenster bekannt
+  [ ok ] Kernelabbild vermessen
+  [ ok ] Rechte je Sektion gemeldet
+  [ ok ] #DF hat eigenen Notfallstapel
+  [ ok ] CPU erkannt
+  [ ok ] Framebuffer-Textkonsole steht
+  [ ok ] Stapel vom Bootloader
+  [ ok ] native ABI antwortet
+  [ ok ] Memory-Map gelesen
+  [ ok ] Frame-Allocator laeuft
+  [ ok ] eigener Adressraum aktiv
+  [ ok ] Paging-Selbsttest ok
+  [ ok ] Heap eingerichtet
+  [ ok ] Heap-Allokation funktioniert
+  [ ok ] Breakpoint-Trap kehrt zurueck
+  [ ok ] Timer-Interrupts kommen an
+  [ ok ] MapError-Selbsttest laeuft
+  [ ok ] Frame-Selbsttest laeuft
+  [ ok ] Heap-Selbsttest laeuft
+  [ ok ] Heap nach Freigabe wieder leer
+  [ ok ] Scheduler meldet seinen Stand
+  [ ok ] Startbilanz vorhanden
+  [ ok ] Startvorgang abgeschlossen
+  [ ok ] Konfiguration: normaler Boot
+  [ ok ] Konfiguration: POSIX nein
+  [ ok ] Adressraum vor Heap (Zeile 47 vor Zeile 59)
+  [ ok ] Heap vor Timer (Zeile 59 vor Zeile 71)
+  [ ok ] Timer vor Startbilanz (Zeile 71 vor Zeile 94)
+  [ ok ] alle Selbsttests bestanden (79/79)
+  [ ok ] kein Selbsttest meldet FEHLER
+  [ ok ] keine FEHLER-Meldung im Log
+  [ ok ] keine WARNUNG im Log
+  [ ok ] keine unerwartete CPU-Ausnahme
+  [ ok ] kein Panic beim normalen Boot
+  [ ok ] POSIX wirklich draussen
+ERGEBNIS: alle Pruefungen bestanden.
+  => bestanden
+
+################ 6/15 Selbsttest Page Fault ################
+>> cargo build (release)
+   Compiling karst v0.1.0 (/root/jarvis/projects/u_DiS4in7esMF1/karstos/kernel)
+warning: unreachable expression
+   --> kernel/src/main.rs:436:5
+    |
+403 |         unsafe { arch::selftest::page_fault() };
+    |                  ---------------------------- any code following this expression is unreachable
+...
+436 |     idle()
+    |     ^^^^^^ unreachable expression
+    |
+    = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `karst` (bin "karst") generated 1 warning
+    Finished `release` profile [optimized + debuginfo] target(s) in 3.32s
+>> Symboltabelle fuer Backtraces
+>> ISO bauen
+xorriso 1.5.4 : RockRidge filesystem manipulator, libburnia project.
+
+Physical block size of 512 bytes.
+Installing to GPT. Logical block size of 512 bytes.
+Secondary header at LBA 0x2f77.
+Secondary header valid.
+Detected ISOHYBRID with a GUID partition table (GPT).
+Converting to MBR for improved compatibility...
+Conversion successful.
+No active partition found, some systems may not boot.
+Setting partition 1 as active to work around the issue...
+Installing to MBR.
+Stage 2 to be located at 0x200 and 0x2800.
+Reminder: Remember to copy the limine-bios.sys file in either
+          the root, /boot, /limine, or /boot/limine directories of
+          one of the partitions on the device, or boot will fail!
+Limine BIOS stages installed successfully!
+>> fertig: build/karstos.iso (6076 KiB), Kernel 2300 KiB
+--- serielle Ausgabe (build/boot.270866.log) ---
+
+================================================================
+[karst] boot       karst v0.1.0 — Kernel von Karstos
+[karst] boot       Architektur : x86_64 (Basisseite 4096 B)
+[karst] boot       ABI         : karst-native + posix (abwaehlbar)
+[karst] boot       Konfiguration: Bauart release, POSIX ja, Fehler-Selbsttest test-pagefault
+[karst] boot       CPU         : QEMU Virtual CPU version 2.5+
+[karst] boot       Bootloader  : Limine 9.6.7
+[karst] boot       Stapel      : 64 KiB angefordert, gewaehrt
+[karst] mm         HHDM-Fenster: virt = phys + 0xffff800000000000
+[karst] mm         Kernelabbild: phys 0x000000001fcd0000 -> virt 0xffffffff80000000
+[karst] mm           .text  0xffffffff80000000..0xffffffff80015000  (84 KiB, R+X)
+[karst] mm           .rodata0xffffffff80015000..0xffffffff8001a000  (20 KiB, R)
+[karst] mm           .data  0xffffffff8001a000..0xffffffff8002c000  (72 KiB, R+W, NX)
+[karst] mm           gesamt 176 KiB geladenes Abbild (44 Seiten a 4096 B)
+[karst] video      Framebuffer : 1280x800 @ 32 bpp -> Textkonsole 160x50
+[karst] cpu        GDT + TSS geladen, Datensegmente flach
+[karst] cpu        IDT: 256 Tore, Ausnahmen 0..21 belegt
+[karst] cpu        schwerste Ausnahme laeuft auf eigenem Notfallstapel (0xffffffff80020a20)
+[karst] cpu        NX aktiv, CR0.WP aktiv
+[karst] irq        8259A-PIC (umgeleitet auf 0x20) initialisiert, alle Leitungen maskiert
+[karst] trap       #BP Breakpoint bei RIP=0xffffffff80006954 — setze fort
+[karst] cpu        Selbsttest: #BP ausgeloest und sauber fortgesetzt
+[karst] mm         Memory-Map (16 Eintraege):
+[karst] mm           0x000000001000..0x000000052000    324 KiB  bootloader-reclaimable
+[karst] mm           0x000000052000..0x00000009f000    308 KiB  usable
+[karst] mm           0x00000009fc00..0x0000000a0000      1 KiB  reserved
+[karst] mm           0x0000000f0000..0x000000100000     64 KiB  reserved
+[karst] mm           0x000000100000..0x00001fccb000    507 MiB  usable
+[karst] mm           0x00001fccb000..0x00001fcd0000     20 KiB  bootloader-reclaimable
+[karst] mm           0x00001fcd0000..0x00001fcfc000    176 KiB  kernel+modules
+[karst] mm           0x00001fcfc000..0x00001ff42000      2 MiB  bootloader-reclaimable
+[karst] mm           0x00001ff42000..0x00001ff5c000    104 KiB  usable
+[karst] mm           0x00001ff5c000..0x00001ffdf000    524 KiB  bootloader-reclaimable
+[karst] mm           0x00001ffdf000..0x000020000000    132 KiB  reserved
+[karst] mm           0x0000b0000000..0x0000c0000000    256 MiB  reserved
+[karst] mm           0x0000fd000000..0x0000fd3e8000      3 MiB  framebuffer
+[karst] mm           0x0000fed1c000..0x0000fed20000     16 KiB  reserved
+[karst] mm           0x0000fffc0000..0x000100000000    256 KiB  reserved
+[karst] mm           0x00fd00000000..0x010000000000     12 GiB  reserved
+[karst] mm         Memory-Map  : 16 Regionen, 77 Frames unter 1 MiB gesperrt, 0 Frames wegen Ueberschneidung nachreserviert
+[karst] mm         Speicher    : 12 GiB gesamt, davon 508 MiB nutzbar
+[karst] mm         Frames      : 131039 verwaltet, 130017 frei (507 MiB)
+[karst] mm         Frame-Bitmap: 16 KiB bei phys 0x000000100000
+[karst] mm         Vor Umschaltung geprueft: 5/5 Pflichtbereiche im neuen Adressraum erreichbar
+[karst] mm         Abbild nachgeprueft: 44 Seiten virt->phys korrekt (.text RX, .rodata R, .data RW), HHDM-Raender ok
+[karst] mm         Eigener Adressraum aktiv (CR3 = 0x000000104000)
+[karst] mm           HHDM   : 3 GiB als 2026 grosse Seiten
+[karst] mm           Abbild : 44 Seiten mit getrennten Rechten
+[karst] mm           Stapel : 0 Seiten vom Bootloader uebernommen
+[karst] mm         Selbsttest Paging: map 0xffffff0010000000 -> 0x00000010d000, schreiben/lesen ok, translate ok, unmap ok
+[karst] mm         Selbsttest MapError: 23/23 Fehlerfaelle nachweisbar ausgeloest (Misaligned 10, AlreadyMapped 3, NotMapped 4, OutOfFrames 4, ParentHugePage 2)
+[karst] mm         Selbsttest Grenzfaelle: 13/13 Zusagen erfuellt (translate mit Versatz, 2-MiB-Seite abbilden/uebersetzen/aufloesen, Tabellengrenze, Ruecknahme halber Teilbaeume), 7 Frames als Tabellen im Probebaum
+[karst] mm         Selbsttest Adressrechnung: 8/8 Zusagen erfuellt (Ausrichtung, Ueberlauf, Kanonizitaet, HHDM-Fenster, Rechte, Fehlertexte)
+[karst] mm         Selbsttest Memory-Map: 6/6 Zusagen erfuellt (4 kaputte Karten abgewiesen, zerrissene Karte: 257 Frames nachreserviert)
+[karst] mm         Selbsttest Frames: 26/26 Zusagen erfuellt, 129998 frei
+[karst] mm           Frame-Fehlerpfade: 4 abgewiesene Rueckgaben, 20 erschoepfte Anforderungen, Tiefstand 0 frei
+[karst] mm           Frame-Buchhaltung: 1041 belegt + 129998 frei = 131039 verwaltet, stimmig: ja
+[karst] heap       Kernel-Heap : 1024 KiB bei virt 0xffffff0000000000 (eigener Free-List-Allocator)
+[karst] heap       Testallokation: Box@0xffffff0000000010 = 0xdeadbeef
+[karst] heap       Testallokation: Vec mit 1024 Elementen, Summe 357389824, String "Karstos lebt"
+[karst] heap       belegt 8272 B von 1048576 B
+[karst] heap       nach Freigabe: belegt 0 B von 1048576 B
+[karst] heap         Heap-Wachstum: 2166784 B abgebildet (vorher 1048576 B), 1 Erweiterung(en), 5 abgelehnt, Grenze 16777216 B, Spielraum 14610432 B
+[karst] heap         Heap-Wachstumsfehler nachweisbar: Groesse 0 ok, ueber der Grenze ok, Frame-Allocator besetzt ok (Frame-Allocator gerade gesperrt)
+[karst] heap       Selbsttest Heap: 13/13 Zusagen erfuellt, 0 B belegt, 1 Loecher
+[karst] heap         Heap-Fehlerpfade: 16781312 B Anforderung abgewiesen (groesstes Loch 2166784 B), Zustand unveraendert: ja
+[karst] heap         Heap-Randfaelle: Groesse 0 ok, Loch wiederverwendet ok, alle 8 Zeiger im Fenster 0xffffff0000000000..0xffffff0000211000 ok
+[karst] abi        karst-native: Version=1, Handles=1, altes Handle -> BadHandle
+[karst] abi        posix-Schicht aktiv: read(2) auf unbekannten Fd -> -9 (erwartet -9 = -EBADF)
+[karst] irq        Zeitgeber laeuft mit 100 Hz, Interrupts frei (IF gesetzt)
+[karst] irq        Tick 1 — 1 s Laufzeit, 100 Ticks gezaehlt
+[karst] irq        Tick 2 — 2 s Laufzeit, 200 Ticks gezaehlt
+[karst] irq        Tick 3 — 3 s Laufzeit, 300 Ticks gezaehlt
+[karst] irq        Tick 4 — 4 s Laufzeit, 400 Ticks gezaehlt
+[karst] irq        Tick 5 — 5 s Laufzeit, 500 Ticks gezaehlt
+[karst] sched      Thread A (Kennung 1): Durchlauf 1/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 1/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 2/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 2/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 3/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 3/3
+[karst] sched      Threadwechsel: 16 Wechsel, zurueck in kmain (2 Threads a 16 KiB Stapel, Spur 121212, 5/5 Zusagen)
+[karst] sched      Thread W (Kennung 1): blockiert bis zum Wecken
+[karst] sched      Thread S (Kennung 2): schlaeft 3 Ticks
+[karst] sched      Thread S: nach 3 Ticks aufgewacht
+[karst] sched      Thread S: weckt Thread W (Kennung 1)
+[karst] sched      Thread W: geweckt, laeuft weiter
+[karst] sched      Schlafen/Wecken: 3 Ticks geschlafen (>= 3), 1 Zeitweckung(en), 3 Leerlaufwarten, Wartender geweckt: ja, 7/7 Zusagen
+[karst] sched      Stapelnutzung: hoechstens 576 von 16384 B je Thread benutzt, Wachzonen unversehrt
+[karst] sched      Thread V (Kennung 1): blockiert ohne Wecker
+[karst] sched      Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck, 1 Thread(s) blockiert, Meldung gesetzt, 3/3 Zusagen
+[karst] boot       Selbsttestbilanz: 79/79 bestanden (#BP 1/1, Paging 3/3, MapError 36/36, Frames 26/26, Heap 13/13)
+[karst] boot       Startbilanz : 129467 Frames frei (1572 belegt), Heap 0 / 2166784 B belegt, 508 Ticks
+[karst] boot       Startvorgang abgeschlossen. karst laeuft.
+================================================================
+[karst] test       loese absichtlich einen Page Fault aus ...
+
+=============== CPU-AUSNAHME ===============
+Ausnahme : #PF Page Fault
+RIP      : 0xffffffff80011265   CS : 0x0008
+RSP      : 0xffff80001ff858a0   SS : 0x0010
+RFLAGS   : 0x0000000000000282
+Fehlercode: 0x2
+Adresse  : 0xffffff4000000000 (CR2)
+Ursache  : Seite nicht praesent, Schreibzugriff, ausgeloest im Kernel
+
+=============== KERNEL PANIC ===============
+Ort     : kernel/src/arch/x86_64/interrupts.rs:114:5
+Grund   : Page Fault an 0xffffff4000000000
+Laufzeit: 509 Ticks bei 100 Hz (5 s)
+Zustand : Interrupts beim Eintritt aus, jetzt abgeschaltet
+Backtrace (Frame-Pointer, Adressen via addr2line aufloesbar):
+  #0  ip=0xffffffff800121fc
+  #1  ip=0xffffffff800031e0
+  #2  ip=0xffffff4000000000
+Backtrace: 3 Frame(s) aufgeloest
+============================================
+--- Auswertung ---
+  [ ok ] Abbruchmarke 'KERNEL PANIC' nach 6 s erreicht (Grenze 25 s)
+  [ ok ] Kernel meldet sich
+  [ ok ] Bootloader nennt sich
+  [ ok ] HHDM-Fenster bekannt
+  [ ok ] Kernelabbild vermessen
+  [ ok ] Rechte je Sektion gemeldet
+  [ ok ] #DF hat eigenen Notfallstapel
+  [ ok ] CPU erkannt
+  [ ok ] Framebuffer-Textkonsole steht
+  [ ok ] Stapel vom Bootloader
+  [ ok ] native ABI antwortet
+  [ ok ] Memory-Map gelesen
+  [ ok ] Frame-Allocator laeuft
+  [ ok ] eigener Adressraum aktiv
+  [ ok ] Paging-Selbsttest ok
+  [ ok ] Heap eingerichtet
+  [ ok ] Heap-Allokation funktioniert
+  [ ok ] Breakpoint-Trap kehrt zurueck
+  [ ok ] Timer-Interrupts kommen an
+  [ ok ] MapError-Selbsttest laeuft
+  [ ok ] Frame-Selbsttest laeuft
+  [ ok ] Heap-Selbsttest laeuft
+  [ ok ] Heap nach Freigabe wieder leer
+  [ ok ] Scheduler meldet seinen Stand
+  [ ok ] Startbilanz vorhanden
+  [ ok ] Startvorgang abgeschlossen
+  [ ok ] Konfiguration nennt test-pagefault
+  [ ok ] Konfiguration: POSIX ja
+  [ ok ] Adressraum vor Heap (Zeile 47 vor Zeile 59)
+  [ ok ] Heap vor Timer (Zeile 59 vor Zeile 71)
+  [ ok ] Timer vor Startbilanz (Zeile 71 vor Zeile 94)
+  [ ok ] alle Selbsttests bestanden (79/79)
+  [ ok ] kein Selbsttest meldet FEHLER
+  [ ok ] keine FEHLER-Meldung im Log
+  [ ok ] keine WARNUNG im Log
+  [ ok ] POSIX uebersetzt EBADF
+  [ ok ] Page Fault wird gemeldet
+ERGEBNIS: alle Pruefungen bestanden.
+  => bestanden
+
+################ 7/15 Selbsttest Double Fault (echter #DF auf IST-Stapel) ################
+>> cargo build (release)
+   Compiling karst v0.1.0 (/root/jarvis/projects/u_DiS4in7esMF1/karstos/kernel)
+warning: unreachable expression
+   --> kernel/src/main.rs:436:5
+    |
+428 |         unsafe { arch::selftest::double_fault() };
+    |                  ------------------------------ any code following this expression is unreachable
+...
+436 |     idle()
+    |     ^^^^^^ unreachable expression
+    |
+    = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `karst` (bin "karst") generated 1 warning
+    Finished `release` profile [optimized + debuginfo] target(s) in 3.25s
+>> Symboltabelle fuer Backtraces
+>> ISO bauen
+xorriso 1.5.4 : RockRidge filesystem manipulator, libburnia project.
+
+Physical block size of 512 bytes.
+Installing to GPT. Logical block size of 512 bytes.
+Secondary header at LBA 0x2f77.
+Secondary header valid.
+Detected ISOHYBRID with a GUID partition table (GPT).
+Converting to MBR for improved compatibility...
+Conversion successful.
+No active partition found, some systems may not boot.
+Setting partition 1 as active to work around the issue...
+Installing to MBR.
+Stage 2 to be located at 0x200 and 0x2800.
+Reminder: Remember to copy the limine-bios.sys file in either
+          the root, /boot, /limine, or /boot/limine directories of
+          one of the partitions on the device, or boot will fail!
+Limine BIOS stages installed successfully!
+>> fertig: build/karstos.iso (6076 KiB), Kernel 2300 KiB
+--- serielle Ausgabe (build/boot.271084.log) ---
+
+================================================================
+[karst] boot       karst v0.1.0 — Kernel von Karstos
+[karst] boot       Architektur : x86_64 (Basisseite 4096 B)
+[karst] boot       ABI         : karst-native + posix (abwaehlbar)
+[karst] boot       Konfiguration: Bauart release, POSIX ja, Fehler-Selbsttest test-doublefault
+[karst] boot       CPU         : QEMU Virtual CPU version 2.5+
+[karst] boot       Bootloader  : Limine 9.6.7
+[karst] boot       Stapel      : 64 KiB angefordert, gewaehrt
+[karst] mm         HHDM-Fenster: virt = phys + 0xffff800000000000
+[karst] mm         Kernelabbild: phys 0x000000001fcd0000 -> virt 0xffffffff80000000
+[karst] mm           .text  0xffffffff80000000..0xffffffff80015000  (84 KiB, R+X)
+[karst] mm           .rodata0xffffffff80015000..0xffffffff8001a000  (20 KiB, R)
+[karst] mm           .data  0xffffffff8001a000..0xffffffff8002c000  (72 KiB, R+W, NX)
+[karst] mm           gesamt 176 KiB geladenes Abbild (44 Seiten a 4096 B)
+[karst] video      Framebuffer : 1280x800 @ 32 bpp -> Textkonsole 160x50
+[karst] cpu        GDT + TSS geladen, Datensegmente flach
+[karst] cpu        IDT: 256 Tore, Ausnahmen 0..21 belegt
+[karst] cpu        schwerste Ausnahme laeuft auf eigenem Notfallstapel (0xffffffff80020a20)
+[karst] cpu        NX aktiv, CR0.WP aktiv
+[karst] irq        8259A-PIC (umgeleitet auf 0x20) initialisiert, alle Leitungen maskiert
+[karst] trap       #BP Breakpoint bei RIP=0xffffffff80006954 — setze fort
+[karst] cpu        Selbsttest: #BP ausgeloest und sauber fortgesetzt
+[karst] mm         Memory-Map (16 Eintraege):
+[karst] mm           0x000000001000..0x000000052000    324 KiB  bootloader-reclaimable
+[karst] mm           0x000000052000..0x00000009f000    308 KiB  usable
+[karst] mm           0x00000009fc00..0x0000000a0000      1 KiB  reserved
+[karst] mm           0x0000000f0000..0x000000100000     64 KiB  reserved
+[karst] mm           0x000000100000..0x00001fccb000    507 MiB  usable
+[karst] mm           0x00001fccb000..0x00001fcd0000     20 KiB  bootloader-reclaimable
+[karst] mm           0x00001fcd0000..0x00001fcfc000    176 KiB  kernel+modules
+[karst] mm           0x00001fcfc000..0x00001ff42000      2 MiB  bootloader-reclaimable
+[karst] mm           0x00001ff42000..0x00001ff5c000    104 KiB  usable
+[karst] mm           0x00001ff5c000..0x00001ffdf000    524 KiB  bootloader-reclaimable
+[karst] mm           0x00001ffdf000..0x000020000000    132 KiB  reserved
+[karst] mm           0x0000b0000000..0x0000c0000000    256 MiB  reserved
+[karst] mm           0x0000fd000000..0x0000fd3e8000      3 MiB  framebuffer
+[karst] mm           0x0000fed1c000..0x0000fed20000     16 KiB  reserved
+[karst] mm           0x0000fffc0000..0x000100000000    256 KiB  reserved
+[karst] mm           0x00fd00000000..0x010000000000     12 GiB  reserved
+[karst] mm         Memory-Map  : 16 Regionen, 77 Frames unter 1 MiB gesperrt, 0 Frames wegen Ueberschneidung nachreserviert
+[karst] mm         Speicher    : 12 GiB gesamt, davon 508 MiB nutzbar
+[karst] mm         Frames      : 131039 verwaltet, 130017 frei (507 MiB)
+[karst] mm         Frame-Bitmap: 16 KiB bei phys 0x000000100000
+[karst] mm         Vor Umschaltung geprueft: 5/5 Pflichtbereiche im neuen Adressraum erreichbar
+[karst] mm         Abbild nachgeprueft: 44 Seiten virt->phys korrekt (.text RX, .rodata R, .data RW), HHDM-Raender ok
+[karst] mm         Eigener Adressraum aktiv (CR3 = 0x000000104000)
+[karst] mm           HHDM   : 3 GiB als 2026 grosse Seiten
+[karst] mm           Abbild : 44 Seiten mit getrennten Rechten
+[karst] mm           Stapel : 0 Seiten vom Bootloader uebernommen
+[karst] mm         Selbsttest Paging: map 0xffffff0010000000 -> 0x00000010d000, schreiben/lesen ok, translate ok, unmap ok
+[karst] mm         Selbsttest MapError: 23/23 Fehlerfaelle nachweisbar ausgeloest (Misaligned 10, AlreadyMapped 3, NotMapped 4, OutOfFrames 4, ParentHugePage 2)
+[karst] mm         Selbsttest Grenzfaelle: 13/13 Zusagen erfuellt (translate mit Versatz, 2-MiB-Seite abbilden/uebersetzen/aufloesen, Tabellengrenze, Ruecknahme halber Teilbaeume), 7 Frames als Tabellen im Probebaum
+[karst] mm         Selbsttest Adressrechnung: 8/8 Zusagen erfuellt (Ausrichtung, Ueberlauf, Kanonizitaet, HHDM-Fenster, Rechte, Fehlertexte)
+[karst] mm         Selbsttest Memory-Map: 6/6 Zusagen erfuellt (4 kaputte Karten abgewiesen, zerrissene Karte: 257 Frames nachreserviert)
+[karst] mm         Selbsttest Frames: 26/26 Zusagen erfuellt, 129998 frei
+[karst] mm           Frame-Fehlerpfade: 4 abgewiesene Rueckgaben, 20 erschoepfte Anforderungen, Tiefstand 0 frei
+[karst] mm           Frame-Buchhaltung: 1041 belegt + 129998 frei = 131039 verwaltet, stimmig: ja
+[karst] heap       Kernel-Heap : 1024 KiB bei virt 0xffffff0000000000 (eigener Free-List-Allocator)
+[karst] heap       Testallokation: Box@0xffffff0000000010 = 0xdeadbeef
+[karst] heap       Testallokation: Vec mit 1024 Elementen, Summe 357389824, String "Karstos lebt"
+[karst] heap       belegt 8272 B von 1048576 B
+[karst] heap       nach Freigabe: belegt 0 B von 1048576 B
+[karst] heap         Heap-Wachstum: 2166784 B abgebildet (vorher 1048576 B), 1 Erweiterung(en), 5 abgelehnt, Grenze 16777216 B, Spielraum 14610432 B
+[karst] heap         Heap-Wachstumsfehler nachweisbar: Groesse 0 ok, ueber der Grenze ok, Frame-Allocator besetzt ok (Frame-Allocator gerade gesperrt)
+[karst] heap       Selbsttest Heap: 13/13 Zusagen erfuellt, 0 B belegt, 1 Loecher
+[karst] heap         Heap-Fehlerpfade: 16781312 B Anforderung abgewiesen (groesstes Loch 2166784 B), Zustand unveraendert: ja
+[karst] heap         Heap-Randfaelle: Groesse 0 ok, Loch wiederverwendet ok, alle 8 Zeiger im Fenster 0xffffff0000000000..0xffffff0000211000 ok
+[karst] abi        karst-native: Version=1, Handles=1, altes Handle -> BadHandle
+[karst] abi        posix-Schicht aktiv: read(2) auf unbekannten Fd -> -9 (erwartet -9 = -EBADF)
+[karst] irq        Zeitgeber laeuft mit 100 Hz, Interrupts frei (IF gesetzt)
+[karst] irq        Tick 1 — 1 s Laufzeit, 100 Ticks gezaehlt
+[karst] irq        Tick 2 — 2 s Laufzeit, 200 Ticks gezaehlt
+[karst] irq        Tick 3 — 3 s Laufzeit, 300 Ticks gezaehlt
+[karst] irq        Tick 4 — 4 s Laufzeit, 400 Ticks gezaehlt
+[karst] irq        Tick 5 — 5 s Laufzeit, 500 Ticks gezaehlt
+[karst] sched      Thread A (Kennung 1): Durchlauf 1/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 1/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 2/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 2/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 3/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 3/3
+[karst] sched      Threadwechsel: 16 Wechsel, zurueck in kmain (2 Threads a 16 KiB Stapel, Spur 121212, 5/5 Zusagen)
+[karst] sched      Thread W (Kennung 1): blockiert bis zum Wecken
+[karst] sched      Thread S (Kennung 2): schlaeft 3 Ticks
+[karst] sched      Thread S: nach 3 Ticks aufgewacht
+[karst] sched      Thread S: weckt Thread W (Kennung 1)
+[karst] sched      Thread W: geweckt, laeuft weiter
+[karst] sched      Schlafen/Wecken: 3 Ticks geschlafen (>= 3), 1 Zeitweckung(en), 3 Leerlaufwarten, Wartender geweckt: ja, 7/7 Zusagen
+[karst] sched      Stapelnutzung: hoechstens 576 von 16384 B je Thread benutzt, Wachzonen unversehrt
+[karst] sched      Thread V (Kennung 1): blockiert ohne Wecker
+[karst] sched      Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck, 1 Thread(s) blockiert, Meldung gesetzt, 3/3 Zusagen
+[karst] boot       Selbsttestbilanz: 79/79 bestanden (#BP 1/1, Paging 3/3, MapError 36/36, Frames 26/26, Heap 13/13)
+[karst] boot       Startbilanz : 129467 Frames frei (1572 belegt), Heap 0 / 2166784 B belegt, 508 Ticks
+[karst] boot       Startvorgang abgeschlossen. karst laeuft.
+================================================================
+[karst] test       loese absichtlich einen Double Fault aus ...
+
+=============== CPU-AUSNAHME ===============
+Ausnahme : #DF Double Fault
+RIP      : 0xffffffff8001127b   CS : 0x0008
+RSP      : 0xffff80001ff858a0   SS : 0x0010
+RFLAGS   : 0x0000000000000282
+Fehlercode: 0x0
+IST-Stapel: 0xffffffff80020a20 (eigener Stack, deshalb lebt der Kernel noch)
+Kein Weiterlaufen moeglich — CPU wird angehalten.
+============================================
+--- Auswertung ---
+  [ ok ] Abbruchmarke 'Kein Weiterlaufen moeglich' nach 6 s erreicht (Grenze 25 s)
+  [ ok ] Kernel meldet sich
+  [ ok ] Bootloader nennt sich
+  [ ok ] HHDM-Fenster bekannt
+  [ ok ] Kernelabbild vermessen
+  [ ok ] Rechte je Sektion gemeldet
+  [ ok ] #DF hat eigenen Notfallstapel
+  [ ok ] CPU erkannt
+  [ ok ] Framebuffer-Textkonsole steht
+  [ ok ] Stapel vom Bootloader
+  [ ok ] native ABI antwortet
+  [ ok ] Memory-Map gelesen
+  [ ok ] Frame-Allocator laeuft
+  [ ok ] eigener Adressraum aktiv
+  [ ok ] Paging-Selbsttest ok
+  [ ok ] Heap eingerichtet
+  [ ok ] Heap-Allokation funktioniert
+  [ ok ] Breakpoint-Trap kehrt zurueck
+  [ ok ] Timer-Interrupts kommen an
+  [ ok ] MapError-Selbsttest laeuft
+  [ ok ] Frame-Selbsttest laeuft
+  [ ok ] Heap-Selbsttest laeuft
+  [ ok ] Heap nach Freigabe wieder leer
+  [ ok ] Scheduler meldet seinen Stand
+  [ ok ] Startbilanz vorhanden
+  [ ok ] Startvorgang abgeschlossen
+  [ ok ] Konfiguration nennt test-doublefault
+  [ ok ] Konfiguration: POSIX ja
+  [ ok ] Adressraum vor Heap (Zeile 47 vor Zeile 59)
+  [ ok ] Heap vor Timer (Zeile 59 vor Zeile 71)
+  [ ok ] Timer vor Startbilanz (Zeile 71 vor Zeile 94)
+  [ ok ] alle Selbsttests bestanden (79/79)
+  [ ok ] kein Selbsttest meldet FEHLER
+  [ ok ] keine FEHLER-Meldung im Log
+  [ ok ] keine WARNUNG im Log
+  [ ok ] POSIX uebersetzt EBADF
+  [ ok ] Double Fault wird gemeldet
+  [ ok ] #DF laeuft auf IST-Stapel
+  [ ok ] kein Triple Fault (Kernel lebt)
+ERGEBNIS: alle Pruefungen bestanden.
+  => bestanden
+
+################ 8/15 Selbsttest Panic-Handler ################
+>> cargo build (release)
+   Compiling karst v0.1.0 (/root/jarvis/projects/u_DiS4in7esMF1/karstos/kernel)
+warning: unreachable expression
+   --> kernel/src/main.rs:436:5
+    |
+433 |         panic!("Selbsttest des Panic-Handlers");
+    |         --------------------------------------- any code following this expression is unreachable
+...
+436 |     idle()
+    |     ^^^^^^ unreachable expression
+    |
+    = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `karst` (bin "karst") generated 1 warning
+    Finished `release` profile [optimized + debuginfo] target(s) in 3.16s
+>> Symboltabelle fuer Backtraces
+>> ISO bauen
+xorriso 1.5.4 : RockRidge filesystem manipulator, libburnia project.
+
+Physical block size of 512 bytes.
+Installing to GPT. Logical block size of 512 bytes.
+Secondary header at LBA 0x2f0f.
+Secondary header valid.
+Detected ISOHYBRID with a GUID partition table (GPT).
+Converting to MBR for improved compatibility...
+Conversion successful.
+No active partition found, some systems may not boot.
+Setting partition 1 as active to work around the issue...
+Installing to MBR.
+Stage 2 to be located at 0x200 and 0x2800.
+Reminder: Remember to copy the limine-bios.sys file in either
+          the root, /boot, /limine, or /boot/limine directories of
+          one of the partitions on the device, or boot will fail!
+Limine BIOS stages installed successfully!
+>> fertig: build/karstos.iso (6024 KiB), Kernel 2249 KiB
+--- serielle Ausgabe (build/boot.271287.log) ---
+
+================================================================
+[karst] boot       karst v0.1.0 — Kernel von Karstos
+[karst] boot       Architektur : x86_64 (Basisseite 4096 B)
+[karst] boot       ABI         : karst-native + posix (abwaehlbar)
+[karst] boot       Konfiguration: Bauart release, POSIX ja, Fehler-Selbsttest test-panic
+[karst] boot       CPU         : QEMU Virtual CPU version 2.5+
+[karst] boot       Bootloader  : Limine 9.6.7
+[karst] boot       Stapel      : 64 KiB angefordert, gewaehrt
+[karst] mm         HHDM-Fenster: virt = phys + 0xffff800000000000
+[karst] mm         Kernelabbild: phys 0x000000001fcde000 -> virt 0xffffffff80000000
+[karst] mm           .text  0xffffffff80000000..0xffffffff80014000  (80 KiB, R+X)
+[karst] mm           .rodata0xffffffff80014000..0xffffffff80019000  (20 KiB, R)
+[karst] mm           .data  0xffffffff80019000..0xffffffff8002b000  (72 KiB, R+W, NX)
+[karst] mm           gesamt 172 KiB geladenes Abbild (43 Seiten a 4096 B)
+[karst] video      Framebuffer : 1280x800 @ 32 bpp -> Textkonsole 160x50
+[karst] cpu        GDT + TSS geladen, Datensegmente flach
+[karst] cpu        IDT: 256 Tore, Ausnahmen 0..21 belegt
+[karst] cpu        schwerste Ausnahme laeuft auf eigenem Notfallstapel (0xffffffff8001fa20)
+[karst] cpu        NX aktiv, CR0.WP aktiv
+[karst] irq        8259A-PIC (umgeleitet auf 0x20) initialisiert, alle Leitungen maskiert
+[karst] trap       #BP Breakpoint bei RIP=0xffffffff80006c20 — setze fort
+[karst] cpu        Selbsttest: #BP ausgeloest und sauber fortgesetzt
+[karst] mm         Memory-Map (16 Eintraege):
+[karst] mm           0x000000001000..0x000000052000    324 KiB  bootloader-reclaimable
+[karst] mm           0x000000052000..0x00000009f000    308 KiB  usable
+[karst] mm           0x00000009fc00..0x0000000a0000      1 KiB  reserved
+[karst] mm           0x0000000f0000..0x000000100000     64 KiB  reserved
+[karst] mm           0x000000100000..0x00001fcd9000    507 MiB  usable
+[karst] mm           0x00001fcd9000..0x00001fcde000     20 KiB  bootloader-reclaimable
+[karst] mm           0x00001fcde000..0x00001fd09000    172 KiB  kernel+modules
+[karst] mm           0x00001fd09000..0x00001ff42000      2 MiB  bootloader-reclaimable
+[karst] mm           0x00001ff42000..0x00001ff5c000    104 KiB  usable
+[karst] mm           0x00001ff5c000..0x00001ffdf000    524 KiB  bootloader-reclaimable
+[karst] mm           0x00001ffdf000..0x000020000000    132 KiB  reserved
+[karst] mm           0x0000b0000000..0x0000c0000000    256 MiB  reserved
+[karst] mm           0x0000fd000000..0x0000fd3e8000      3 MiB  framebuffer
+[karst] mm           0x0000fed1c000..0x0000fed20000     16 KiB  reserved
+[karst] mm           0x0000fffc0000..0x000100000000    256 KiB  reserved
+[karst] mm           0x00fd00000000..0x010000000000     12 GiB  reserved
+[karst] mm         Memory-Map  : 16 Regionen, 77 Frames unter 1 MiB gesperrt, 0 Frames wegen Ueberschneidung nachreserviert
+[karst] mm         Speicher    : 12 GiB gesamt, davon 508 MiB nutzbar
+[karst] mm         Frames      : 131039 verwaltet, 130031 frei (507 MiB)
+[karst] mm         Frame-Bitmap: 16 KiB bei phys 0x000000100000
+[karst] mm         Vor Umschaltung geprueft: 5/5 Pflichtbereiche im neuen Adressraum erreichbar
+[karst] mm         Abbild nachgeprueft: 43 Seiten virt->phys korrekt (.text RX, .rodata R, .data RW), HHDM-Raender ok
+[karst] mm         Eigener Adressraum aktiv (CR3 = 0x000000104000)
+[karst] mm           HHDM   : 3 GiB als 2026 grosse Seiten
+[karst] mm           Abbild : 43 Seiten mit getrennten Rechten
+[karst] mm           Stapel : 0 Seiten vom Bootloader uebernommen
+[karst] mm         Selbsttest Paging: map 0xffffff0010000000 -> 0x00000010d000, schreiben/lesen ok, translate ok, unmap ok
+[karst] mm         Selbsttest MapError: 23/23 Fehlerfaelle nachweisbar ausgeloest (Misaligned 10, AlreadyMapped 3, NotMapped 4, OutOfFrames 4, ParentHugePage 2)
+[karst] mm         Selbsttest Grenzfaelle: 13/13 Zusagen erfuellt (translate mit Versatz, 2-MiB-Seite abbilden/uebersetzen/aufloesen, Tabellengrenze, Ruecknahme halber Teilbaeume), 7 Frames als Tabellen im Probebaum
+[karst] mm         Selbsttest Adressrechnung: 8/8 Zusagen erfuellt (Ausrichtung, Ueberlauf, Kanonizitaet, HHDM-Fenster, Rechte, Fehlertexte)
+[karst] mm         Selbsttest Memory-Map: 6/6 Zusagen erfuellt (4 kaputte Karten abgewiesen, zerrissene Karte: 257 Frames nachreserviert)
+[karst] mm         Selbsttest Frames: 26/26 Zusagen erfuellt, 130012 frei
+[karst] mm           Frame-Fehlerpfade: 4 abgewiesene Rueckgaben, 20 erschoepfte Anforderungen, Tiefstand 0 frei
+[karst] mm           Frame-Buchhaltung: 1027 belegt + 130012 frei = 131039 verwaltet, stimmig: ja
+[karst] heap       Kernel-Heap : 1024 KiB bei virt 0xffffff0000000000 (eigener Free-List-Allocator)
+[karst] heap       Testallokation: Box@0xffffff0000000010 = 0xdeadbeef
+[karst] heap       Testallokation: Vec mit 1024 Elementen, Summe 357389824, String "Karstos lebt"
+[karst] heap       belegt 8272 B von 1048576 B
+[karst] heap       nach Freigabe: belegt 0 B von 1048576 B
+[karst] heap         Heap-Wachstum: 2166784 B abgebildet (vorher 1048576 B), 1 Erweiterung(en), 5 abgelehnt, Grenze 16777216 B, Spielraum 14610432 B
+[karst] heap         Heap-Wachstumsfehler nachweisbar: Groesse 0 ok, ueber der Grenze ok, Frame-Allocator besetzt ok (Frame-Allocator gerade gesperrt)
+[karst] heap       Selbsttest Heap: 13/13 Zusagen erfuellt, 0 B belegt, 1 Loecher
+[karst] heap         Heap-Fehlerpfade: 16781312 B Anforderung abgewiesen (groesstes Loch 2166784 B), Zustand unveraendert: ja
+[karst] heap         Heap-Randfaelle: Groesse 0 ok, Loch wiederverwendet ok, alle 8 Zeiger im Fenster 0xffffff0000000000..0xffffff0000211000 ok
+[karst] abi        karst-native: Version=1, Handles=1, altes Handle -> BadHandle
+[karst] abi        posix-Schicht aktiv: read(2) auf unbekannten Fd -> -9 (erwartet -9 = -EBADF)
+[karst] irq        Zeitgeber laeuft mit 100 Hz, Interrupts frei (IF gesetzt)
+[karst] irq        Tick 1 — 1 s Laufzeit, 100 Ticks gezaehlt
+[karst] irq        Tick 2 — 2 s Laufzeit, 200 Ticks gezaehlt
+[karst] irq        Tick 3 — 3 s Laufzeit, 300 Ticks gezaehlt
+[karst] irq        Tick 4 — 4 s Laufzeit, 400 Ticks gezaehlt
+[karst] irq        Tick 5 — 5 s Laufzeit, 500 Ticks gezaehlt
+[karst] sched      Thread A (Kennung 1): Durchlauf 1/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 1/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 2/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 2/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 3/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 3/3
+[karst] sched      Threadwechsel: 16 Wechsel, zurueck in kmain (2 Threads a 16 KiB Stapel, Spur 121212, 5/5 Zusagen)
+[karst] sched      Thread W (Kennung 1): blockiert bis zum Wecken
+[karst] sched      Thread S (Kennung 2): schlaeft 3 Ticks
+[karst] sched      Thread S: nach 4 Ticks aufgewacht
+[karst] sched      Thread S: weckt Thread W (Kennung 1)
+[karst] sched      Thread W: geweckt, laeuft weiter
+[karst] sched      Schlafen/Wecken: 4 Ticks geschlafen (>= 3), 1 Zeitweckung(en), 3 Leerlaufwarten, Wartender geweckt: ja, 7/7 Zusagen
+[karst] sched      Stapelnutzung: hoechstens 576 von 16384 B je Thread benutzt, Wachzonen unversehrt
+[karst] sched      Thread V (Kennung 1): blockiert ohne Wecker
+[karst] sched      Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck, 1 Thread(s) blockiert, Meldung gesetzt, 3/3 Zusagen
+[karst] boot       Selbsttestbilanz: 79/79 bestanden (#BP 1/1, Paging 3/3, MapError 36/36, Frames 26/26, Heap 13/13)
+[karst] boot       Startbilanz : 129481 Frames frei (1558 belegt), Heap 0 / 2166784 B belegt, 509 Ticks
+[karst] boot       Startvorgang abgeschlossen. karst laeuft.
+================================================================
+[karst] test       loese absichtlich ein panic! aus ...
+
+=============== KERNEL PANIC ===============
+Ort     : kernel/src/main.rs:433:9
+Grund   : Selbsttest des Panic-Handlers
+Laufzeit: 510 Ticks bei 100 Hz (5 s)
+Zustand : Interrupts beim Eintritt an, jetzt abgeschaltet
+Backtrace (Frame-Pointer, Adressen via addr2line aufloesbar):
+  #0  ip=0xffffffff8001132c
+  #1  ip=0xffffffff80011270
+Backtrace: 2 Frame(s) aufgeloest
+============================================
+--- Auswertung ---
+  [ ok ] Abbruchmarke 'KERNEL PANIC' nach 6 s erreicht (Grenze 25 s)
+  [ ok ] Kernel meldet sich
+  [ ok ] Bootloader nennt sich
+  [ ok ] HHDM-Fenster bekannt
+  [ ok ] Kernelabbild vermessen
+  [ ok ] Rechte je Sektion gemeldet
+  [ ok ] #DF hat eigenen Notfallstapel
+  [ ok ] CPU erkannt
+  [ ok ] Framebuffer-Textkonsole steht
+  [ ok ] Stapel vom Bootloader
+  [ ok ] native ABI antwortet
+  [ ok ] Memory-Map gelesen
+  [ ok ] Frame-Allocator laeuft
+  [ ok ] eigener Adressraum aktiv
+  [ ok ] Paging-Selbsttest ok
+  [ ok ] Heap eingerichtet
+  [ ok ] Heap-Allokation funktioniert
+  [ ok ] Breakpoint-Trap kehrt zurueck
+  [ ok ] Timer-Interrupts kommen an
+  [ ok ] MapError-Selbsttest laeuft
+  [ ok ] Frame-Selbsttest laeuft
+  [ ok ] Heap-Selbsttest laeuft
+  [ ok ] Heap nach Freigabe wieder leer
+  [ ok ] Scheduler meldet seinen Stand
+  [ ok ] Startbilanz vorhanden
+  [ ok ] Startvorgang abgeschlossen
+  [ ok ] Konfiguration nennt test-panic
+  [ ok ] Konfiguration: POSIX ja
+  [ ok ] Adressraum vor Heap (Zeile 47 vor Zeile 59)
+  [ ok ] Heap vor Timer (Zeile 59 vor Zeile 71)
+  [ ok ] Timer vor Startbilanz (Zeile 71 vor Zeile 94)
+  [ ok ] alle Selbsttests bestanden (79/79)
+  [ ok ] kein Selbsttest meldet FEHLER
+  [ ok ] keine FEHLER-Meldung im Log
+  [ ok ] keine WARNUNG im Log
+  [ ok ] POSIX uebersetzt EBADF
+  [ ok ] Panic-Handler meldet sich
+  [ ok ] Panic nennt Ort im Quelltext
+  [ ok ] Panic nennt den Grund
+  [ ok ] Backtrace hat Frames
+  [ ok ] Panic nennt die Laufzeit
+  [ ok ] Panic nennt den Interruptzustand
+  [ ok ] Backtrace zaehlt seine Frames
+  [ ok ] kein Doppel-Panic
+ERGEBNIS: alle Pruefungen bestanden.
+  => bestanden
+
+################ 9/15 Selbsttest .rodata schreibgeschuetzt (#PF erwartet) ################
+>> cargo build (release)
+   Compiling karst v0.1.0 (/root/jarvis/projects/u_DiS4in7esMF1/karstos/kernel)
+warning: unreachable expression
+   --> kernel/src/main.rs:436:5
+    |
+408 |         unsafe { arch::selftest::rodata_write() };
+    |                  ------------------------------ any code following this expression is unreachable
+...
+436 |     idle()
+    |     ^^^^^^ unreachable expression
+    |
+    = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `karst` (bin "karst") generated 1 warning
+    Finished `release` profile [optimized + debuginfo] target(s) in 3.14s
+>> Symboltabelle fuer Backtraces
+>> ISO bauen
+xorriso 1.5.4 : RockRidge filesystem manipulator, libburnia project.
+
+Physical block size of 512 bytes.
+Installing to GPT. Logical block size of 512 bytes.
+Secondary header at LBA 0x2f17.
+Secondary header valid.
+Detected ISOHYBRID with a GUID partition table (GPT).
+Converting to MBR for improved compatibility...
+Conversion successful.
+No active partition found, some systems may not boot.
+Setting partition 1 as active to work around the issue...
+Installing to MBR.
+Stage 2 to be located at 0x200 and 0x2800.
+Reminder: Remember to copy the limine-bios.sys file in either
+          the root, /boot, /limine, or /boot/limine directories of
+          one of the partitions on the device, or boot will fail!
+Limine BIOS stages installed successfully!
+>> fertig: build/karstos.iso (6028 KiB), Kernel 2252 KiB
+--- serielle Ausgabe (build/boot.271549.log) ---
+
+================================================================
+[karst] boot       karst v0.1.0 — Kernel von Karstos
+[karst] boot       Architektur : x86_64 (Basisseite 4096 B)
+[karst] boot       ABI         : karst-native + posix (abwaehlbar)
+[karst] boot       Konfiguration: Bauart release, POSIX ja, Fehler-Selbsttest test-rodata
+[karst] boot       CPU         : QEMU Virtual CPU version 2.5+
+[karst] boot       Bootloader  : Limine 9.6.7
+[karst] boot       Stapel      : 64 KiB angefordert, gewaehrt
+[karst] mm         HHDM-Fenster: virt = phys + 0xffff800000000000
+[karst] mm         Kernelabbild: phys 0x000000001fcdd000 -> virt 0xffffffff80000000
+[karst] mm           .text  0xffffffff80000000..0xffffffff80014000  (80 KiB, R+X)
+[karst] mm           .rodata0xffffffff80014000..0xffffffff80019000  (20 KiB, R)
+[karst] mm           .data  0xffffffff80019000..0xffffffff8002b000  (72 KiB, R+W, NX)
+[karst] mm           gesamt 172 KiB geladenes Abbild (43 Seiten a 4096 B)
+[karst] video      Framebuffer : 1280x800 @ 32 bpp -> Textkonsole 160x50
+[karst] cpu        GDT + TSS geladen, Datensegmente flach
+[karst] cpu        IDT: 256 Tore, Ausnahmen 0..21 belegt
+[karst] cpu        schwerste Ausnahme laeuft auf eigenem Notfallstapel (0xffffffff8001fa20)
+[karst] cpu        NX aktiv, CR0.WP aktiv
+[karst] irq        8259A-PIC (umgeleitet auf 0x20) initialisiert, alle Leitungen maskiert
+[karst] trap       #BP Breakpoint bei RIP=0xffffffff80006d60 — setze fort
+[karst] cpu        Selbsttest: #BP ausgeloest und sauber fortgesetzt
+[karst] mm         Memory-Map (16 Eintraege):
+[karst] mm           0x000000001000..0x000000052000    324 KiB  bootloader-reclaimable
+[karst] mm           0x000000052000..0x00000009f000    308 KiB  usable
+[karst] mm           0x00000009fc00..0x0000000a0000      1 KiB  reserved
+[karst] mm           0x0000000f0000..0x000000100000     64 KiB  reserved
+[karst] mm           0x000000100000..0x00001fcd8000    507 MiB  usable
+[karst] mm           0x00001fcd8000..0x00001fcdd000     20 KiB  bootloader-reclaimable
+[karst] mm           0x00001fcdd000..0x00001fd08000    172 KiB  kernel+modules
+[karst] mm           0x00001fd08000..0x00001ff42000      2 MiB  bootloader-reclaimable
+[karst] mm           0x00001ff42000..0x00001ff5c000    104 KiB  usable
+[karst] mm           0x00001ff5c000..0x00001ffdf000    524 KiB  bootloader-reclaimable
+[karst] mm           0x00001ffdf000..0x000020000000    132 KiB  reserved
+[karst] mm           0x0000b0000000..0x0000c0000000    256 MiB  reserved
+[karst] mm           0x0000fd000000..0x0000fd3e8000      3 MiB  framebuffer
+[karst] mm           0x0000fed1c000..0x0000fed20000     16 KiB  reserved
+[karst] mm           0x0000fffc0000..0x000100000000    256 KiB  reserved
+[karst] mm           0x00fd00000000..0x010000000000     12 GiB  reserved
+[karst] mm         Memory-Map  : 16 Regionen, 77 Frames unter 1 MiB gesperrt, 0 Frames wegen Ueberschneidung nachreserviert
+[karst] mm         Speicher    : 12 GiB gesamt, davon 508 MiB nutzbar
+[karst] mm         Frames      : 131039 verwaltet, 130030 frei (507 MiB)
+[karst] mm         Frame-Bitmap: 16 KiB bei phys 0x000000100000
+[karst] mm         Vor Umschaltung geprueft: 5/5 Pflichtbereiche im neuen Adressraum erreichbar
+[karst] mm         Abbild nachgeprueft: 43 Seiten virt->phys korrekt (.text RX, .rodata R, .data RW), HHDM-Raender ok
+[karst] mm         Eigener Adressraum aktiv (CR3 = 0x000000104000)
+[karst] mm           HHDM   : 3 GiB als 2026 grosse Seiten
+[karst] mm           Abbild : 43 Seiten mit getrennten Rechten
+[karst] mm           Stapel : 0 Seiten vom Bootloader uebernommen
+[karst] mm         Selbsttest Paging: map 0xffffff0010000000 -> 0x00000010d000, schreiben/lesen ok, translate ok, unmap ok
+[karst] mm         Selbsttest MapError: 23/23 Fehlerfaelle nachweisbar ausgeloest (Misaligned 10, AlreadyMapped 3, NotMapped 4, OutOfFrames 4, ParentHugePage 2)
+[karst] mm         Selbsttest Grenzfaelle: 13/13 Zusagen erfuellt (translate mit Versatz, 2-MiB-Seite abbilden/uebersetzen/aufloesen, Tabellengrenze, Ruecknahme halber Teilbaeume), 7 Frames als Tabellen im Probebaum
+[karst] mm         Selbsttest Adressrechnung: 8/8 Zusagen erfuellt (Ausrichtung, Ueberlauf, Kanonizitaet, HHDM-Fenster, Rechte, Fehlertexte)
+[karst] mm         Selbsttest Memory-Map: 6/6 Zusagen erfuellt (4 kaputte Karten abgewiesen, zerrissene Karte: 257 Frames nachreserviert)
+[karst] mm         Selbsttest Frames: 26/26 Zusagen erfuellt, 130011 frei
+[karst] mm           Frame-Fehlerpfade: 4 abgewiesene Rueckgaben, 20 erschoepfte Anforderungen, Tiefstand 0 frei
+[karst] mm           Frame-Buchhaltung: 1028 belegt + 130011 frei = 131039 verwaltet, stimmig: ja
+[karst] heap       Kernel-Heap : 1024 KiB bei virt 0xffffff0000000000 (eigener Free-List-Allocator)
+[karst] heap       Testallokation: Box@0xffffff0000000010 = 0xdeadbeef
+[karst] heap       Testallokation: Vec mit 1024 Elementen, Summe 357389824, String "Karstos lebt"
+[karst] heap       belegt 8272 B von 1048576 B
+[karst] heap       nach Freigabe: belegt 0 B von 1048576 B
+[karst] heap         Heap-Wachstum: 2166784 B abgebildet (vorher 1048576 B), 1 Erweiterung(en), 5 abgelehnt, Grenze 16777216 B, Spielraum 14610432 B
+[karst] heap         Heap-Wachstumsfehler nachweisbar: Groesse 0 ok, ueber der Grenze ok, Frame-Allocator besetzt ok (Frame-Allocator gerade gesperrt)
+[karst] heap       Selbsttest Heap: 13/13 Zusagen erfuellt, 0 B belegt, 1 Loecher
+[karst] heap         Heap-Fehlerpfade: 16781312 B Anforderung abgewiesen (groesstes Loch 2166784 B), Zustand unveraendert: ja
+[karst] heap         Heap-Randfaelle: Groesse 0 ok, Loch wiederverwendet ok, alle 8 Zeiger im Fenster 0xffffff0000000000..0xffffff0000211000 ok
+[karst] abi        karst-native: Version=1, Handles=1, altes Handle -> BadHandle
+[karst] abi        posix-Schicht aktiv: read(2) auf unbekannten Fd -> -9 (erwartet -9 = -EBADF)
+[karst] irq        Zeitgeber laeuft mit 100 Hz, Interrupts frei (IF gesetzt)
+[karst] irq        Tick 1 — 1 s Laufzeit, 100 Ticks gezaehlt
+[karst] irq        Tick 2 — 2 s Laufzeit, 200 Ticks gezaehlt
+[karst] irq        Tick 3 — 3 s Laufzeit, 300 Ticks gezaehlt
+[karst] irq        Tick 4 — 4 s Laufzeit, 400 Ticks gezaehlt
+[karst] irq        Tick 5 — 5 s Laufzeit, 500 Ticks gezaehlt
+[karst] sched      Thread A (Kennung 1): Durchlauf 1/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 1/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 2/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 2/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 3/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 3/3
+[karst] sched      Threadwechsel: 16 Wechsel, zurueck in kmain (2 Threads a 16 KiB Stapel, Spur 121212, 5/5 Zusagen)
+[karst] sched      Thread W (Kennung 1): blockiert bis zum Wecken
+[karst] sched      Thread S (Kennung 2): schlaeft 3 Ticks
+[karst] sched      Thread S: nach 3 Ticks aufgewacht
+[karst] sched      Thread S: weckt Thread W (Kennung 1)
+[karst] sched      Thread W: geweckt, laeuft weiter
+[karst] sched      Schlafen/Wecken: 3 Ticks geschlafen (>= 3), 1 Zeitweckung(en), 3 Leerlaufwarten, Wartender geweckt: ja, 7/7 Zusagen
+[karst] sched      Stapelnutzung: hoechstens 576 von 16384 B je Thread benutzt, Wachzonen unversehrt
+[karst] sched      Thread V (Kennung 1): blockiert ohne Wecker
+[karst] sched      Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck, 1 Thread(s) blockiert, Meldung gesetzt, 3/3 Zusagen
+[karst] boot       Selbsttestbilanz: 79/79 bestanden (#BP 1/1, Paging 3/3, MapError 36/36, Frames 26/26, Heap 13/13)
+[karst] boot       Startbilanz : 129480 Frames frei (1559 belegt), Heap 0 / 2166784 B belegt, 507 Ticks
+[karst] boot       Startvorgang abgeschlossen. karst laeuft.
+================================================================
+[karst] test       versuche in .rodata zu schreiben (muss #PF ausloesen) ...
+
+=============== CPU-AUSNAHME ===============
+Ausnahme : #PF Page Fault
+RIP      : 0xffffffff80003de0   CS : 0x0008
+RSP      : 0xffff80001ff85830   SS : 0x0010
+RFLAGS   : 0x0000000000000286
+Fehlercode: 0x3
+Adresse  : 0xffffffff80016f58 (CR2)
+Ursache  : Schutzverletzung, Schreibzugriff, ausgeloest im Kernel
+
+=============== KERNEL PANIC ===============
+Ort     : kernel/src/arch/x86_64/interrupts.rs:114:5
+Grund   : Page Fault an 0xffffffff80016f58
+Laufzeit: 508 Ticks bei 100 Hz (5 s)
+Zustand : Interrupts beim Eintritt aus, jetzt abgeschaltet
+Backtrace (Frame-Pointer, Adressen via addr2line aufloesbar):
+  #0  ip=0xffffffff8001145c
+  #1  ip=0xffffffff80003410
+Backtrace: 2 Frame(s) aufgeloest
+============================================
+--- Auswertung ---
+  [ ok ] Abbruchmarke 'KERNEL PANIC' nach 6 s erreicht (Grenze 25 s)
+  [ ok ] Kernel meldet sich
+  [ ok ] Bootloader nennt sich
+  [ ok ] HHDM-Fenster bekannt
+  [ ok ] Kernelabbild vermessen
+  [ ok ] Rechte je Sektion gemeldet
+  [ ok ] #DF hat eigenen Notfallstapel
+  [ ok ] CPU erkannt
+  [ ok ] Framebuffer-Textkonsole steht
+  [ ok ] Stapel vom Bootloader
+  [ ok ] native ABI antwortet
+  [ ok ] Memory-Map gelesen
+  [ ok ] Frame-Allocator laeuft
+  [ ok ] eigener Adressraum aktiv
+  [ ok ] Paging-Selbsttest ok
+  [ ok ] Heap eingerichtet
+  [ ok ] Heap-Allokation funktioniert
+  [ ok ] Breakpoint-Trap kehrt zurueck
+  [ ok ] Timer-Interrupts kommen an
+  [ ok ] MapError-Selbsttest laeuft
+  [ ok ] Frame-Selbsttest laeuft
+  [ ok ] Heap-Selbsttest laeuft
+  [ ok ] Heap nach Freigabe wieder leer
+  [ ok ] Scheduler meldet seinen Stand
+  [ ok ] Startbilanz vorhanden
+  [ ok ] Startvorgang abgeschlossen
+  [ ok ] Konfiguration nennt test-rodata
+  [ ok ] Konfiguration: POSIX ja
+  [ ok ] Adressraum vor Heap (Zeile 47 vor Zeile 59)
+  [ ok ] Heap vor Timer (Zeile 59 vor Zeile 71)
+  [ ok ] Timer vor Startbilanz (Zeile 71 vor Zeile 94)
+  [ ok ] alle Selbsttests bestanden (79/79)
+  [ ok ] kein Selbsttest meldet FEHLER
+  [ ok ] keine FEHLER-Meldung im Log
+  [ ok ] keine WARNUNG im Log
+  [ ok ] POSIX uebersetzt EBADF
+  [ ok ] Schreiben auf .rodata gibt #PF
+  [ ok ] Ursache: Schutzverletzung beim Schreiben
+  [ ok ] kein Schreibzugriff durchgekommen
+ERGEBNIS: alle Pruefungen bestanden.
+  => bestanden
+
+################ 10/15 Selbsttest NX: Daten ausfuehren (#PF mit Instruktionsabruf erwartet) ################
+>> cargo build (release)
+   Compiling karst v0.1.0 (/root/jarvis/projects/u_DiS4in7esMF1/karstos/kernel)
+warning: unreachable expression
+   --> kernel/src/main.rs:436:5
+    |
+413 |         unsafe { arch::selftest::nx_exec() };
+    |                  ------------------------- any code following this expression is unreachable
+...
+436 |     idle()
+    |     ^^^^^^ unreachable expression
+    |
+    = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `karst` (bin "karst") generated 1 warning
+    Finished `release` profile [optimized + debuginfo] target(s) in 3.15s
+>> Symboltabelle fuer Backtraces
+>> ISO bauen
+xorriso 1.5.4 : RockRidge filesystem manipulator, libburnia project.
+
+Physical block size of 512 bytes.
+Installing to GPT. Logical block size of 512 bytes.
+Secondary header at LBA 0x2f17.
+Secondary header valid.
+Detected ISOHYBRID with a GUID partition table (GPT).
+Converting to MBR for improved compatibility...
+Conversion successful.
+No active partition found, some systems may not boot.
+Setting partition 1 as active to work around the issue...
+Installing to MBR.
+Stage 2 to be located at 0x200 and 0x2800.
+Reminder: Remember to copy the limine-bios.sys file in either
+          the root, /boot, /limine, or /boot/limine directories of
+          one of the partitions on the device, or boot will fail!
+Limine BIOS stages installed successfully!
+>> fertig: build/karstos.iso (6028 KiB), Kernel 2252 KiB
+--- serielle Ausgabe (build/boot.271808.log) ---
+
+================================================================
+[karst] boot       karst v0.1.0 — Kernel von Karstos
+[karst] boot       Architektur : x86_64 (Basisseite 4096 B)
+[karst] boot       ABI         : karst-native + posix (abwaehlbar)
+[karst] boot       Konfiguration: Bauart release, POSIX ja, Fehler-Selbsttest test-nx
+[karst] boot       CPU         : QEMU Virtual CPU version 2.5+
+[karst] boot       Bootloader  : Limine 9.6.7
+[karst] boot       Stapel      : 64 KiB angefordert, gewaehrt
+[karst] mm         HHDM-Fenster: virt = phys + 0xffff800000000000
+[karst] mm         Kernelabbild: phys 0x000000001fcdd000 -> virt 0xffffffff80000000
+[karst] mm           .text  0xffffffff80000000..0xffffffff80014000  (80 KiB, R+X)
+[karst] mm           .rodata0xffffffff80014000..0xffffffff80019000  (20 KiB, R)
+[karst] mm           .data  0xffffffff80019000..0xffffffff8002b000  (72 KiB, R+W, NX)
+[karst] mm           gesamt 172 KiB geladenes Abbild (43 Seiten a 4096 B)
+[karst] video      Framebuffer : 1280x800 @ 32 bpp -> Textkonsole 160x50
+[karst] cpu        GDT + TSS geladen, Datensegmente flach
+[karst] cpu        IDT: 256 Tore, Ausnahmen 0..21 belegt
+[karst] cpu        schwerste Ausnahme laeuft auf eigenem Notfallstapel (0xffffffff8001fa20)
+[karst] cpu        NX aktiv, CR0.WP aktiv
+[karst] irq        8259A-PIC (umgeleitet auf 0x20) initialisiert, alle Leitungen maskiert
+[karst] trap       #BP Breakpoint bei RIP=0xffffffff80006d60 — setze fort
+[karst] cpu        Selbsttest: #BP ausgeloest und sauber fortgesetzt
+[karst] mm         Memory-Map (16 Eintraege):
+[karst] mm           0x000000001000..0x000000052000    324 KiB  bootloader-reclaimable
+[karst] mm           0x000000052000..0x00000009f000    308 KiB  usable
+[karst] mm           0x00000009fc00..0x0000000a0000      1 KiB  reserved
+[karst] mm           0x0000000f0000..0x000000100000     64 KiB  reserved
+[karst] mm           0x000000100000..0x00001fcd8000    507 MiB  usable
+[karst] mm           0x00001fcd8000..0x00001fcdd000     20 KiB  bootloader-reclaimable
+[karst] mm           0x00001fcdd000..0x00001fd08000    172 KiB  kernel+modules
+[karst] mm           0x00001fd08000..0x00001ff42000      2 MiB  bootloader-reclaimable
+[karst] mm           0x00001ff42000..0x00001ff5c000    104 KiB  usable
+[karst] mm           0x00001ff5c000..0x00001ffdf000    524 KiB  bootloader-reclaimable
+[karst] mm           0x00001ffdf000..0x000020000000    132 KiB  reserved
+[karst] mm           0x0000b0000000..0x0000c0000000    256 MiB  reserved
+[karst] mm           0x0000fd000000..0x0000fd3e8000      3 MiB  framebuffer
+[karst] mm           0x0000fed1c000..0x0000fed20000     16 KiB  reserved
+[karst] mm           0x0000fffc0000..0x000100000000    256 KiB  reserved
+[karst] mm           0x00fd00000000..0x010000000000     12 GiB  reserved
+[karst] mm         Memory-Map  : 16 Regionen, 77 Frames unter 1 MiB gesperrt, 0 Frames wegen Ueberschneidung nachreserviert
+[karst] mm         Speicher    : 12 GiB gesamt, davon 508 MiB nutzbar
+[karst] mm         Frames      : 131039 verwaltet, 130030 frei (507 MiB)
+[karst] mm         Frame-Bitmap: 16 KiB bei phys 0x000000100000
+[karst] mm         Vor Umschaltung geprueft: 5/5 Pflichtbereiche im neuen Adressraum erreichbar
+[karst] mm         Abbild nachgeprueft: 43 Seiten virt->phys korrekt (.text RX, .rodata R, .data RW), HHDM-Raender ok
+[karst] mm         Eigener Adressraum aktiv (CR3 = 0x000000104000)
+[karst] mm           HHDM   : 3 GiB als 2026 grosse Seiten
+[karst] mm           Abbild : 43 Seiten mit getrennten Rechten
+[karst] mm           Stapel : 0 Seiten vom Bootloader uebernommen
+[karst] mm         Selbsttest Paging: map 0xffffff0010000000 -> 0x00000010d000, schreiben/lesen ok, translate ok, unmap ok
+[karst] mm         Selbsttest MapError: 23/23 Fehlerfaelle nachweisbar ausgeloest (Misaligned 10, AlreadyMapped 3, NotMapped 4, OutOfFrames 4, ParentHugePage 2)
+[karst] mm         Selbsttest Grenzfaelle: 13/13 Zusagen erfuellt (translate mit Versatz, 2-MiB-Seite abbilden/uebersetzen/aufloesen, Tabellengrenze, Ruecknahme halber Teilbaeume), 7 Frames als Tabellen im Probebaum
+[karst] mm         Selbsttest Adressrechnung: 8/8 Zusagen erfuellt (Ausrichtung, Ueberlauf, Kanonizitaet, HHDM-Fenster, Rechte, Fehlertexte)
+[karst] mm         Selbsttest Memory-Map: 6/6 Zusagen erfuellt (4 kaputte Karten abgewiesen, zerrissene Karte: 257 Frames nachreserviert)
+[karst] mm         Selbsttest Frames: 26/26 Zusagen erfuellt, 130011 frei
+[karst] mm           Frame-Fehlerpfade: 4 abgewiesene Rueckgaben, 20 erschoepfte Anforderungen, Tiefstand 0 frei
+[karst] mm           Frame-Buchhaltung: 1028 belegt + 130011 frei = 131039 verwaltet, stimmig: ja
+[karst] heap       Kernel-Heap : 1024 KiB bei virt 0xffffff0000000000 (eigener Free-List-Allocator)
+[karst] heap       Testallokation: Box@0xffffff0000000010 = 0xdeadbeef
+[karst] heap       Testallokation: Vec mit 1024 Elementen, Summe 357389824, String "Karstos lebt"
+[karst] heap       belegt 8272 B von 1048576 B
+[karst] heap       nach Freigabe: belegt 0 B von 1048576 B
+[karst] heap         Heap-Wachstum: 2166784 B abgebildet (vorher 1048576 B), 1 Erweiterung(en), 5 abgelehnt, Grenze 16777216 B, Spielraum 14610432 B
+[karst] heap         Heap-Wachstumsfehler nachweisbar: Groesse 0 ok, ueber der Grenze ok, Frame-Allocator besetzt ok (Frame-Allocator gerade gesperrt)
+[karst] heap       Selbsttest Heap: 13/13 Zusagen erfuellt, 0 B belegt, 1 Loecher
+[karst] heap         Heap-Fehlerpfade: 16781312 B Anforderung abgewiesen (groesstes Loch 2166784 B), Zustand unveraendert: ja
+[karst] heap         Heap-Randfaelle: Groesse 0 ok, Loch wiederverwendet ok, alle 8 Zeiger im Fenster 0xffffff0000000000..0xffffff0000211000 ok
+[karst] abi        karst-native: Version=1, Handles=1, altes Handle -> BadHandle
+[karst] abi        posix-Schicht aktiv: read(2) auf unbekannten Fd -> -9 (erwartet -9 = -EBADF)
+[karst] irq        Zeitgeber laeuft mit 100 Hz, Interrupts frei (IF gesetzt)
+[karst] irq        Tick 1 — 1 s Laufzeit, 100 Ticks gezaehlt
+[karst] irq        Tick 2 — 2 s Laufzeit, 200 Ticks gezaehlt
+[karst] irq        Tick 3 — 3 s Laufzeit, 300 Ticks gezaehlt
+[karst] irq        Tick 4 — 4 s Laufzeit, 400 Ticks gezaehlt
+[karst] irq        Tick 5 — 5 s Laufzeit, 500 Ticks gezaehlt
+[karst] sched      Thread A (Kennung 1): Durchlauf 1/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 1/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 2/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 2/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 3/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 3/3
+[karst] sched      Threadwechsel: 16 Wechsel, zurueck in kmain (2 Threads a 16 KiB Stapel, Spur 121212, 5/5 Zusagen)
+[karst] sched      Thread W (Kennung 1): blockiert bis zum Wecken
+[karst] sched      Thread S (Kennung 2): schlaeft 3 Ticks
+[karst] sched      Thread S: nach 3 Ticks aufgewacht
+[karst] sched      Thread S: weckt Thread W (Kennung 1)
+[karst] sched      Thread W: geweckt, laeuft weiter
+[karst] sched      Schlafen/Wecken: 3 Ticks geschlafen (>= 3), 1 Zeitweckung(en), 3 Leerlaufwarten, Wartender geweckt: ja, 7/7 Zusagen
+[karst] sched      Stapelnutzung: hoechstens 576 von 16384 B je Thread benutzt, Wachzonen unversehrt
+[karst] sched      Thread V (Kennung 1): blockiert ohne Wecker
+[karst] sched      Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck, 1 Thread(s) blockiert, Meldung gesetzt, 3/3 Zusagen
+[karst] boot       Selbsttestbilanz: 79/79 bestanden (#BP 1/1, Paging 3/3, MapError 36/36, Frames 26/26, Heap 13/13)
+[karst] boot       Startbilanz : 129480 Frames frei (1559 belegt), Heap 0 / 2166784 B belegt, 508 Ticks
+[karst] boot       Startvorgang abgeschlossen. karst laeuft.
+================================================================
+[karst] test       versuche Daten in .data auszufuehren (NX muss #PF ausloesen) ...
+
+=============== CPU-AUSNAHME ===============
+Ausnahme : #PF Page Fault
+RIP      : 0xffffffff80019000   CS : 0x0008
+RSP      : 0xffff80001ff85828   SS : 0x0010
+RFLAGS   : 0x0000000000000286
+Fehlercode: 0x11
+Adresse  : 0xffffffff80019000 (CR2)
+Ursache  : Schutzverletzung, Lesezugriff, ausgeloest im Kernel
+Hinweis  : Zugriff war ein Instruktionsabruf (NX verletzt?)
+
+=============== KERNEL PANIC ===============
+Ort     : kernel/src/arch/x86_64/interrupts.rs:114:5
+Grund   : Page Fault an 0xffffffff80019000
+Laufzeit: 509 Ticks bei 100 Hz (5 s)
+Zustand : Interrupts beim Eintritt aus, jetzt abgeschaltet
+Backtrace (Frame-Pointer, Adressen via addr2line aufloesbar):
+  #0  ip=0xffffffff8001145c
+  #1  ip=0xffffffff80003410
+Backtrace: 2 Frame(s) aufgeloest
+============================================
+--- Auswertung ---
+  [ ok ] Abbruchmarke 'KERNEL PANIC' nach 6 s erreicht (Grenze 25 s)
+  [ ok ] Kernel meldet sich
+  [ ok ] Bootloader nennt sich
+  [ ok ] HHDM-Fenster bekannt
+  [ ok ] Kernelabbild vermessen
+  [ ok ] Rechte je Sektion gemeldet
+  [ ok ] #DF hat eigenen Notfallstapel
+  [ ok ] CPU erkannt
+  [ ok ] Framebuffer-Textkonsole steht
+  [ ok ] Stapel vom Bootloader
+  [ ok ] native ABI antwortet
+  [ ok ] Memory-Map gelesen
+  [ ok ] Frame-Allocator laeuft
+  [ ok ] eigener Adressraum aktiv
+  [ ok ] Paging-Selbsttest ok
+  [ ok ] Heap eingerichtet
+  [ ok ] Heap-Allokation funktioniert
+  [ ok ] Breakpoint-Trap kehrt zurueck
+  [ ok ] Timer-Interrupts kommen an
+  [ ok ] MapError-Selbsttest laeuft
+  [ ok ] Frame-Selbsttest laeuft
+  [ ok ] Heap-Selbsttest laeuft
+  [ ok ] Heap nach Freigabe wieder leer
+  [ ok ] Scheduler meldet seinen Stand
+  [ ok ] Startbilanz vorhanden
+  [ ok ] Startvorgang abgeschlossen
+  [ ok ] Konfiguration nennt test-nx
+  [ ok ] Konfiguration: POSIX ja
+  [ ok ] Adressraum vor Heap (Zeile 47 vor Zeile 59)
+  [ ok ] Heap vor Timer (Zeile 59 vor Zeile 71)
+  [ ok ] Timer vor Startbilanz (Zeile 71 vor Zeile 94)
+  [ ok ] alle Selbsttests bestanden (79/79)
+  [ ok ] kein Selbsttest meldet FEHLER
+  [ ok ] keine FEHLER-Meldung im Log
+  [ ok ] keine WARNUNG im Log
+  [ ok ] POSIX uebersetzt EBADF
+  [ ok ] Ausfuehren von .data gibt #PF
+  [ ok ] als Instruktionsabruf erkannt
+  [ ok ] kein Code aus .data ausgefuehrt
+ERGEBNIS: alle Pruefungen bestanden.
+  => bestanden
+
+################ 11/15 Selbsttest #GP: nicht kanonische Adresse (kein #PF, sondern #GP) ################
+>> cargo build (release)
+   Compiling karst v0.1.0 (/root/jarvis/projects/u_DiS4in7esMF1/karstos/kernel)
+warning: unreachable expression
+   --> kernel/src/main.rs:436:5
+    |
+418 |         unsafe { arch::selftest::general_protection() };
+    |                  ------------------------------------ any code following this expression is unreachable
+...
+436 |     idle()
+    |     ^^^^^^ unreachable expression
+    |
+    = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `karst` (bin "karst") generated 1 warning
+    Finished `release` profile [optimized + debuginfo] target(s) in 3.11s
+>> Symboltabelle fuer Backtraces
+>> ISO bauen
+xorriso 1.5.4 : RockRidge filesystem manipulator, libburnia project.
+
+Physical block size of 512 bytes.
+Installing to GPT. Logical block size of 512 bytes.
+Secondary header at LBA 0x2f13.
+Secondary header valid.
+Detected ISOHYBRID with a GUID partition table (GPT).
+Converting to MBR for improved compatibility...
+Conversion successful.
+No active partition found, some systems may not boot.
+Setting partition 1 as active to work around the issue...
+Installing to MBR.
+Stage 2 to be located at 0x200 and 0x2800.
+Reminder: Remember to copy the limine-bios.sys file in either
+          the root, /boot, /limine, or /boot/limine directories of
+          one of the partitions on the device, or boot will fail!
+Limine BIOS stages installed successfully!
+>> fertig: build/karstos.iso (6026 KiB), Kernel 2250 KiB
+--- serielle Ausgabe (build/boot.272020.log) ---
+
+================================================================
+[karst] boot       karst v0.1.0 — Kernel von Karstos
+[karst] boot       Architektur : x86_64 (Basisseite 4096 B)
+[karst] boot       ABI         : karst-native + posix (abwaehlbar)
+[karst] boot       Konfiguration: Bauart release, POSIX ja, Fehler-Selbsttest test-gp
+[karst] boot       CPU         : QEMU Virtual CPU version 2.5+
+[karst] boot       Bootloader  : Limine 9.6.7
+[karst] boot       Stapel      : 64 KiB angefordert, gewaehrt
+[karst] mm         HHDM-Fenster: virt = phys + 0xffff800000000000
+[karst] mm         Kernelabbild: phys 0x000000001fcde000 -> virt 0xffffffff80000000
+[karst] mm           .text  0xffffffff80000000..0xffffffff80014000  (80 KiB, R+X)
+[karst] mm           .rodata0xffffffff80014000..0xffffffff80019000  (20 KiB, R)
+[karst] mm           .data  0xffffffff80019000..0xffffffff8002b000  (72 KiB, R+W, NX)
+[karst] mm           gesamt 172 KiB geladenes Abbild (43 Seiten a 4096 B)
+[karst] video      Framebuffer : 1280x800 @ 32 bpp -> Textkonsole 160x50
+[karst] cpu        GDT + TSS geladen, Datensegmente flach
+[karst] cpu        IDT: 256 Tore, Ausnahmen 0..21 belegt
+[karst] cpu        schwerste Ausnahme laeuft auf eigenem Notfallstapel (0xffffffff8001fa20)
+[karst] cpu        NX aktiv, CR0.WP aktiv
+[karst] irq        8259A-PIC (umgeleitet auf 0x20) initialisiert, alle Leitungen maskiert
+[karst] trap       #BP Breakpoint bei RIP=0xffffffff80006cb0 — setze fort
+[karst] cpu        Selbsttest: #BP ausgeloest und sauber fortgesetzt
+[karst] mm         Memory-Map (16 Eintraege):
+[karst] mm           0x000000001000..0x000000052000    324 KiB  bootloader-reclaimable
+[karst] mm           0x000000052000..0x00000009f000    308 KiB  usable
+[karst] mm           0x00000009fc00..0x0000000a0000      1 KiB  reserved
+[karst] mm           0x0000000f0000..0x000000100000     64 KiB  reserved
+[karst] mm           0x000000100000..0x00001fcd9000    507 MiB  usable
+[karst] mm           0x00001fcd9000..0x00001fcde000     20 KiB  bootloader-reclaimable
+[karst] mm           0x00001fcde000..0x00001fd09000    172 KiB  kernel+modules
+[karst] mm           0x00001fd09000..0x00001ff42000      2 MiB  bootloader-reclaimable
+[karst] mm           0x00001ff42000..0x00001ff5c000    104 KiB  usable
+[karst] mm           0x00001ff5c000..0x00001ffdf000    524 KiB  bootloader-reclaimable
+[karst] mm           0x00001ffdf000..0x000020000000    132 KiB  reserved
+[karst] mm           0x0000b0000000..0x0000c0000000    256 MiB  reserved
+[karst] mm           0x0000fd000000..0x0000fd3e8000      3 MiB  framebuffer
+[karst] mm           0x0000fed1c000..0x0000fed20000     16 KiB  reserved
+[karst] mm           0x0000fffc0000..0x000100000000    256 KiB  reserved
+[karst] mm           0x00fd00000000..0x010000000000     12 GiB  reserved
+[karst] mm         Memory-Map  : 16 Regionen, 77 Frames unter 1 MiB gesperrt, 0 Frames wegen Ueberschneidung nachreserviert
+[karst] mm         Speicher    : 12 GiB gesamt, davon 508 MiB nutzbar
+[karst] mm         Frames      : 131039 verwaltet, 130031 frei (507 MiB)
+[karst] mm         Frame-Bitmap: 16 KiB bei phys 0x000000100000
+[karst] mm         Vor Umschaltung geprueft: 5/5 Pflichtbereiche im neuen Adressraum erreichbar
+[karst] mm         Abbild nachgeprueft: 43 Seiten virt->phys korrekt (.text RX, .rodata R, .data RW), HHDM-Raender ok
+[karst] mm         Eigener Adressraum aktiv (CR3 = 0x000000104000)
+[karst] mm           HHDM   : 3 GiB als 2026 grosse Seiten
+[karst] mm           Abbild : 43 Seiten mit getrennten Rechten
+[karst] mm           Stapel : 0 Seiten vom Bootloader uebernommen
+[karst] mm         Selbsttest Paging: map 0xffffff0010000000 -> 0x00000010d000, schreiben/lesen ok, translate ok, unmap ok
+[karst] mm         Selbsttest MapError: 23/23 Fehlerfaelle nachweisbar ausgeloest (Misaligned 10, AlreadyMapped 3, NotMapped 4, OutOfFrames 4, ParentHugePage 2)
+[karst] mm         Selbsttest Grenzfaelle: 13/13 Zusagen erfuellt (translate mit Versatz, 2-MiB-Seite abbilden/uebersetzen/aufloesen, Tabellengrenze, Ruecknahme halber Teilbaeume), 7 Frames als Tabellen im Probebaum
+[karst] mm         Selbsttest Adressrechnung: 8/8 Zusagen erfuellt (Ausrichtung, Ueberlauf, Kanonizitaet, HHDM-Fenster, Rechte, Fehlertexte)
+[karst] mm         Selbsttest Memory-Map: 6/6 Zusagen erfuellt (4 kaputte Karten abgewiesen, zerrissene Karte: 257 Frames nachreserviert)
+[karst] mm         Selbsttest Frames: 26/26 Zusagen erfuellt, 130012 frei
+[karst] mm           Frame-Fehlerpfade: 4 abgewiesene Rueckgaben, 20 erschoepfte Anforderungen, Tiefstand 0 frei
+[karst] mm           Frame-Buchhaltung: 1027 belegt + 130012 frei = 131039 verwaltet, stimmig: ja
+[karst] heap       Kernel-Heap : 1024 KiB bei virt 0xffffff0000000000 (eigener Free-List-Allocator)
+[karst] heap       Testallokation: Box@0xffffff0000000010 = 0xdeadbeef
+[karst] heap       Testallokation: Vec mit 1024 Elementen, Summe 357389824, String "Karstos lebt"
+[karst] heap       belegt 8272 B von 1048576 B
+[karst] heap       nach Freigabe: belegt 0 B von 1048576 B
+[karst] heap         Heap-Wachstum: 2166784 B abgebildet (vorher 1048576 B), 1 Erweiterung(en), 5 abgelehnt, Grenze 16777216 B, Spielraum 14610432 B
+[karst] heap         Heap-Wachstumsfehler nachweisbar: Groesse 0 ok, ueber der Grenze ok, Frame-Allocator besetzt ok (Frame-Allocator gerade gesperrt)
+[karst] heap       Selbsttest Heap: 13/13 Zusagen erfuellt, 0 B belegt, 1 Loecher
+[karst] heap         Heap-Fehlerpfade: 16781312 B Anforderung abgewiesen (groesstes Loch 2166784 B), Zustand unveraendert: ja
+[karst] heap         Heap-Randfaelle: Groesse 0 ok, Loch wiederverwendet ok, alle 8 Zeiger im Fenster 0xffffff0000000000..0xffffff0000211000 ok
+[karst] abi        karst-native: Version=1, Handles=1, altes Handle -> BadHandle
+[karst] abi        posix-Schicht aktiv: read(2) auf unbekannten Fd -> -9 (erwartet -9 = -EBADF)
+[karst] irq        Zeitgeber laeuft mit 100 Hz, Interrupts frei (IF gesetzt)
+[karst] irq        Tick 1 — 1 s Laufzeit, 100 Ticks gezaehlt
+[karst] irq        Tick 2 — 2 s Laufzeit, 200 Ticks gezaehlt
+[karst] irq        Tick 3 — 3 s Laufzeit, 300 Ticks gezaehlt
+[karst] irq        Tick 4 — 4 s Laufzeit, 400 Ticks gezaehlt
+[karst] irq        Tick 5 — 5 s Laufzeit, 500 Ticks gezaehlt
+[karst] sched      Thread A (Kennung 1): Durchlauf 1/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 1/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 2/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 2/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 3/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 3/3
+[karst] sched      Threadwechsel: 16 Wechsel, zurueck in kmain (2 Threads a 16 KiB Stapel, Spur 121212, 5/5 Zusagen)
+[karst] sched      Thread W (Kennung 1): blockiert bis zum Wecken
+[karst] sched      Thread S (Kennung 2): schlaeft 3 Ticks
+[karst] sched      Thread S: nach 3 Ticks aufgewacht
+[karst] sched      Thread S: weckt Thread W (Kennung 1)
+[karst] sched      Thread W: geweckt, laeuft weiter
+[karst] sched      Schlafen/Wecken: 3 Ticks geschlafen (>= 3), 1 Zeitweckung(en), 3 Leerlaufwarten, Wartender geweckt: ja, 7/7 Zusagen
+[karst] sched      Stapelnutzung: hoechstens 576 von 16384 B je Thread benutzt, Wachzonen unversehrt
+[karst] sched      Thread V (Kennung 1): blockiert ohne Wecker
+[karst] sched      Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck, 1 Thread(s) blockiert, Meldung gesetzt, 3/3 Zusagen
+[karst] boot       Selbsttestbilanz: 79/79 bestanden (#BP 1/1, Paging 3/3, MapError 36/36, Frames 26/26, Heap 13/13)
+[karst] boot       Startbilanz : 129481 Frames frei (1558 belegt), Heap 0 / 2166784 B belegt, 508 Ticks
+[karst] boot       Startvorgang abgeschlossen. karst laeuft.
+================================================================
+[karst] test       greife auf eine nicht kanonische Adresse zu (muss #GP ausloesen) ...
+
+=============== CPU-AUSNAHME ===============
+Ausnahme : #GP allgemeine Schutzverletzung
+RIP      : 0xffffffff80003de2   CS : 0x0008
+RSP      : 0xffff80001ff85830   SS : 0x0010
+RFLAGS   : 0x0000000000000286
+Fehlercode: 0x0
+
+=============== KERNEL PANIC ===============
+Ort     : kernel/src/arch/x86_64/interrupts.rs:93:1
+Grund   : nicht behandelte CPU-Ausnahme: #GP allgemeine Schutzverletzung (code 0x0)
+Laufzeit: 510 Ticks bei 100 Hz (5 s)
+Zustand : Interrupts beim Eintritt aus, jetzt abgeschaltet
+Backtrace (Frame-Pointer, Adressen via addr2line aufloesbar):
+  #0  ip=0xffffffff800113ac
+  #1  ip=0xffffffff8000394c
+Backtrace: 2 Frame(s) aufgeloest
+============================================
+--- Auswertung ---
+  [ ok ] Abbruchmarke 'KERNEL PANIC' nach 6 s erreicht (Grenze 25 s)
+  [ ok ] Kernel meldet sich
+  [ ok ] Bootloader nennt sich
+  [ ok ] HHDM-Fenster bekannt
+  [ ok ] Kernelabbild vermessen
+  [ ok ] Rechte je Sektion gemeldet
+  [ ok ] #DF hat eigenen Notfallstapel
+  [ ok ] CPU erkannt
+  [ ok ] Framebuffer-Textkonsole steht
+  [ ok ] Stapel vom Bootloader
+  [ ok ] native ABI antwortet
+  [ ok ] Memory-Map gelesen
+  [ ok ] Frame-Allocator laeuft
+  [ ok ] eigener Adressraum aktiv
+  [ ok ] Paging-Selbsttest ok
+  [ ok ] Heap eingerichtet
+  [ ok ] Heap-Allokation funktioniert
+  [ ok ] Breakpoint-Trap kehrt zurueck
+  [ ok ] Timer-Interrupts kommen an
+  [ ok ] MapError-Selbsttest laeuft
+  [ ok ] Frame-Selbsttest laeuft
+  [ ok ] Heap-Selbsttest laeuft
+  [ ok ] Heap nach Freigabe wieder leer
+  [ ok ] Scheduler meldet seinen Stand
+  [ ok ] Startbilanz vorhanden
+  [ ok ] Startvorgang abgeschlossen
+  [ ok ] Konfiguration nennt test-gp
+  [ ok ] Konfiguration: POSIX ja
+  [ ok ] Adressraum vor Heap (Zeile 47 vor Zeile 59)
+  [ ok ] Heap vor Timer (Zeile 59 vor Zeile 71)
+  [ ok ] Timer vor Startbilanz (Zeile 71 vor Zeile 94)
+  [ ok ] alle Selbsttests bestanden (79/79)
+  [ ok ] kein Selbsttest meldet FEHLER
+  [ ok ] keine FEHLER-Meldung im Log
+  [ ok ] keine WARNUNG im Log
+  [ ok ] POSIX uebersetzt EBADF
+  [ ok ] nicht kanonische Adresse gibt #GP
+  [ ok ] Fehlercode wird gemeldet
+  [ ok ] kein #PF statt #GP
+  [ ok ] Zugriff nicht durchgekommen
+ERGEBNIS: alle Pruefungen bestanden.
+  => bestanden
+
+################ 12/15 Selbsttest #UD: ungueltige Instruktion (ud2) ################
+>> cargo build (release)
+   Compiling karst v0.1.0 (/root/jarvis/projects/u_DiS4in7esMF1/karstos/kernel)
+warning: unreachable expression
+   --> kernel/src/main.rs:436:5
+    |
+423 |         unsafe { arch::selftest::invalid_opcode() };
+    |                  -------------------------------- any code following this expression is unreachable
+...
+436 |     idle()
+    |     ^^^^^^ unreachable expression
+    |
+    = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `karst` (bin "karst") generated 1 warning
+    Finished `release` profile [optimized + debuginfo] target(s) in 3.11s
+>> Symboltabelle fuer Backtraces
+>> ISO bauen
+xorriso 1.5.4 : RockRidge filesystem manipulator, libburnia project.
+
+Physical block size of 512 bytes.
+Installing to GPT. Logical block size of 512 bytes.
+Secondary header at LBA 0x2f13.
+Secondary header valid.
+Detected ISOHYBRID with a GUID partition table (GPT).
+Converting to MBR for improved compatibility...
+Conversion successful.
+No active partition found, some systems may not boot.
+Setting partition 1 as active to work around the issue...
+Installing to MBR.
+Stage 2 to be located at 0x200 and 0x2800.
+Reminder: Remember to copy the limine-bios.sys file in either
+          the root, /boot, /limine, or /boot/limine directories of
+          one of the partitions on the device, or boot will fail!
+Limine BIOS stages installed successfully!
+>> fertig: build/karstos.iso (6026 KiB), Kernel 2250 KiB
+--- serielle Ausgabe (build/boot.272224.log) ---
+
+================================================================
+[karst] boot       karst v0.1.0 — Kernel von Karstos
+[karst] boot       Architektur : x86_64 (Basisseite 4096 B)
+[karst] boot       ABI         : karst-native + posix (abwaehlbar)
+[karst] boot       Konfiguration: Bauart release, POSIX ja, Fehler-Selbsttest test-ud
+[karst] boot       CPU         : QEMU Virtual CPU version 2.5+
+[karst] boot       Bootloader  : Limine 9.6.7
+[karst] boot       Stapel      : 64 KiB angefordert, gewaehrt
+[karst] mm         HHDM-Fenster: virt = phys + 0xffff800000000000
+[karst] mm         Kernelabbild: phys 0x000000001fcde000 -> virt 0xffffffff80000000
+[karst] mm           .text  0xffffffff80000000..0xffffffff80014000  (80 KiB, R+X)
+[karst] mm           .rodata0xffffffff80014000..0xffffffff80019000  (20 KiB, R)
+[karst] mm           .data  0xffffffff80019000..0xffffffff8002b000  (72 KiB, R+W, NX)
+[karst] mm           gesamt 172 KiB geladenes Abbild (43 Seiten a 4096 B)
+[karst] video      Framebuffer : 1280x800 @ 32 bpp -> Textkonsole 160x50
+[karst] cpu        GDT + TSS geladen, Datensegmente flach
+[karst] cpu        IDT: 256 Tore, Ausnahmen 0..21 belegt
+[karst] cpu        schwerste Ausnahme laeuft auf eigenem Notfallstapel (0xffffffff8001fa20)
+[karst] cpu        NX aktiv, CR0.WP aktiv
+[karst] irq        8259A-PIC (umgeleitet auf 0x20) initialisiert, alle Leitungen maskiert
+[karst] trap       #BP Breakpoint bei RIP=0xffffffff80006c90 — setze fort
+[karst] cpu        Selbsttest: #BP ausgeloest und sauber fortgesetzt
+[karst] mm         Memory-Map (16 Eintraege):
+[karst] mm           0x000000001000..0x000000052000    324 KiB  bootloader-reclaimable
+[karst] mm           0x000000052000..0x00000009f000    308 KiB  usable
+[karst] mm           0x00000009fc00..0x0000000a0000      1 KiB  reserved
+[karst] mm           0x0000000f0000..0x000000100000     64 KiB  reserved
+[karst] mm           0x000000100000..0x00001fcd9000    507 MiB  usable
+[karst] mm           0x00001fcd9000..0x00001fcde000     20 KiB  bootloader-reclaimable
+[karst] mm           0x00001fcde000..0x00001fd09000    172 KiB  kernel+modules
+[karst] mm           0x00001fd09000..0x00001ff42000      2 MiB  bootloader-reclaimable
+[karst] mm           0x00001ff42000..0x00001ff5c000    104 KiB  usable
+[karst] mm           0x00001ff5c000..0x00001ffdf000    524 KiB  bootloader-reclaimable
+[karst] mm           0x00001ffdf000..0x000020000000    132 KiB  reserved
+[karst] mm           0x0000b0000000..0x0000c0000000    256 MiB  reserved
+[karst] mm           0x0000fd000000..0x0000fd3e8000      3 MiB  framebuffer
+[karst] mm           0x0000fed1c000..0x0000fed20000     16 KiB  reserved
+[karst] mm           0x0000fffc0000..0x000100000000    256 KiB  reserved
+[karst] mm           0x00fd00000000..0x010000000000     12 GiB  reserved
+[karst] mm         Memory-Map  : 16 Regionen, 77 Frames unter 1 MiB gesperrt, 0 Frames wegen Ueberschneidung nachreserviert
+[karst] mm         Speicher    : 12 GiB gesamt, davon 508 MiB nutzbar
+[karst] mm         Frames      : 131039 verwaltet, 130031 frei (507 MiB)
+[karst] mm         Frame-Bitmap: 16 KiB bei phys 0x000000100000
+[karst] mm         Vor Umschaltung geprueft: 5/5 Pflichtbereiche im neuen Adressraum erreichbar
+[karst] mm         Abbild nachgeprueft: 43 Seiten virt->phys korrekt (.text RX, .rodata R, .data RW), HHDM-Raender ok
+[karst] mm         Eigener Adressraum aktiv (CR3 = 0x000000104000)
+[karst] mm           HHDM   : 3 GiB als 2026 grosse Seiten
+[karst] mm           Abbild : 43 Seiten mit getrennten Rechten
+[karst] mm           Stapel : 0 Seiten vom Bootloader uebernommen
+[karst] mm         Selbsttest Paging: map 0xffffff0010000000 -> 0x00000010d000, schreiben/lesen ok, translate ok, unmap ok
+[karst] mm         Selbsttest MapError: 23/23 Fehlerfaelle nachweisbar ausgeloest (Misaligned 10, AlreadyMapped 3, NotMapped 4, OutOfFrames 4, ParentHugePage 2)
+[karst] mm         Selbsttest Grenzfaelle: 13/13 Zusagen erfuellt (translate mit Versatz, 2-MiB-Seite abbilden/uebersetzen/aufloesen, Tabellengrenze, Ruecknahme halber Teilbaeume), 7 Frames als Tabellen im Probebaum
+[karst] mm         Selbsttest Adressrechnung: 8/8 Zusagen erfuellt (Ausrichtung, Ueberlauf, Kanonizitaet, HHDM-Fenster, Rechte, Fehlertexte)
+[karst] mm         Selbsttest Memory-Map: 6/6 Zusagen erfuellt (4 kaputte Karten abgewiesen, zerrissene Karte: 257 Frames nachreserviert)
+[karst] mm         Selbsttest Frames: 26/26 Zusagen erfuellt, 130012 frei
+[karst] mm           Frame-Fehlerpfade: 4 abgewiesene Rueckgaben, 20 erschoepfte Anforderungen, Tiefstand 0 frei
+[karst] mm           Frame-Buchhaltung: 1027 belegt + 130012 frei = 131039 verwaltet, stimmig: ja
+[karst] heap       Kernel-Heap : 1024 KiB bei virt 0xffffff0000000000 (eigener Free-List-Allocator)
+[karst] heap       Testallokation: Box@0xffffff0000000010 = 0xdeadbeef
+[karst] heap       Testallokation: Vec mit 1024 Elementen, Summe 357389824, String "Karstos lebt"
+[karst] heap       belegt 8272 B von 1048576 B
+[karst] heap       nach Freigabe: belegt 0 B von 1048576 B
+[karst] heap         Heap-Wachstum: 2166784 B abgebildet (vorher 1048576 B), 1 Erweiterung(en), 5 abgelehnt, Grenze 16777216 B, Spielraum 14610432 B
+[karst] heap         Heap-Wachstumsfehler nachweisbar: Groesse 0 ok, ueber der Grenze ok, Frame-Allocator besetzt ok (Frame-Allocator gerade gesperrt)
+[karst] heap       Selbsttest Heap: 13/13 Zusagen erfuellt, 0 B belegt, 1 Loecher
+[karst] heap         Heap-Fehlerpfade: 16781312 B Anforderung abgewiesen (groesstes Loch 2166784 B), Zustand unveraendert: ja
+[karst] heap         Heap-Randfaelle: Groesse 0 ok, Loch wiederverwendet ok, alle 8 Zeiger im Fenster 0xffffff0000000000..0xffffff0000211000 ok
+[karst] abi        karst-native: Version=1, Handles=1, altes Handle -> BadHandle
+[karst] abi        posix-Schicht aktiv: read(2) auf unbekannten Fd -> -9 (erwartet -9 = -EBADF)
+[karst] irq        Zeitgeber laeuft mit 100 Hz, Interrupts frei (IF gesetzt)
+[karst] irq        Tick 1 — 1 s Laufzeit, 100 Ticks gezaehlt
+[karst] irq        Tick 2 — 2 s Laufzeit, 200 Ticks gezaehlt
+[karst] irq        Tick 3 — 3 s Laufzeit, 300 Ticks gezaehlt
+[karst] irq        Tick 4 — 4 s Laufzeit, 400 Ticks gezaehlt
+[karst] irq        Tick 5 — 5 s Laufzeit, 500 Ticks gezaehlt
+[karst] sched      Thread A (Kennung 1): Durchlauf 1/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 1/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 2/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 2/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 3/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 3/3
+[karst] sched      Threadwechsel: 16 Wechsel, zurueck in kmain (2 Threads a 16 KiB Stapel, Spur 121212, 5/5 Zusagen)
+[karst] sched      Thread W (Kennung 1): blockiert bis zum Wecken
+[karst] sched      Thread S (Kennung 2): schlaeft 3 Ticks
+[karst] sched      Thread S: nach 4 Ticks aufgewacht
+[karst] sched      Thread S: weckt Thread W (Kennung 1)
+[karst] sched      Thread W: geweckt, laeuft weiter
+[karst] sched      Schlafen/Wecken: 4 Ticks geschlafen (>= 3), 1 Zeitweckung(en), 3 Leerlaufwarten, Wartender geweckt: ja, 7/7 Zusagen
+[karst] sched      Stapelnutzung: hoechstens 576 von 16384 B je Thread benutzt, Wachzonen unversehrt
+[karst] sched      Thread V (Kennung 1): blockiert ohne Wecker
+[karst] sched      Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck, 1 Thread(s) blockiert, Meldung gesetzt, 3/3 Zusagen
+[karst] boot       Selbsttestbilanz: 79/79 bestanden (#BP 1/1, Paging 3/3, MapError 36/36, Frames 26/26, Heap 13/13)
+[karst] boot       Startbilanz : 129481 Frames frei (1558 belegt), Heap 0 / 2166784 B belegt, 508 Ticks
+[karst] boot       Startvorgang abgeschlossen. karst laeuft.
+================================================================
+[karst] test       fuehre eine ungueltige Instruktion aus (muss #UD ausloesen) ...
+
+=============== CPU-AUSNAHME ===============
+Ausnahme : #UD ungueltige Instruktion
+RIP      : 0xffffffff80003dd8   CS : 0x0008
+RSP      : 0xffff80001ff85840   SS : 0x0010
+RFLAGS   : 0x0000000000000282
+
+=============== KERNEL PANIC ===============
+Ort     : kernel/src/arch/x86_64/interrupts.rs:83:1
+Grund   : nicht behandelte CPU-Ausnahme: #UD ungueltige Instruktion
+Laufzeit: 509 Ticks bei 100 Hz (5 s)
+Zustand : Interrupts beim Eintritt aus, jetzt abgeschaltet
+Backtrace (Frame-Pointer, Adressen via addr2line aufloesbar):
+  #0  ip=0xffffffff8001138c
+  #1  ip=0xffffffff80003782
+  #2  ip=0xffffffff80003dd8
+  #3  ip=0xffffffff800029d9
+  #4  ip=0xffffffff800112cd
+Backtrace: 5 Frame(s) aufgeloest
+============================================
+--- Auswertung ---
+  [ ok ] Abbruchmarke 'KERNEL PANIC' nach 6 s erreicht (Grenze 25 s)
+  [ ok ] Kernel meldet sich
+  [ ok ] Bootloader nennt sich
+  [ ok ] HHDM-Fenster bekannt
+  [ ok ] Kernelabbild vermessen
+  [ ok ] Rechte je Sektion gemeldet
+  [ ok ] #DF hat eigenen Notfallstapel
+  [ ok ] CPU erkannt
+  [ ok ] Framebuffer-Textkonsole steht
+  [ ok ] Stapel vom Bootloader
+  [ ok ] native ABI antwortet
+  [ ok ] Memory-Map gelesen
+  [ ok ] Frame-Allocator laeuft
+  [ ok ] eigener Adressraum aktiv
+  [ ok ] Paging-Selbsttest ok
+  [ ok ] Heap eingerichtet
+  [ ok ] Heap-Allokation funktioniert
+  [ ok ] Breakpoint-Trap kehrt zurueck
+  [ ok ] Timer-Interrupts kommen an
+  [ ok ] MapError-Selbsttest laeuft
+  [ ok ] Frame-Selbsttest laeuft
+  [ ok ] Heap-Selbsttest laeuft
+  [ ok ] Heap nach Freigabe wieder leer
+  [ ok ] Scheduler meldet seinen Stand
+  [ ok ] Startbilanz vorhanden
+  [ ok ] Startvorgang abgeschlossen
+  [ ok ] Konfiguration nennt test-ud
+  [ ok ] Konfiguration: POSIX ja
+  [ ok ] Adressraum vor Heap (Zeile 47 vor Zeile 59)
+  [ ok ] Heap vor Timer (Zeile 59 vor Zeile 71)
+  [ ok ] Timer vor Startbilanz (Zeile 71 vor Zeile 94)
+  [ ok ] alle Selbsttests bestanden (79/79)
+  [ ok ] kein Selbsttest meldet FEHLER
+  [ ok ] keine FEHLER-Meldung im Log
+  [ ok ] keine WARNUNG im Log
+  [ ok ] POSIX uebersetzt EBADF
+  [ ok ] ud2 gibt #UD
+  [ ok ] RIP der Ausnahme wird genannt
+  [ ok ] ud2 nicht uebergangen
+ERGEBNIS: alle Pruefungen bestanden.
+  => bestanden
+
+################ 13/15 Boot ueber UEFI (OVMF) ################
+>> cargo build (release)
+    Finished `release` profile [optimized + debuginfo] target(s) in 0.06s
+>> Symboltabelle fuer Backtraces
+>> ISO bauen
+xorriso 1.5.4 : RockRidge filesystem manipulator, libburnia project.
+
+Physical block size of 512 bytes.
+Installing to GPT. Logical block size of 512 bytes.
+Secondary header at LBA 0x2f17.
+Secondary header valid.
+Detected ISOHYBRID with a GUID partition table (GPT).
+Converting to MBR for improved compatibility...
+Conversion successful.
+No active partition found, some systems may not boot.
+Setting partition 1 as active to work around the issue...
+Installing to MBR.
+Stage 2 to be located at 0x200 and 0x2800.
+Reminder: Remember to copy the limine-bios.sys file in either
+          the root, /boot, /limine, or /boot/limine directories of
+          one of the partitions on the device, or boot will fail!
+Limine BIOS stages installed successfully!
+>> fertig: build/karstos.iso (6028 KiB), Kernel 2252 KiB
+--- serielle Ausgabe (build/boot.272435.log) ---
+[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01HBdsDxe: loading Boot0001 "UEFI QEMU DVD-ROM QM00005 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x2,0xFFFF,0x0)
+BdsDxe: starting Boot0001 "UEFI QEMU DVD-ROM QM00005 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x2,0xFFFF,0x0)
+[2J[01;01H[01;01H[2J[01;01H[01;01H
+================================================================
+[karst] boot       karst v0.1.0 — Kernel von Karstos
+[karst] boot       Architektur : x86_64 (Basisseite 4096 B)
+[karst] boot       ABI         : karst-native + posix (abwaehlbar)
+[karst] boot       Konfiguration: Bauart release, POSIX ja, Fehler-Selbsttest keine (normaler Boot)
+[karst] boot       CPU         : QEMU Virtual CPU version 2.5+
+[karst] boot       Bootloader  : Limine 9.6.7
+[karst] boot       Stapel      : 64 KiB angefordert, gewaehrt
+[karst] mm         HHDM-Fenster: virt = phys + 0xffff800000000000
+[karst] mm         Kernelabbild: phys 0x0000000019cde000 -> virt 0xffffffff80000000
+[karst] mm           .text  0xffffffff80000000..0xffffffff80014000  (80 KiB, R+X)
+[karst] mm           .rodata0xffffffff80014000..0xffffffff80019000  (20 KiB, R)
+[karst] mm           .data  0xffffffff80019000..0xffffffff8002b000  (72 KiB, R+W, NX)
+[karst] mm           gesamt 172 KiB geladenes Abbild (43 Seiten a 4096 B)
+[karst] video      Framebuffer : 1280x800 @ 32 bpp -> Textkonsole 160x50
+[karst] cpu        GDT + TSS geladen, Datensegmente flach
+[karst] cpu        IDT: 256 Tore, Ausnahmen 0..21 belegt
+[karst] cpu        schwerste Ausnahme laeuft auf eigenem Notfallstapel (0xffffffff8001fa20)
+[karst] cpu        NX aktiv, CR0.WP aktiv
+[karst] irq        8259A-PIC (umgeleitet auf 0x20) initialisiert, alle Leitungen maskiert
+[karst] trap       #BP Breakpoint bei RIP=0xffffffff80006da0 — setze fort
+[karst] cpu        Selbsttest: #BP ausgeloest und sauber fortgesetzt
+[karst] mm         Memory-Map (30 Eintraege):
+[karst] mm           0x000000000000..0x000000001000      4 KiB  bootloader-reclaimable
+[karst] mm           0x000000001000..0x0000000a0000    636 KiB  usable
+[karst] mm           0x000000100000..0x000000800000      7 MiB  usable
+[karst] mm           0x000000800000..0x000000808000     32 KiB  acpi-nvs
+[karst] mm           0x000000808000..0x00000080b000     12 KiB  usable
+[karst] mm           0x00000080b000..0x00000080c000      4 KiB  acpi-nvs
+[karst] mm           0x00000080c000..0x000000810000     16 KiB  usable
+[karst] mm           0x000000810000..0x000000900000    960 KiB  acpi-nvs
+[karst] mm           0x000000900000..0x000001500000     12 MiB  bootloader-reclaimable
+[karst] mm           0x000001500000..0x000019cde000    391 MiB  usable
+[karst] mm           0x000019cde000..0x000019d09000    172 KiB  kernel+modules
+[karst] mm           0x000019d09000..0x000019f3d000      2 MiB  bootloader-reclaimable
+[karst] mm           0x000019f3d000..0x000019f44000     28 KiB  usable
+[karst] mm           0x000019f44000..0x000019f75000    196 KiB  bootloader-reclaimable
+[karst] mm           0x000019f75000..0x00001bb75000     28 MiB  usable
+[karst] mm           0x00001bb75000..0x00001bb9c000    156 KiB  bootloader-reclaimable
+[karst] mm           0x00001bb9c000..0x00001df85000     35 MiB  usable
+[karst] mm           0x00001df85000..0x00001eab7000     11 MiB  bootloader-reclaimable
+[karst] mm           0x00001eab7000..0x00001eb78000    772 KiB  reserved
+[karst] mm           0x00001eb78000..0x00001f4ed000      9 MiB  bootloader-reclaimable
+[karst] mm           0x00001f4ed000..0x00001f5ed000      1 MiB  reserved
+[karst] mm           0x00001f5ed000..0x00001f6ed000      1 MiB  reserved
+[karst] mm           0x00001f6ed000..0x00001f76d000    512 KiB  reserved
+[karst] mm           0x00001f76d000..0x00001f77f000     72 KiB  acpi-reclaimable
+[karst] mm           0x00001f77f000..0x00001f7ff000    512 KiB  acpi-nvs
+[karst] mm           0x00001f7ff000..0x00001ff58000      7 MiB  bootloader-reclaimable
+[karst] mm           0x00001ff58000..0x00001ff78000    128 KiB  reserved
+[karst] mm           0x00001ff78000..0x000020000000    544 KiB  acpi-nvs
+[karst] mm           0x0000b0000000..0x0000c0000000    256 MiB  reserved
+[karst] mm           0x0000c0000000..0x0000c03e8000      3 MiB  framebuffer
+[karst] mm         Memory-Map  : 30 Regionen, 159 Frames unter 1 MiB gesperrt, 0 Frames wegen Ueberschneidung nachreserviert
+[karst] mm         Speicher    : 771 MiB gesamt, davon 463 MiB nutzbar
+[karst] mm         Frames      : 131072 verwaltet, 118481 frei (462 MiB)
+[karst] mm         Frame-Bitmap: 16 KiB bei phys 0x000000100000
+[karst] mm         Vor Umschaltung geprueft: 5/5 Pflichtbereiche im neuen Adressraum erreichbar
+[karst] mm         Abbild nachgeprueft: 43 Seiten virt->phys korrekt (.text RX, .rodata R, .data RW), HHDM-Raender ok
+[karst] mm         Eigener Adressraum aktiv (CR3 = 0x000000104000)
+[karst] mm           HHDM   : 3 GiB als 1538 grosse Seiten
+[karst] mm           Abbild : 43 Seiten mit getrennten Rechten
+[karst] mm           Stapel : 0 Seiten vom Bootloader uebernommen
+[karst] mm         Selbsttest Paging: map 0xffffff0010000000 -> 0x00000010d000, schreiben/lesen ok, translate ok, unmap ok
+[karst] mm         Selbsttest MapError: 23/23 Fehlerfaelle nachweisbar ausgeloest (Misaligned 10, AlreadyMapped 3, NotMapped 4, OutOfFrames 4, ParentHugePage 2)
+[karst] mm         Selbsttest Grenzfaelle: 13/13 Zusagen erfuellt (translate mit Versatz, 2-MiB-Seite abbilden/uebersetzen/aufloesen, Tabellengrenze, Ruecknahme halber Teilbaeume), 7 Frames als Tabellen im Probebaum
+[karst] mm         Selbsttest Adressrechnung: 8/8 Zusagen erfuellt (Ausrichtung, Ueberlauf, Kanonizitaet, HHDM-Fenster, Rechte, Fehlertexte)
+[karst] mm         Selbsttest Memory-Map: 6/6 Zusagen erfuellt (4 kaputte Karten abgewiesen, zerrissene Karte: 257 Frames nachreserviert)
+[karst] mm         Selbsttest Frames: 26/26 Zusagen erfuellt, 118462 frei
+[karst] mm           Frame-Fehlerpfade: 4 abgewiesene Rueckgaben, 43 erschoepfte Anforderungen, Tiefstand 0 frei
+[karst] mm           Frame-Buchhaltung: 12610 belegt + 118462 frei = 131072 verwaltet, stimmig: ja
+[karst] heap       Kernel-Heap : 1024 KiB bei virt 0xffffff0000000000 (eigener Free-List-Allocator)
+[karst] heap       Testallokation: Box@0xffffff0000000010 = 0xdeadbeef
+[karst] heap       Testallokation: Vec mit 1024 Elementen, Summe 357389824, String "Karstos lebt"
+[karst] heap       belegt 8272 B von 1048576 B
+[karst] heap       nach Freigabe: belegt 0 B von 1048576 B
+[karst] heap         Heap-Wachstum: 2166784 B abgebildet (vorher 1048576 B), 1 Erweiterung(en), 5 abgelehnt, Grenze 16777216 B, Spielraum 14610432 B
+[karst] heap         Heap-Wachstumsfehler nachweisbar: Groesse 0 ok, ueber der Grenze ok, Frame-Allocator besetzt ok (Frame-Allocator gerade gesperrt)
+[karst] heap       Selbsttest Heap: 13/13 Zusagen erfuellt, 0 B belegt, 1 Loecher
+[karst] heap         Heap-Fehlerpfade: 16781312 B Anforderung abgewiesen (groesstes Loch 2166784 B), Zustand unveraendert: ja
+[karst] heap         Heap-Randfaelle: Groesse 0 ok, Loch wiederverwendet ok, alle 8 Zeiger im Fenster 0xffffff0000000000..0xffffff0000211000 ok
+[karst] abi        karst-native: Version=1, Handles=1, altes Handle -> BadHandle
+[karst] abi        posix-Schicht aktiv: read(2) auf unbekannten Fd -> -9 (erwartet -9 = -EBADF)
+[karst] irq        Zeitgeber laeuft mit 100 Hz, Interrupts frei (IF gesetzt)
+[karst] irq        Tick 1 — 1 s Laufzeit, 100 Ticks gezaehlt
+[karst] irq        Tick 2 — 2 s Laufzeit, 200 Ticks gezaehlt
+[karst] irq        Tick 3 — 3 s Laufzeit, 300 Ticks gezaehlt
+[karst] irq        Tick 4 — 4 s Laufzeit, 400 Ticks gezaehlt
+[karst] irq        Tick 5 — 5 s Laufzeit, 500 Ticks gezaehlt
+[karst] sched      Thread A (Kennung 1): Durchlauf 1/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 1/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 2/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 2/3
+[karst] sched      Thread A (Kennung 1): Durchlauf 3/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 3/3
+[karst] sched      Threadwechsel: 16 Wechsel, zurueck in kmain (2 Threads a 16 KiB Stapel, Spur 121212, 5/5 Zusagen)
+[karst] sched      Thread W (Kennung 1): blockiert bis zum Wecken
+[karst] sched      Thread S (Kennung 2): schlaeft 3 Ticks
+[karst] sched      Thread S: nach 3 Ticks aufgewacht
+[karst] sched      Thread S: weckt Thread W (Kennung 1)
+[karst] sched      Thread W: geweckt, laeuft weiter
+[karst] sched      Schlafen/Wecken: 3 Ticks geschlafen (>= 3), 1 Zeitweckung(en), 3 Leerlaufwarten, Wartender geweckt: ja, 7/7 Zusagen
+[karst] sched      Stapelnutzung: hoechstens 576 von 16384 B je Thread benutzt, Wachzonen unversehrt
+[karst] sched      Thread V (Kennung 1): blockiert ohne Wecker
+[karst] sched      Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck, 1 Thread(s) blockiert, Meldung gesetzt, 3/3 Zusagen
+[karst] boot       Selbsttestbilanz: 79/79 bestanden (#BP 1/1, Paging 3/3, MapError 36/36, Frames 26/26, Heap 13/13)
+[karst] boot       Startbilanz : 117931 Frames frei (13141 belegt), Heap 0 / 2166784 B belegt, 507 Ticks
+[karst] boot       Startvorgang abgeschlossen. karst laeuft.
+================================================================
+--- Auswertung ---
+  [ ok ] Abbruchmarke 'Startvorgang abgeschlossen' nach 11 s erreicht (Grenze 25 s)
+  [ ok ] Kernel meldet sich
+  [ ok ] Bootloader nennt sich
+  [ ok ] HHDM-Fenster bekannt
+  [ ok ] Kernelabbild vermessen
+  [ ok ] Rechte je Sektion gemeldet
+  [ ok ] #DF hat eigenen Notfallstapel
+  [ ok ] CPU erkannt
+  [ ok ] Framebuffer-Textkonsole steht
+  [ ok ] Stapel vom Bootloader
+  [ ok ] native ABI antwortet
+  [ ok ] Memory-Map gelesen
+  [ ok ] Frame-Allocator laeuft
+  [ ok ] eigener Adressraum aktiv
+  [ ok ] Paging-Selbsttest ok
+  [ ok ] Heap eingerichtet
+  [ ok ] Heap-Allokation funktioniert
+  [ ok ] Breakpoint-Trap kehrt zurueck
+  [ ok ] Timer-Interrupts kommen an
+  [ ok ] MapError-Selbsttest laeuft
+  [ ok ] Frame-Selbsttest laeuft
+  [ ok ] Heap-Selbsttest laeuft
+  [ ok ] Heap nach Freigabe wieder leer
+  [ ok ] Scheduler meldet seinen Stand
+  [ ok ] Startbilanz vorhanden
+  [ ok ] Startvorgang abgeschlossen
+  [ ok ] Konfiguration: normaler Boot
+  [ ok ] Konfiguration: POSIX ja
+  [ ok ] Adressraum vor Heap (Zeile 63 vor Zeile 75)
+  [ ok ] Heap vor Timer (Zeile 75 vor Zeile 87)
+  [ ok ] Timer vor Startbilanz (Zeile 87 vor Zeile 110)
+  [ ok ] alle Selbsttests bestanden (79/79)
+  [ ok ] kein Selbsttest meldet FEHLER
+  [ ok ] keine FEHLER-Meldung im Log
+  [ ok ] keine WARNUNG im Log
+  [ ok ] keine unerwartete CPU-Ausnahme
+  [ ok ] kein Panic beim normalen Boot
+  [ ok ] POSIX uebersetzt EBADF
+ERGEBNIS: alle Pruefungen bestanden.
+  => bestanden
+
+################ 14/15 Produktname kommt nur aus branding.rs ################
+  kein hartkodierter Produktname in kernel/src ausser branding.rs
+  Kernelname aus Cargo.toml: karst / OS-Name: Karstos
+  rename.sh vorhanden und ausfuehrbar (Anleitung: RENAME.md)
+  => bestanden
+
+################ 15/15 Architekturgrenze und Codehygiene ################
+  keine x86-Details im Code ausserhalb kernel/src/arch/
+  Hinweis: x86-Begriffe erscheinen nur in erklaerenden Kommentaren:
+    kernel/src/kcore/arch_iface.rs:11://! ein x86-Begriff auf (CR3, PML4, PTE, `out`, `lidt`, ...), ist die Grenze
+  kein todo!()/unimplemented!() im Baum
+  Build ohne Compilerwarnungen
+  Crates in Cargo.lock (inkl. eigener): 7
+  jedes test-*-Feature hat einen Schalter in run-qemu.sh
+  Kernelabbild: 2252 KiB (ELF, ungestrippt)
+  Rust-Zeilen kernel+libs: 10736
+  => bestanden
+
+############ ALLE TESTS BESTANDEN ############

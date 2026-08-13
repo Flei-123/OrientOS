@@ -314,10 +314,24 @@ selbst im Baum, ca. 400 Zeilen, dafür ohne Fremdabstraktion in der arch-Schicht
 `linked_list_allocator` (eigener Heap), `bootloader`, `uart_16550`, `pic8259`,
 `log`.
 
-Geladene Größe des Kernels: `.text` 32 KiB, `.rodata` 10 KiB, `.data` 6 KiB,
-`.bss` 64 KiB — zusammen rund **113 KiB** im Speicher. (Die ELF-Datei ist
-größer, weil Debug-Informationen für `addr2line` mitgeliefert werden; sie werden
-nicht geladen.)
+Geladene Größe des Kernels (Release, gemessen mit
+`size -A target/x86_64-karst-none/release/karst`):
+
+| Sektion | Größe |
+|---|---|
+| `.text` | 76,0 KiB |
+| `.rodata` | 17,0 KiB |
+| `.limine_requests` | 0,4 KiB |
+| `.data` | 6,1 KiB |
+| `.bss` | 64,4 KiB |
+| **Summe im Speicher** | **163,8 KiB** |
+
+Der größte Einzelposten in `.bss` sind die drei IST-Stapel zu je 20 KiB. Die
+ELF-Datei auf der Platte ist deutlich größer, weil Debug-Informationen für
+`addr2line` mitgeliefert werden; geladen wird davon nichts.
+
+> Diese Zahlen werden bei jeder Änderung nachgemessen, nicht geschätzt. Wer sie
+> anfasst, führt vorher `size -A` aus.
 
 ---
 
@@ -327,12 +341,41 @@ nicht geladen.)
 |---|---|---|
 | `abi_x86_interrupt` | `kernel/src/main.rs` | einzige Möglichkeit, Ausnahmehandler ohne handgeschriebene Assembler-Stubs korrekt aufzurufen (Fehlercode, `iretq`) |
 | `build-std` | `build.sh` | `core`/`alloc` müssen für das eigene Target neu gebaut werden |
+| `alloc_error_handler` | `kernel/src/main.rs` | ohne das meldet erschöpfter Heap nur ein nacktes Panic; mit ihm gibt der Kernel Heap-Statistik und Anforderungsgröße aus |
 | `json-target-spec` | `.cargo/config.toml` | rustc 1.99 verlangt das Flag für `.json`-Target-Specs |
 
-Alles andere ist stabiler Rust. `build-std` steht bewusst **nicht** in
+`#[unsafe(naked)]` + `naked_asm!` für den Kontextwechsel
+(`arch/x86_64/context.rs`) brauchen **kein** Feature mehr — seit Rust 1.88
+stabil. Alles andere ist stabiler Rust. `build-std` steht bewusst **nicht** in
 `.cargo/config.toml`, weil `[unstable]` für jedes Ziel gälte und `cargo test`
 auf dem Host dann an einem zweiten `core` scheitert
 (`duplicate lang item: sized`).
+
+---
+
+## 9a. Der Name ist Konfiguration, kein Code
+
+Im Quelltext steht **kein Produktname**. Kernel- und OS-Name kommen aus
+Cargo-Metadaten, werden von `kernel/build.rs` als `env!`-Variablen eingespeist
+und ausschließlich in `kernel/src/kcore/branding.rs` sichtbar:
+
+```
+kernel/Cargo.toml  name = "karst"                     ─┐
+                   [package.metadata.branding]         │ build.rs
+                   os-name = "Karstos"                ─┘   ↓
+kcore/branding.rs  KERNEL_NAME · OS_NAME · VERSION · LOG_TAG · NATIVE_ABI · banner()
+                                    ↓
+             klog!(), Panic-Handler, Boot-Banner, ABI-Beschreibung
+```
+
+`./test.sh` Schritt 14 lässt den Build durchfallen, sobald jemand einen
+Produktnamen als Literal in `kernel/src` schreibt. Vollständiges Umbenennen
+(Crates, Verzeichnisse, Target-JSON, Doku) macht `./rename.sh <kernel> <os>`;
+verifiziert mit `./rename.sh nova Novaos` in einer Kopie unter `/tmp`, Ergebnis
+gebootet. Anleitung: [RENAME.md](RENAME.md).
+
+Grund: Justin will sich den endgültigen Namen offenhalten. Ein Name, der über
+200 Dateien verteilt ist, ist eine Einbahnstraße.
 
 ---
 

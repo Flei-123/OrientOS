@@ -102,6 +102,6 @@ macro_rules! serial_println {
 #[macro_export]
 macro_rules! klog {
     ($sub:expr, $($arg:tt)*) => {
-        $crate::println!("[karst] {:<10} {}", $sub, format_args!($($arg)*))
+        $crate::println!("{} {:<10} {}", $crate::kcore::branding::LOG_TAG, $sub, format_args!($($arg)*))
     };
 }

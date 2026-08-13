@@ -29,8 +29,10 @@ BUILD_STD=(-Z build-std=core,compiler_builtins,alloc
            -Z build-std-features=compiler-builtins-mem)
 
 echo ">> cargo build (${PROFILE})"
+mkdir -p build
+# Mitschreiben, damit test.sh Schritt 14 die Warnungsfreiheit pruefen kann.
 cargo build "${BUILD_STD[@]}" ${CARGO_PROFILE_FLAG} \
-    "${FEATURE_ARGS[@]}" "${EXTRA[@]}"
+    "${FEATURE_ARGS[@]}" "${EXTRA[@]}" 2>&1 | tee build/cargo-build.log
 
 KERNEL="target/x86_64-karst-none/${PROFILE}/karst"
 test -f "$KERNEL" || { echo "Kernelabbild fehlt: $KERNEL" >&2; exit 1; }

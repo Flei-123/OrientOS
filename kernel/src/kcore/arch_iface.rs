@@ -144,6 +144,53 @@ pub trait InterruptCtlOps {
     fn name() -> &'static str;
 }
 
+/// Schutzmerkmale, die die CPU meldet und die fuer die unprivilegierte Ebene
+/// zaehlen.
+///
+/// Der Core entscheidet daraus nur "kann ich Userspace starten" und schreibt
+/// das Ergebnis ins Boot-Log; WIE die Merkmale ermittelt werden, weiss allein
+/// `arch`.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct CpuFeatures {
+    /// Schneller Systemaufrufpfad vorhanden.
+    pub fast_syscall: bool,
+    /// Der Kernel darf keinen unprivilegierten Code ausfuehren.
+    pub exec_guard: bool,
+    /// Der Kernel darf unprivilegierte Daten nicht ungebremst anfassen.
+    pub access_guard: bool,
+    /// Per-CPU-Basisregister vorhanden.
+    pub percpu_base: bool,
+}
+
+impl CpuFeatures {
+    /// Reicht das Gemeldete aus, um ueberhaupt in die unprivilegierte Ebene zu
+    /// wechseln?
+    pub const fn user_capable(self) -> bool {
+        self.fast_syscall && self.percpu_base
+    }
+}
+
+/// Ergebnis eines Ausflugs in die unprivilegierte Ebene.
+///
+/// Die Felder sind bewusst architekturneutral benannt (`code_selector` statt
+/// des x86-Registernamens), damit der Core sie protokollieren kann, ohne eine
+/// Architektur zu kennen.
+#[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
+pub struct UserExit {
+    /// Wurde die unprivilegierte Ebene tatsaechlich betreten?
+    pub entered: bool,
+    /// Beendigungscode, den das Programm gemeldet hat.
+    pub code: u64,
+    /// Codesegment-Selektor, mit dem das Programm lief.
+    pub code_selector: u16,
+    /// Gemessene Privilegstufe waehrend des Laufs (3 = unprivilegiert).
+    pub privilege_level: u8,
+    /// Wie viele Systemaufrufe das Programm abgesetzt hat.
+    pub syscalls: u64,
+    /// Klartextgrund, falls `entered == false`.
+    pub reason: &'static str,
+}
+
 /// Alles, was der Kernel von einer Architektur braucht.
 pub trait ArchOps {
     /// Anzeigename, z. B. `"x86_64"`.
@@ -190,4 +237,76 @@ pub trait ArchOps {
 
     /// Schreibt den CPU-Namen nach `buf` und liefert die Laenge.
     fn cpu_brand(buf: &mut [u8]) -> usize;
+
+    /// Oberes Ende des Notfallstapels, auf dem die schwerste Ausnahme laeuft
+    /// (x86_64: `#DF` auf IST 1). Nur fuer Diagnoseausgaben im Boot-Log.
+    /// `None`, wenn die Architektur so etwas nicht kennt.
+    ///
+    /// Steht bewusst im Trait: ohne diese Methode muesste `main.rs` direkt
+    /// `arch::x86_64::gdt::double_fault_stack_top()` aufrufen — genau das
+    /// waere ein Leck der arch-Grenze.
+    fn fault_stack_top() -> Option<VirtAddr>;
+
+    // ------------------------------------------------------------ Praeemption
+    //
+    // Verdraengung braucht einen Interruptpfad, der den VOLLEN Registersatz
+    // rettet — welcher das ist, weiss nur `arch`. Der Core sagt lediglich, ob
+    // er verdraengt werden will, und bekommt bei jedem Zeitgebertick den
+    // Rueckruf [`crate::kcore::preempt::on_tick`].
+
+    /// Schaltet den verdraengenden Zeitgeberpfad ein oder aus.
+    ///
+    /// Liefert den Zustand DANACH: `false` heisst "diese Architektur kann es
+    /// (noch) nicht" — der Core faellt dann auf den kooperativen Planer zurueck.
+    ///
+    /// # Safety
+    /// Veraendert den Interruptpfad; nur mit gueltigem Scheduler aufrufen.
+    unsafe fn set_preemption(_on: bool) -> bool {
+        false
+    }
+
+    /// Kann diese Architektur ueberhaupt verdraengen?
+    fn preemption_available() -> bool {
+        false
+    }
+
+    // ------------------------------------------------------- unprivilegierte Ebene
+
+    /// Was die CPU an Schutzmerkmalen meldet.
+    fn cpu_features() -> CpuFeatures {
+        CpuFeatures::default()
+    }
+
+    /// Richtet den Systemaufrufpfad, den Per-CPU-Zustand und die Schutzbits
+    /// ein. Liefert `false`, wenn die Architektur keine Ring-3-Ebene anbietet.
+    ///
+    /// # Safety
+    /// Genau einmal im Boot, nach [`ArchOps::init_cpu`] und nach dem Heap.
+    unsafe fn init_user_support() -> bool {
+        false
+    }
+
+    /// Ist der Weg in die unprivilegierte Ebene fertig verdrahtet?
+    fn user_support_ready() -> bool {
+        false
+    }
+
+    /// Hinterlegt den Kernelstapel, auf den ein Systemaufruf bzw. eine
+    /// Ausnahme aus der unprivilegierten Ebene umschaltet.
+    fn set_kernel_stack(_top: VirtAddr) {}
+
+    /// Startet `entry` unprivilegiert auf dem Stapel `stack_top` und kehrt
+    /// zurueck, sobald sich das Programm beendet hat.
+    ///
+    /// # Safety
+    /// `entry` und `stack_top` muessen im aktiven Adressraum unprivilegiert
+    /// erreichbar abgebildet sein.
+    unsafe fn enter_user(_entry: VirtAddr, _stack_top: VirtAddr) -> UserExit {
+        UserExit { reason: "Architektur kennt keine unprivilegierte Ebene", ..UserExit::default() }
+    }
+
+    /// Codesegment-Selektor des gerade laufenden Kontrollflusses (Diagnose).
+    fn code_selector() -> u16 {
+        0
+    }
 }

@@ -7,51 +7,80 @@ FAIL=0
 step() { echo; echo "################ $* ################"; }
 run()  { if "$@"; then echo "  => bestanden"; else echo "  => FEHLGESCHLAGEN"; FAIL=1; fi }
 
-step "1/14 Host-Tests der architekturunabhaengigen Crates"
+step "1/15 Host-Tests der architekturunabhaengigen Crates"
 run cargo test --target x86_64-unknown-linux-gnu \
       -p karst-mem -p karst-abi-native -p karst-abi-posix
 
-step "2/14 Kernel baut (Release, mit POSIX)"
+step "2/15 Kernel baut (Release, mit POSIX)"
 run ./build.sh
 
-step "3/14 Kernel baut OHNE POSIX-Schicht"
+step "3/15 Kernel baut OHNE POSIX-Schicht"
 run ./build.sh --no-posix
 
-step "4/14 Boot in QEMU (BIOS)"
+step "4/15 Boot in QEMU (BIOS)"
 run ./run-qemu.sh --check
 
-step "5/14 Boot in QEMU ohne POSIX-Schicht"
+step "5/15 Boot in QEMU ohne POSIX-Schicht"
 run ./run-qemu.sh --check --no-posix
 
-step "6/14 Selbsttest Page Fault"
+step "6/15 Selbsttest Page Fault"
 run ./run-qemu.sh --test-pagefault
 
-step "7/14 Selbsttest Double Fault (echter #DF auf IST-Stapel)"
+step "7/15 Selbsttest Double Fault (echter #DF auf IST-Stapel)"
 run ./run-qemu.sh --test-doublefault
 
-step "8/14 Selbsttest Panic-Handler"
+step "8/15 Selbsttest Panic-Handler"
 run ./run-qemu.sh --test-panic
 
-step "9/14 Selbsttest .rodata schreibgeschuetzt (#PF erwartet)"
+step "9/15 Selbsttest .rodata schreibgeschuetzt (#PF erwartet)"
 run ./run-qemu.sh --test-rodata
 
-step "10/14 Selbsttest NX: Daten ausfuehren (#PF mit Instruktionsabruf erwartet)"
+step "10/15 Selbsttest NX: Daten ausfuehren (#PF mit Instruktionsabruf erwartet)"
 run ./run-qemu.sh --test-nx
 
-step "11/14 Selbsttest #GP: nicht kanonische Adresse (kein #PF, sondern #GP)"
+step "11/15 Selbsttest #GP: nicht kanonische Adresse (kein #PF, sondern #GP)"
 run ./run-qemu.sh --test-gp
 
-step "12/14 Selbsttest #UD: ungueltige Instruktion (ud2)"
+step "12/15 Selbsttest #UD: ungueltige Instruktion (ud2)"
 run ./run-qemu.sh --test-ud
 
-step "13/14 Boot ueber UEFI (OVMF)"
+step "13/15 Boot ueber UEFI (OVMF)"
 if ls /usr/share/OVMF/OVMF_CODE*.fd >/dev/null 2>&1; then
     run ./run-qemu.sh --check --uefi
 else
     echo "  => uebersprungen (OVMF nicht installiert)"
 fi
 
-step "14/14 Architekturgrenze und Codehygiene"
+step "14/15 Produktname kommt nur aus branding.rs"
+branding_check() {
+    # Kein Produktname als Literal im Quelltext. branding.rs selbst und
+    # Verweise auf die eigenen Crates (karst_mem, karst-abi-*) sind erlaubt —
+    # die benennt ./rename.sh mit um.
+    local k os hits
+    k=$(grep -m1 '^name = ' kernel/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+    os=$(grep -m1 '^os-name = ' kernel/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+    hits=$(grep -rn "\b${k}\b\|${os}" kernel/src --include='*.rs' \
+             | grep -v '^kernel/src/kcore/branding.rs' \
+             | grep -vE "${k}_(mem|abi_native|abi_posix)" \
+             | grep -vE ':[[:space:]]*(//|///|//!|\*)')
+    if [[ -n "$hits" ]]; then
+        echo "Produktname hartkodiert ausserhalb branding.rs:"
+        echo "$hits"
+        return 1
+    fi
+    echo "  kein hartkodierter Produktname in kernel/src ausser branding.rs"
+    echo "  Kernelname aus Cargo.toml: $k / OS-Name: $os"
+    # rename.sh muss es geben und ausfuehrbar sein.
+    if [[ ! -x ./rename.sh ]]; then
+        echo "rename.sh fehlt oder ist nicht ausfuehrbar"
+        return 1
+    fi
+    echo "  rename.sh vorhanden und ausfuehrbar (Anleitung: RENAME.md)"
+    return 0
+}
+run branding_check
+
+step "15/15 Architekturgrenze und Codehygiene"
 arch_leak() {
     local hits
     hits=$(grep -rnE '\b(cr[0-3]|PML4|PTE|rdmsr|wrmsr|lgdt|lidt|outb|inb|asm!|invlpg|iretq)\b' \
@@ -79,6 +108,19 @@ arch_leak() {
         return 1
     fi
     echo "  kein todo!()/unimplemented!() im Baum"
+    # Warnungsfreiheit: der letzte Build darf keine einzige Compilerwarnung
+    # erzeugt haben. Warnungen sind kein Rauschen, sondern unerledigte Arbeit.
+    if [[ -f build/cargo-build.log ]]; then
+        local warns
+        warns=$(grep -c '^warning:' build/cargo-build.log || true)
+        # Die Sammelzeile "generated N warnings" zaehlt selbst als warning.
+        if [[ "$warns" -gt 0 ]]; then
+            echo "Compilerwarnungen im letzten Build: $warns"
+            grep '^warning:' build/cargo-build.log | sort | uniq -c | head
+            return 1
+        fi
+        echo "  Build ohne Compilerwarnungen"
+    fi
     local crates
     crates=$(grep -cE '^name = ' Cargo.lock)
     echo "  Crates in Cargo.lock (inkl. eigener): $crates"

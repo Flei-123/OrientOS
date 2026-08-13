@@ -66,6 +66,49 @@ pub unsafe fn set_gate(vector: u8, handler: u64, ist: u8, dpl: u8, trap: bool) {
     }
 }
 
+
+/// Handler ohne Fehlercode.
+pub type Handler = extern "x86-interrupt" fn(super::interrupts::TrapFrame);
+/// Handler mit Fehlercode.
+pub type HandlerErr = extern "x86-interrupt" fn(super::interrupts::TrapFrame, u64);
+/// Handler mit Fehlercode, der nicht zurueckkehrt (`#DF`).
+pub type HandlerDiverging = extern "x86-interrupt" fn(super::interrupts::TrapFrame, u64) -> !;
+
+/// Traegt einen Handler ohne Fehlercode ein.
+///
+/// Diese drei typisierten Huellen ersetzen den frueheren direkten Cast
+/// `handler as u64`. Der ist seit rustc 1.99 als `fn_ptr_cast` beanstandet
+/// (ein Funktions-*Item* hat keine Adresse, erst der Funktions-*Zeiger*), und
+/// er liess auch noch jede beliebige Zahl als "Handler" durchgehen.
+///
+/// # Safety
+/// Aendert die aktive Ausnahmebehandlung.
+pub unsafe fn set_handler(vector: u8, handler: Handler, ist: u8, dpl: u8, trap: bool) {
+    unsafe { set_gate(vector, handler as usize as u64, ist, dpl, trap) }
+}
+
+/// Traegt einen Handler mit Fehlercode ein.
+///
+/// # Safety
+/// Siehe [`set_handler`].
+pub unsafe fn set_handler_err(vector: u8, handler: HandlerErr, ist: u8, dpl: u8, trap: bool) {
+    unsafe { set_gate(vector, handler as usize as u64, ist, dpl, trap) }
+}
+
+/// Traegt einen nicht zurueckkehrenden Handler ein.
+///
+/// # Safety
+/// Siehe [`set_handler`].
+pub unsafe fn set_handler_diverging(
+    vector: u8,
+    handler: HandlerDiverging,
+    ist: u8,
+    dpl: u8,
+    trap: bool,
+) {
+    unsafe { set_gate(vector, handler as usize as u64, ist, dpl, trap) }
+}
+
 /// Laedt die IDT in die CPU.
 ///
 /// # Safety

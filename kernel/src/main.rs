@@ -92,7 +92,7 @@ pub extern "C" fn kmain() -> ! {
     unsafe { arch::init_serial() };
     serial_println!("");
     serial_println!("================================================================");
-    klog!("boot", "karst v{} — Kernel von Karstos", env!("CARGO_PKG_VERSION"));
+    klog!("boot", "{}", kcore::branding::banner());
     klog!("boot", "Architektur : {} (Basisseite {} B)", arch::NAME, arch::PAGE_SIZE);
     klog!("boot", "ABI         : {}", abi::enabled());
     klog!(
@@ -177,7 +177,9 @@ pub extern "C" fn kmain() -> ! {
     unsafe { arch::init_cpu() };
     klog!("cpu", "GDT + TSS geladen, Datensegmente flach");
     klog!("cpu", "IDT: 256 Tore, Ausnahmen 0..21 belegt");
-    klog!("cpu", "#DF laeuft auf eigenem IST-Stapel ({:#018x})", arch::x86_64::gdt::double_fault_stack_top());
+    if let Some(top) = arch::fault_stack_top() {
+        klog!("cpu", "schwerste Ausnahme laeuft auf eigenem Notfallstapel ({})", top);
+    }
     klog!("cpu", "NX aktiv, CR0.WP aktiv");
     klog!(
         "irq",
@@ -293,7 +295,7 @@ pub extern "C" fn kmain() -> ! {
         for i in 0..1024u64 {
             v.push(i * i);
         }
-        let s = String::from("Karstos") + " lebt";
+        let s = String::from(kcore::branding::OS_NAME) + " lebt";
         let sum: u64 = v.iter().sum();
         klog!("heap", "Testallokation: Box@{:p} = {:#x}", &*boxed, *boxed);
         klog!(
@@ -311,7 +313,14 @@ pub extern "C" fn kmain() -> ! {
 
     // -------------------------------------------------------------------- ABI
     let (ver, handles, stale) = abi::native::self_test();
-    klog!("abi", "karst-native: Version={}, Handles={}, altes Handle -> {}", ver, handles, stale);
+    klog!(
+        "abi",
+        "{}: Version={}, Handles={}, altes Handle -> {}",
+        kcore::branding::NATIVE_ABI,
+        ver,
+        handles,
+        stale
+    );
     #[cfg(feature = "posix")]
     klog!(
         "abi",
@@ -384,7 +393,7 @@ pub extern "C" fn kmain() -> ! {
         klog!("boot", "WARNUNG: {} Selbsttest(s) NICHT bestanden", gesamt - bestanden);
     }
 
-    klog!("boot", "Startvorgang abgeschlossen. karst laeuft.");
+    klog!("boot", "Startvorgang abgeschlossen. {} laeuft.", kcore::branding::KERNEL_NAME);
     serial_println!("================================================================");
 
     // ------------------------------------------------------- Fehler-Selbsttests

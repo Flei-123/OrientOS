@@ -150,7 +150,7 @@ if [[ "$MODE" == check ]]; then
     check "HHDM-Fenster bekannt"          'HHDM-Fenster: virt = phys \+ 0x[0-9a-f]+'
     check "Kernelabbild vermessen"        'gesamt [0-9]+ KiB geladenes Abbild \([0-9]+ Seiten'
     check "Rechte je Sektion gemeldet"    '\.rodata.*\(([0-9]+) KiB, R\)'
-    check "#DF hat eigenen IST-Stapel"    'eigenem IST-Stapel \(0x[0-9a-f]+\)'
+    check "#DF hat eigenen Notfallstapel" 'eigenem Notfallstapel \(0x[0-9a-f]+\)'
     check "CPU erkannt"                   'CPU         : \S'
     check "Framebuffer-Textkonsole steht" 'Textkonsole [0-9]+x[0-9]+'
     check "Stapel vom Bootloader"         'Stapel      : [0-9]+ KiB angefordert, gewaehrt'

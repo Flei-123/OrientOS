@@ -13,6 +13,7 @@
 //! Pfadaufloesung (`core::fmt` usw.) mehrdeutig macht.
 
 pub mod arch_iface;
+pub mod branding;
 pub mod mem;
 pub mod panic;
 pub mod print;

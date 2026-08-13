@@ -97,3 +97,9 @@ pub fn backtrace(f: &mut dyn FnMut(u64)) {
 pub fn cpu_brand(buf: &mut [u8]) -> usize {
     Active::cpu_brand(buf)
 }
+
+/// Oberes Ende des Notfallstapels der schwersten Ausnahme (Diagnose).
+#[inline]
+pub fn fault_stack_top() -> Option<crate::kcore::mem::VirtAddr> {
+    Active::fault_stack_top()
+}

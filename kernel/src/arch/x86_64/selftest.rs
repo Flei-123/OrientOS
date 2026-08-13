@@ -46,10 +46,7 @@ static RODATA_PROBE: u64 = 0x5241_444F_5441_4B4F;
 pub unsafe fn rodata_write() -> ! {
     let p = &raw const RODATA_PROBE as *mut u64;
     unsafe { core::ptr::write_volatile(p, 0) };
-    crate::serial_println!(
-        "[karst] test       FEHLER: Schreiben auf .rodata bei {:p} war erlaubt — Rechte wirkungslos",
-        p
-    );
+    crate::klog!("test", "FEHLER: Schreiben auf .rodata bei {:p} war erlaubt — Rechte wirkungslos", p);
     cpu::halt_forever()
 }
 
@@ -73,10 +70,7 @@ pub unsafe fn nx_exec() -> ! {
     let p = &raw const NX_PROBE as *const u8;
     let f: extern "C" fn() = unsafe { core::mem::transmute(p) };
     f();
-    crate::serial_println!(
-        "[karst] test       FEHLER: Ausfuehren von .data bei {:p} war erlaubt — NX wirkungslos",
-        p
-    );
+    crate::klog!("test", "FEHLER: Ausfuehren von .data bei {:p} war erlaubt — NX wirkungslos", p);
     cpu::halt_forever()
 }
 
@@ -89,10 +83,7 @@ pub unsafe fn nx_exec() -> ! {
 /// Loest eine allgemeine Schutzverletzung aus; der Kernel haelt danach an.
 pub unsafe fn general_protection() -> ! {
     unsafe { core::ptr::write_volatile(NONCANONICAL as *mut u64, 42) };
-    crate::serial_println!(
-        "[karst] test       FEHLER: Zugriff auf nicht kanonische Adresse {:#018x} war erlaubt",
-        NONCANONICAL
-    );
+    crate::klog!("test", "FEHLER: Zugriff auf nicht kanonische Adresse {:#018x} war erlaubt", NONCANONICAL);
     cpu::halt_forever()
 }
 
@@ -104,7 +95,7 @@ pub unsafe fn general_protection() -> ! {
 /// Loest `#UD` aus; der Kernel haelt danach an.
 pub unsafe fn invalid_opcode() -> ! {
     unsafe { core::arch::asm!("ud2", options(nomem, nostack)) };
-    crate::serial_println!("[karst] test       FEHLER: ud2 hat keine Ausnahme ausgeloest");
+    crate::klog!("test", "FEHLER: ud2 hat keine Ausnahme ausgeloest");
     cpu::halt_forever()
 }
 

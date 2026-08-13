@@ -18,7 +18,7 @@ fn panic(info: &PanicInfo) -> ! {
     crate::arch::disable_interrupts();
 
     if PANICKING.swap(true, Ordering::SeqCst) {
-        crate::serial_println!("\n[karst] DOPPEL-PANIC — halte an.");
+        crate::serial_println!("\n{} DOPPEL-PANIC — halte an.", crate::kcore::branding::LOG_TAG);
         crate::arch::halt_forever();
     }
 

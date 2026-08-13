@@ -144,31 +144,31 @@ pub extern "x86-interrupt" fn generic_irq(_frame: TrapFrame) {
 /// Genau einmal im Boot, vor [`idt::load`].
 pub unsafe fn install() {
     unsafe {
-        idt::set_gate(0, divide_error as u64, 0, 0, false);
-        idt::set_gate(1, debug_exception as u64, 0, 0, false);
-        idt::set_gate(2, nmi as u64, gdt::IST_NMI, 0, false);
-        idt::set_gate(3, breakpoint as u64, 0, 3, true);
-        idt::set_gate(4, overflow as u64, 0, 0, false);
-        idt::set_gate(5, bound_range as u64, 0, 0, false);
-        idt::set_gate(6, invalid_opcode as u64, 0, 0, false);
-        idt::set_gate(7, device_not_available as u64, 0, 0, false);
-        idt::set_gate(8, double_fault as u64, gdt::IST_DOUBLE_FAULT, 0, false);
-        idt::set_gate(10, invalid_tss as u64, 0, 0, false);
-        idt::set_gate(11, segment_not_present as u64, 0, 0, false);
-        idt::set_gate(12, stack_segment_fault as u64, 0, 0, false);
-        idt::set_gate(13, general_protection as u64, 0, 0, false);
-        idt::set_gate(14, page_fault as u64, gdt::IST_PAGE_FAULT, 0, false);
-        idt::set_gate(16, x87_floating_point as u64, 0, 0, false);
-        idt::set_gate(17, alignment_check as u64, 0, 0, false);
-        idt::set_gate(18, machine_check_like as u64, 0, 0, false);
-        idt::set_gate(19, simd_floating_point as u64, 0, 0, false);
-        idt::set_gate(20, virtualization as u64, 0, 0, false);
-        idt::set_gate(21, control_protection as u64, 0, 0, false);
+        idt::set_handler(0, divide_error, 0, 0, false);
+        idt::set_handler(1, debug_exception, 0, 0, false);
+        idt::set_handler(2, nmi, gdt::IST_NMI, 0, false);
+        idt::set_handler(3, breakpoint, 0, 3, true);
+        idt::set_handler(4, overflow, 0, 0, false);
+        idt::set_handler(5, bound_range, 0, 0, false);
+        idt::set_handler(6, invalid_opcode, 0, 0, false);
+        idt::set_handler(7, device_not_available, 0, 0, false);
+        idt::set_handler_diverging(8, double_fault, gdt::IST_DOUBLE_FAULT, 0, false);
+        idt::set_handler_err(10, invalid_tss, 0, 0, false);
+        idt::set_handler_err(11, segment_not_present, 0, 0, false);
+        idt::set_handler_err(12, stack_segment_fault, 0, 0, false);
+        idt::set_handler_err(13, general_protection, 0, 0, false);
+        idt::set_handler_err(14, page_fault, gdt::IST_PAGE_FAULT, 0, false);
+        idt::set_handler(16, x87_floating_point, 0, 0, false);
+        idt::set_handler_err(17, alignment_check, 0, 0, false);
+        idt::set_handler(18, machine_check_like, 0, 0, false);
+        idt::set_handler(19, simd_floating_point, 0, 0, false);
+        idt::set_handler(20, virtualization, 0, 0, false);
+        idt::set_handler_err(21, control_protection, 0, 0, false);
 
-        idt::set_gate(VEC_TIMER, timer_irq as u64, 0, 0, false);
-        idt::set_gate(VEC_KEYBOARD, generic_irq as u64, 0, 0, false);
+        idt::set_handler(VEC_TIMER, timer_irq, 0, 0, false);
+        idt::set_handler(VEC_KEYBOARD, generic_irq, 0, 0, false);
         for v in (IRQ_BASE + 2)..(IRQ_BASE + 16) {
-            idt::set_gate(v, generic_irq as u64, 0, 0, false);
+            idt::set_handler(v, generic_irq, 0, 0, false);
         }
     }
 }

@@ -56,6 +56,15 @@ impl BitmapFrameAllocator {
         self.low_water
     }
 
+    /// Buchhaltungsinvariante: belegt + frei ergibt genau die verwaltete Menge.
+    ///
+    /// Sie ist der einzige Weg, ein still verlorenes oder doppelt gezaehltes
+    /// Bit ueberhaupt zu bemerken; der Selbsttest rechnet sie nach jedem
+    /// Fehlerpfad nach.
+    pub fn invariant_holds(&self) -> bool {
+        self.used().checked_add(self.free()) == Some(self.total())
+    }
+
     /// Reserviert `count` zusammenhaengende Frames — **ohne** sie zu nullen.
     /// Fuer grosse Bloecke (Bitmap-Selbsttest, spaeter DMA-Puffer), bei denen
     /// das Nullen den Aufrufer nichts angeht.
@@ -168,24 +177,27 @@ pub struct FrameStats {
 /// abbrechen als 8 MiB in einen Bereich schreiben, den es nicht gibt.
 const MAX_BITMAP_BYTES: usize = 8 * 1024 * 1024;
 
-/// Baut den Frame-Allocator aus der Memory-Map auf.
+/// Ergebnis der Vorpruefung einer Memory-Map: so viel muss feststehen, BEVOR
+/// irgendein Byte geschrieben wird.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct BitmapPlan {
+    /// Zahl der zu verwaltenden Frames (aus `ram_top`).
+    pub total_frames: usize,
+    /// Groesse der Bitmap in 64-Bit-Woertern.
+    pub words: usize,
+    /// Physische Adresse, an der die Bitmap liegen soll.
+    pub storage: u64,
+}
+
+/// Prueft eine Memory-Map und legt Groesse und Ort der Bitmap fest —
+/// **ohne Nebenwirkung**. Genau deshalb ist diese Funktion mit erfundenen,
+/// absichtlich kaputten Karten pruefbar (siehe [`map_selftest`]), waehrend
+/// [`init`] selbst nur einmal im Boot laufen kann.
 ///
-/// Haertung gegen unglaubwuerdige Bootloader-Daten:
-/// * ohne Direct-Map-Fenster ist die Bitmap nicht beschreibbar → Fehler,
-/// * leere Regionsliste oder `ram_top == 0` → Fehler,
-/// * absurd grosse Bitmap (> [`MAX_BITMAP_BYTES`]) → Fehler,
-/// * ueberlappende Regionen: nach dem Freigeben der nutzbaren Bereiche wird
-///   jede NICHT nutzbare Region nach aussen ausgerichtet nachreserviert. Eine
-///   zerrissene Map kann so keinen reservierten Frame in den freien Pool
-///   schmuggeln.
-///
-/// # Safety
-/// Genau einmal im Boot, mit einer gueltigen Memory-Map und gesetztem
-/// HHDM-Offset (die Bitmap wird ueber das HHDM-Fenster beschrieben).
-pub unsafe fn init(regions: &[MemoryRegion]) -> Result<FrameStats, &'static str> {
-    if !crate::kcore::mem::hhdm_ready() {
-        return Err("HHDM-Fenster unbekannt — Bitmap nicht beschreibbar");
-    }
+/// Abgewiesen werden: leere Liste, `ram_top == 0`, zu wenig nutzbarer
+/// Speicher, unglaubwuerdig grosse Bitmap, fehlender Platz fuer die Bitmap und
+/// eine Bitmap, die ausserhalb des verwalteten Bereichs zu liegen kaeme.
+pub fn plan_bitmap(regions: &[MemoryRegion]) -> Result<BitmapPlan, &'static str> {
     if regions.is_empty() {
         return Err("Memory-Map leer");
     }
@@ -218,19 +230,33 @@ pub unsafe fn init(regions: &[MemoryRegion]) -> Result<FrameStats, &'static str>
             break;
         }
     }
-    let Some(storage_phys) = storage else {
+    let Some(storage) = storage else {
         return Err("kein zusammenhaengender Platz fuer die Frame-Bitmap");
     };
 
-    let bits: &'static mut [u64] = unsafe {
-        core::slice::from_raw_parts_mut(
-            phys_to_virt(PhysAddr(storage_phys)).as_ptr::<u64>(),
-            words,
-        )
-    };
-    let mut bm = Bitmap::new_all_used(bits, total_frames);
+    // Die Bitmap muss sich selbst als belegt fuehren koennen: liegt ihr
+    // Speicher jenseits von `ram_top`, wuerde sie ihre eigenen Frames spaeter
+    // weitervergeben.
+    let storage_end = PhysAddr(storage)
+        .checked_add(bytes as u64)
+        .and_then(|e| e.checked_align_up(PAGE_SIZE as u64))
+        .ok_or("Platz fuer die Frame-Bitmap laeuft am Adressraumende ueber")?;
+    if (storage_end.as_u64() / PAGE_SIZE as u64) as usize > total_frames {
+        return Err("Platz fuer die Frame-Bitmap liegt ausserhalb des verwalteten Bereichs");
+    }
+    Ok(BitmapPlan { total_frames, words, storage })
+}
 
-    // Nutzbare Regionen freigeben.
+/// Traegt eine Memory-Map in eine (anfangs vollstaendig belegte) Bitmap ein.
+///
+/// Reihenfolge ist hier die ganze Aussage: erst werden die nutzbaren Regionen
+/// freigegeben, DANACH wird jede nicht nutzbare Region nach aussen ausgerichtet
+/// nachreserviert. Ueberlappen sich beide (zerrissene Map), gewinnt die
+/// strengere Aussage; ein angebrochener Frame wird nie halb vergeben.
+///
+/// Rueckgabe: Zahl der Frames, die wegen einer solchen Ueberschneidung wieder
+/// gesperrt wurden.
+fn apply_map(bm: &mut Bitmap<'_>, regions: &[MemoryRegion]) -> usize {
     for r in regions {
         if !r.kind.is_allocatable() {
             continue;
@@ -239,10 +265,6 @@ pub unsafe fn init(regions: &[MemoryRegion]) -> Result<FrameStats, &'static str>
             bm.free_range((s / PAGE_SIZE as u64) as usize, (e / PAGE_SIZE as u64) as usize);
         }
     }
-    // Nicht nutzbare Regionen NACH dem Freigeben nachreservieren. Ueberlappt
-    // eine reservierte Region eine nutzbare (zerrissene Map), gewinnt die
-    // strengere Aussage. Die Grenzen werden dabei nach aussen ausgerichtet,
-    // damit ein angebrochener Frame nicht halb vergeben wird.
     let free_after_usable = bm.free_frames();
     for r in regions {
         if r.kind.is_allocatable() || r.len == 0 {
@@ -254,7 +276,74 @@ pub unsafe fn init(regions: &[MemoryRegion]) -> Result<FrameStats, &'static str>
             bm.reserve_range(s, e);
         }
     }
-    let overlap_frames = free_after_usable - bm.free_frames();
+    free_after_usable - bm.free_frames()
+}
+
+/// Zaehlt Frames, die laut Memory-Map NICHT vergeben werden duerfen, in der
+/// Bitmap aber frei sind. Muss immer 0 sein — sonst widersprechen sich Bitmap
+/// und Bootloaderangaben.
+fn map_violations(bm: &Bitmap<'_>, regions: &[MemoryRegion]) -> usize {
+    let mut violations = 0usize;
+    for r in regions {
+        if r.kind.is_allocatable() || r.len == 0 {
+            continue;
+        }
+        let s = (r.start / PAGE_SIZE as u64) as usize;
+        let e = (((r.end() + PAGE_SIZE as u64 - 1) / PAGE_SIZE as u64) as usize).min(bm.frames());
+        for i in s..e {
+            if !bm.is_used(i) {
+                violations += 1;
+            }
+        }
+    }
+    violations
+}
+
+/// Baut den Frame-Allocator aus der Memory-Map auf.
+///
+/// Haertung gegen unglaubwuerdige Bootloader-Daten:
+/// * ohne Direct-Map-Fenster ist die Bitmap nicht beschreibbar → Fehler,
+/// * leere Regionsliste oder `ram_top == 0` → Fehler,
+/// * absurd grosse Bitmap (> [`MAX_BITMAP_BYTES`]) → Fehler,
+/// * ueberlappende Regionen: nach dem Freigeben der nutzbaren Bereiche wird
+///   jede NICHT nutzbare Region nach aussen ausgerichtet nachreserviert. Eine
+///   zerrissene Map kann so keinen reservierten Frame in den freien Pool
+///   schmuggeln.
+///
+/// # Safety
+/// Genau einmal im Boot, mit einer gueltigen Memory-Map und gesetztem
+/// HHDM-Offset (die Bitmap wird ueber das HHDM-Fenster beschrieben).
+pub unsafe fn init(regions: &[MemoryRegion]) -> Result<FrameStats, &'static str> {
+    if !crate::kcore::mem::hhdm_ready() {
+        return Err("HHDM-Fenster unbekannt — Bitmap nicht beschreibbar");
+    }
+    // Ein zweiter Aufruf wuerde eine frische, "alles frei"-Bitmap ueber die
+    // laufende legen: jeder bereits vergebene Frame waere danach erneut
+    // vergebbar. Das ist der teuerste denkbare Fehler in dieser Datei und
+    // deshalb ausdruecklich abgefangen statt nur dokumentiert.
+    if ALLOCATOR.lock().is_some() {
+        return Err("Frame-Allocator ist bereits eingerichtet");
+    }
+    let summary = summarize(regions);
+    // Groesse und Ort der Bitmap festlegen — nebenwirkungsfrei und mit
+    // denselben Pruefungen, die [`map_selftest`] an erfundenen Karten vorfuehrt.
+    let BitmapPlan { total_frames, words, storage: storage_phys } = plan_bitmap(regions)?;
+    let bytes = words * 8;
+
+    // Der Zugriff laeuft ueber das Direct-Map-Fenster — gepruefte Umrechnung,
+    // damit ein absurder HHDM-Offset hier auffaellt und nicht beim ersten
+    // Schreibzugriff als Dreifachfehler.
+    let bitmap_virt = crate::kcore::mem::phys_to_virt_checked(PhysAddr(storage_phys))
+        .ok_or("Bitmap-Adresse laesst sich nicht ins HHDM-Fenster umrechnen")?;
+    if !crate::kcore::mem::hhdm_contains(bitmap_virt, summary.mapped_top.max(summary.ram_top)) {
+        return Err("Bitmap liegt ausserhalb des vom Bootloader abgebildeten Fensters");
+    }
+    let bits: &'static mut [u64] =
+        unsafe { core::slice::from_raw_parts_mut(bitmap_virt.as_ptr::<u64>(), words) };
+    let mut bm = Bitmap::new_all_used(bits, total_frames);
+
+    // Nutzbare Regionen freigeben, nicht nutzbare danach nachreservieren.
+    let overlap_frames = apply_map(&mut bm, regions);
 
     // Erstes Megabyte nie vergeben (BIOS-Datenbereich, Realmode-IVT, VGA).
     let before_low = bm.free_frames();
@@ -272,20 +361,7 @@ pub unsafe fn init(regions: &[MemoryRegion]) -> Result<FrameStats, &'static str>
     // Nachpruefung der Zusage "kein Frame einer nicht nutzbaren Region ist
     // frei". Sie kostet einen Durchlauf ueber die Bitmap und faengt jede
     // kuenftige Umsortierung der Schritte oben ab.
-    let mut violations = 0usize;
-    for r in regions {
-        if r.kind.is_allocatable() || r.len == 0 {
-            continue;
-        }
-        let s = (r.start / PAGE_SIZE as u64) as usize;
-        let e = (((r.end() + PAGE_SIZE as u64 - 1) / PAGE_SIZE as u64) as usize).min(bm.frames());
-        for i in s..e {
-            if !bm.is_used(i) {
-                violations += 1;
-            }
-        }
-    }
-    if violations > 0 {
+    if map_violations(&bm, regions) > 0 {
         return Err("Frame-Bitmap widerspricht der Memory-Map");
     }
     // Die Bitmap muss sich selbst als belegt fuehren, sonst vergibt sie ihren
@@ -331,6 +407,112 @@ pub fn used_frames() -> usize {
     ALLOCATOR.lock().as_ref().map_or(0, |a| a.used())
 }
 
+/// Selbsttest der Memory-Map-Auswertung mit **erfundenen** Karten.
+///
+/// [`init`] laeuft im Boot genau einmal und bekommt genau eine (gesunde)
+/// Karte zu sehen — seine Fehlerpfade waeren damit reine Behauptung. Hier
+/// werden sie an nebenwirkungsfreien Kopien der Logik ([`plan_bitmap`],
+/// [`apply_map`], [`map_violations`]) wirklich durchlaufen:
+///
+/// 1. leere Regionsliste wird abgewiesen,
+/// 2. Karte ohne echten RAM (nur MMIO) wird abgewiesen,
+/// 3. Karte mit zu wenig nutzbarem Speicher wird abgewiesen,
+/// 4. Karte mit unglaubwuerdiger Obergrenze (Bitmap > 8 MiB) wird abgewiesen,
+/// 5. gesunde Karte ergibt einen plausiblen Plan (Bitmap oberhalb 1 MiB, in
+///    einer nutzbaren Region, gross genug fuer alle Frames),
+/// 6. **zerrissene Karte**: eine reservierte Region liegt mitten in einer als
+///    nutzbar gemeldeten. Nach [`apply_map`] muss jeder ihrer Frames belegt
+///    sein, kein Frame darf der Memory-Map widersprechen, und die Zahl der
+///    freien Frames muss exakt der Erwartung entsprechen.
+///
+/// Rueckgabe: `(bestanden, gesamt)`.
+pub fn map_selftest() -> (usize, usize) {
+    use karst_mem::region::RegionKind::{Reserved, Usable};
+    let total = 6usize;
+    let mut ok = 0usize;
+    const MIB: u64 = 1 << 20;
+
+    // 1 — leere Liste.
+    if plan_bitmap(&[]).is_err() {
+        ok += 1;
+    }
+    // 2 — kein echter RAM, nur ein MMIO-Loch weit oben.
+    let mmio_only = [MemoryRegion::new(0xf000_0000, 16 * MIB, Reserved)];
+    if plan_bitmap(&mmio_only).is_err() {
+        ok += 1;
+    }
+    // 3 — nutzbarer Speicher unterhalb der Mindestmenge (64 Seiten).
+    let tiny = [
+        MemoryRegion::new(0, MIB, Reserved),
+        MemoryRegion::new(MIB, 16 * PAGE_SIZE as u64, Usable),
+    ];
+    if plan_bitmap(&tiny).is_err() {
+        ok += 1;
+    }
+    // 4 — Muell in der Obergrenze: 256 GiB RAM braeuchten mehr als 8 MiB Bitmap.
+    let absurd = [
+        MemoryRegion::new(MIB, 64 * MIB, Usable),
+        MemoryRegion::new(1 << 48, 4 * MIB, Usable),
+    ];
+    if plan_bitmap(&absurd).is_err() {
+        ok += 1;
+    }
+    // 5 — gesunde Karte: 16 MiB RAM, das erste Megabyte reserviert.
+    let healthy = [
+        MemoryRegion::new(0, MIB, Reserved),
+        MemoryRegion::new(MIB, 15 * MIB, Usable),
+    ];
+    match plan_bitmap(&healthy) {
+        Ok(p) => {
+            let frames = (16 * MIB / PAGE_SIZE as u64) as usize;
+            if p.total_frames == frames
+                && p.words == Bitmap::words_needed(frames)
+                && p.storage >= MIB
+                && p.storage + (p.words * 8) as u64 <= 16 * MIB
+            {
+                ok += 1;
+            }
+        }
+        Err(_) => {}
+    }
+
+    // 6 — zerrissene Karte auf einer echten, aber nur 16 MiB grossen Bitmap
+    //     im eigenen Stapelrahmen (64 Woerter = 4096 Frames).
+    let torn = [
+        MemoryRegion::new(0, 16 * MIB, Usable),
+        // mitten in der nutzbaren Region: 4 MiB .. 5 MiB gehoeren der Firmware
+        MemoryRegion::new(4 * MIB, MIB, Reserved),
+        // krumme Grenzen: der angebrochene Frame muss ganz gesperrt werden
+        MemoryRegion::new(8 * MIB + 100, 8, Reserved),
+    ];
+    let mut scratch = [0u64; 64];
+    let frames = (16 * MIB / PAGE_SIZE as u64) as usize;
+    let mut bm = Bitmap::new_all_used(&mut scratch, frames);
+    let overlap = apply_map(&mut bm, &torn);
+    let reserved_start = (4 * MIB / PAGE_SIZE as u64) as usize;
+    let reserved_end = (5 * MIB / PAGE_SIZE as u64) as usize;
+    let all_reserved = (reserved_start..reserved_end).all(|i| bm.is_used(i));
+    let odd_frame = ((8 * MIB) / PAGE_SIZE as u64) as usize;
+    let expected_free = frames - (reserved_end - reserved_start) - 1;
+    if all_reserved
+        && bm.is_used(odd_frame)
+        && map_violations(&bm, &torn) == 0
+        && overlap == (reserved_end - reserved_start) + 1
+        && bm.free_frames() == expected_free
+    {
+        ok += 1;
+    }
+
+    klog!(
+        "mm",
+        "Selbsttest Memory-Map: {}/{} Zusagen erfuellt (4 kaputte Karten abgewiesen, zerrissene Karte: {} Frames nachreserviert)",
+        ok,
+        total,
+        overlap
+    );
+    (ok, total)
+}
+
 /// Hoechstzahl der Bruchstuecke, die der Erschoepfungstest zwischenspeichert.
 const DRAIN_CHUNKS: usize = 32;
 
@@ -348,18 +530,32 @@ const DRAIN_CHUNKS: usize = 32;
 /// 8. Anforderung groesser als der gesamte Speicher scheitert sauber,
 /// 9. zusammenhaengende Anforderung liefert wirklich zusammenhaengende Frames,
 /// 10. bei voellig erschoepftem Speicher liefert `alloc_frame` `None` — und
-///     nach Rueckgabe aller Bruchstuecke steht der Zaehler exakt wie vorher.
+///     nach Rueckgabe aller Bruchstuecke steht der Zaehler exakt wie vorher,
+/// 11. Anforderungen und Rueckgaben der Laenge 0 werden abgewiesen und
+///     gezaehlt, statt einen Zeiger auf nichts zu liefern,
+/// 12. die Buchhaltungsinvariante `belegt + frei == verwaltet` gilt nach jedem
+///     der obigen Faelle — auch nach den Fehlerpfaden.
+///
+/// Vorangestellt laeuft [`map_selftest`]; seine Faelle zaehlen in dasselbe
+/// Ergebnis, weil sie dieselbe Zusage pruefen: kein Frame wird vergeben, der
+/// nicht vergeben werden darf.
 ///
 /// Rueckgabe: `(bestanden, gesamt)`.
 pub fn selftest() -> (usize, usize) {
-    let total = 10usize;
-    let mut ok = 0usize;
+    // Erst die Auswertung erfundener Memory-Maps (ohne Sperre, ohne Hardware),
+    // dann der laufende Allocator.
+    let (map_ok, map_total) = map_selftest();
+    let total = 12usize + map_total;
+    let mut ok = map_ok;
     let mut g = ALLOCATOR.lock();
     let Some(a) = g.as_mut() else {
         klog!("mm", "Selbsttest Frames: FEHLER — Allocator nicht initialisiert");
         return (0, total);
     };
     let before = a.free();
+    // Fuer Fall 12: die Invariante wird nach jedem Abschnitt nachgerechnet,
+    // nicht nur einmal am Ende — sonst koennten sich zwei Fehler aufheben.
+    let mut invariant = a.invariant_holds();
 
     // 1..4 — Grundzusagen eines einzelnen Frames.
     if let Some(f) = a.alloc_frame() {
@@ -394,6 +590,8 @@ pub fn selftest() -> (usize, usize) {
         }
     }
 
+    invariant &= a.invariant_holds();
+
     // 6 — krumme Adresse.
     let bad_before = a.bad_frees();
     a.free_frame(PhysAddr(0x1234));
@@ -416,6 +614,8 @@ pub fn selftest() -> (usize, usize) {
     {
         ok += 1;
     }
+
+    invariant &= a.invariant_holds();
 
     // 9 — zusammenhaengender Block, wirklich zusammenhaengend belegt.
     if let Ok(base) = a.alloc_contiguous(8) {
@@ -453,6 +653,25 @@ pub fn selftest() -> (usize, usize) {
     if drained && none_when_empty && a.free() == before {
         ok += 1;
     }
+    invariant &= a.invariant_holds();
+
+    // 11 — Laenge 0. Weder darf ein "Block" ohne Frames entstehen (der
+    //      Aufrufer haette einen Zeiger auf fremden Speicher), noch darf eine
+    //      Rueckgabe der Laenge 0 die Buchhaltung anfassen.
+    let starved_before = a.starved();
+    let bad_before = a.bad_frees();
+    let zero_alloc = a.alloc_contiguous(0).is_err() && a.starved() == starved_before + 1;
+    let zero_free = a.free_contiguous(PhysAddr(0x20_0000), 0).is_err()
+        && a.bad_frees() == bad_before + 1;
+    if zero_alloc && zero_free && a.free() == before {
+        ok += 1;
+    }
+    invariant &= a.invariant_holds();
+
+    // 12 — Buchhaltung ueber alle Faelle hinweg schluessig.
+    if invariant && a.free() == before {
+        ok += 1;
+    }
 
     klog!(
         "mm",
@@ -467,6 +686,14 @@ pub fn selftest() -> (usize, usize) {
         a.bad_frees(),
         a.starved(),
         a.low_water()
+    );
+    klog!(
+        "mm",
+        "  Frame-Buchhaltung: {} belegt + {} frei = {} verwaltet, stimmig: {}",
+        a.used(),
+        a.free(),
+        a.total(),
+        if invariant && a.invariant_holds() { "ja" } else { "nein" }
     );
     (ok, total)
 }

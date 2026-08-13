@@ -198,4 +198,139 @@ mod tests {
             assert_eq!(e, HandleEntry::new(h, k, Rights::INSPECT));
         }
     }
+
+    #[test]
+    fn slot_and_generation_fields_do_not_bleed_into_each_other() {
+        // Rohbild pruefen: unteres Wort = slot+1, oberes Wort = Generation.
+        let h = Handle::new(0x0000_0007, 0xdead_beef);
+        assert_eq!(h.0, 0xdead_beef_0000_0008);
+        assert_eq!(h.slot(), 7);
+        assert_eq!(h.generation(), 0xdead_beef);
+        // Maximale Generation darf den Slot nicht kippen und umgekehrt.
+        let max_gen = Handle::new(1, u32::MAX);
+        assert_eq!(max_gen.slot(), 1);
+        assert_eq!(max_gen.generation(), u32::MAX);
+        let max_slot = Handle::new(u32::MAX - 1, 0);
+        assert_eq!(max_slot.slot(), u32::MAX - 1);
+        assert_eq!(max_slot.generation(), 0);
+        assert!(max_slot.is_valid());
+    }
+
+    /// Eine kleine Handle-Tabelle wie im Kernel: Slots mit Generationszaehler.
+    /// Der Test weist nach, dass die Generation genau das leistet, wofuer sie
+    /// da ist — ein geschlossenes Handle oeffnet nach Wiederverwendung des
+    /// Slots kein fremdes Objekt (Use-after-close / ABA).
+    struct Table {
+        slots: [Option<HandleEntry>; 4],
+        gen: [u32; 4],
+    }
+
+    impl Table {
+        fn new() -> Self {
+            Table { slots: [None; 4], gen: [0; 4] }
+        }
+
+        fn insert(&mut self, kind: ObjectKind, rights: Rights) -> crate::Result<Handle> {
+            for i in 0..self.slots.len() {
+                if self.slots[i].is_none() {
+                    self.gen[i] = self.gen[i].wrapping_add(1);
+                    let h = Handle::new(i as u32, self.gen[i]);
+                    self.slots[i] = Some(HandleEntry::new(h, kind, rights));
+                    return Ok(h);
+                }
+            }
+            Err(crate::Error::Exhausted)
+        }
+
+        fn get(&self, h: Handle) -> crate::Result<&HandleEntry> {
+            if !h.is_valid() {
+                return Err(crate::Error::BadHandle);
+            }
+            let e = self
+                .slots
+                .get(h.slot() as usize)
+                .and_then(|s| s.as_ref())
+                .ok_or(crate::Error::BadHandle)?;
+            if e.handle != h {
+                return Err(crate::Error::BadHandle);
+            }
+            Ok(e)
+        }
+
+        fn close(&mut self, h: Handle) -> crate::Result<()> {
+            self.get(h)?;
+            self.slots[h.slot() as usize] = None;
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn closed_handles_never_reopen_a_reused_slot() {
+        let mut t = Table::new();
+        let a = t.insert(ObjectKind::Stream, Rights::READ).unwrap();
+        assert_eq!(t.get(a).unwrap().kind, ObjectKind::Stream);
+        t.close(a).unwrap();
+        assert_eq!(t.get(a).unwrap_err(), crate::Error::BadHandle);
+        assert_eq!(t.close(a).unwrap_err(), crate::Error::BadHandle, "doppeltes close");
+
+        // Derselbe Slot, neues Objekt: das alte Handle darf nicht passen.
+        let b = t.insert(ObjectKind::Timer, Rights::WAIT).unwrap();
+        assert_eq!(b.slot(), a.slot(), "Slot wurde nicht wiederverwendet");
+        assert_ne!(b, a);
+        assert_eq!(t.get(a).unwrap_err(), crate::Error::BadHandle);
+        assert_eq!(t.get(b).unwrap().kind, ObjectKind::Timer);
+    }
+
+    #[test]
+    fn table_rejects_invalid_and_out_of_range_handles() {
+        let mut t = Table::new();
+        let h = t.insert(ObjectKind::Channel, Rights::READ | Rights::WRITE).unwrap();
+        assert_eq!(t.get(HANDLE_INVALID).unwrap_err(), crate::Error::BadHandle);
+        assert_eq!(t.get(Handle::new(99, 1)).unwrap_err(), crate::Error::BadHandle);
+        assert_eq!(t.get(Handle(u64::MAX)).unwrap_err(), crate::Error::BadHandle);
+        // Richtiger Slot, falsche Generation.
+        assert_eq!(
+            t.get(Handle::new(h.slot(), h.generation() + 1)).unwrap_err(),
+            crate::Error::BadHandle
+        );
+        assert!(t.get(h).is_ok());
+    }
+
+    #[test]
+    fn full_table_reports_exhausted_and_recovers_after_close() {
+        let mut t = Table::new();
+        let mut hs = std::vec::Vec::new();
+        for _ in 0..4 {
+            hs.push(t.insert(ObjectKind::Port, Rights::WAIT).unwrap());
+        }
+        assert_eq!(t.insert(ObjectKind::Port, Rights::WAIT), Err(crate::Error::Exhausted));
+        // Alle Handles sind paarweise verschieden und alle gueltig.
+        for (i, a) in hs.iter().enumerate() {
+            assert!(a.is_valid());
+            assert!(t.get(*a).is_ok());
+            for b in &hs[i + 1..] {
+                assert_ne!(a, b);
+            }
+        }
+        t.close(hs[2]).unwrap();
+        let neu = t.insert(ObjectKind::Process, Rights::INSPECT).unwrap();
+        assert_eq!(neu.slot(), 2);
+        assert!(t.get(neu).is_ok());
+        assert_eq!(t.get(hs[2]).unwrap_err(), crate::Error::BadHandle);
+    }
+
+    #[test]
+    fn rights_survive_the_table_and_are_checked_per_operation() {
+        let mut t = Table::new();
+        let ro = t.insert(ObjectKind::Stream, Rights::READ | Rights::INSPECT).unwrap();
+        let e = *t.get(ro).unwrap();
+        assert!(e.check(Rights::READ).is_ok());
+        assert!(e.check(Rights::READ | Rights::INSPECT).is_ok());
+        assert_eq!(e.check(Rights::WRITE), Err(crate::Error::RightsDenied));
+        // Weitergabe darf nur verkleinern — hier auf reines Lesen.
+        let weiter = e.rights.restrict(Rights::READ);
+        let entry2 = HandleEntry::new(Handle::new(3, 1), e.kind, weiter);
+        assert_eq!(entry2.check(Rights::INSPECT), Err(crate::Error::RightsDenied));
+        assert!(entry2.check(Rights::READ).is_ok());
+    }
 }

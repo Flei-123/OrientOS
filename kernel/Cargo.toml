@@ -37,3 +37,8 @@ test-nx = []
 # Schreibversuch auf .rodata — beweist, dass die Rechte des Kernelabbilds
 # tatsaechlich in Hardware gelten (erwartet: #PF mit Schreibzugriff).
 test-rodata = []
+# Zugriff auf eine nicht kanonische Adresse (erwartet: #GP, nicht #PF) —
+# prueft die Handler MIT Fehlercode jenseits von #PF.
+test-gp = []
+# Ausfuehrung von `ud2` (erwartet: #UD) — prueft die Handler OHNE Fehlercode.
+test-ud = []

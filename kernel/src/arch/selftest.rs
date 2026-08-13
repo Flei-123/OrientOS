@@ -39,6 +39,24 @@ pub unsafe fn nx_exec() -> ! {
     unsafe { imp::nx_exec() }
 }
 
+/// Loest eine Schutzverletzung aus, die kein Seitenfehler ist. Beweist, dass
+/// auch die Ausnahmen MIT Fehlercode jenseits von `#PF` gemeldet werden.
+///
+/// # Safety
+/// Der Kernel haelt danach an.
+pub unsafe fn general_protection() -> ! {
+    unsafe { imp::general_protection() }
+}
+
+/// Fuehrt eine ungueltige Instruktion aus. Beweist, dass auch die Ausnahmen
+/// OHNE Fehlercode gemeldet werden.
+///
+/// # Safety
+/// Der Kernel haelt danach an.
+pub unsafe fn invalid_opcode() -> ! {
+    unsafe { imp::invalid_opcode() }
+}
+
 /// Erzwingt einen ECHTEN Double Fault.
 ///
 /// # Safety

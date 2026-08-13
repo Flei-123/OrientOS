@@ -2,7 +2,7 @@
 //!
 //! Entscheidet, WAS abgebildet wird und wem welcher Frame gehoert. WIE eine
 //! Abbildung in Hardware aussieht, weiss ausschliesslich `arch`. In dieser
-//! Datei steht deshalb kein einziges PTE-Bit.
+//! Datei steht deshalb kein einziges Hardware-Tabellenbit.
 
 pub mod frame;
 pub mod heap;
@@ -75,16 +75,65 @@ fn map_range(
     phys_base: u64,
     flags: MapFlags,
 ) -> Result<u64, MapError> {
+    // W^X und Lesbarkeit gelten fuer JEDEN Bereich des Kernelabbilds. Ein
+    // Aufrufer, der hier versehentlich WRITE|EXEC uebergibt, wuerde genau das
+    // wieder einbauen, was diese Funktion beim Bootloader abraeumt.
+    assert!(
+        flags.is_sane(),
+        "Rechte {} verletzen W^X oder sind nicht lesbar",
+        flags.rwx()
+    );
     let mut n = 0;
     let mut v = virt_start & !(PAGE_SIZE as u64 - 1);
     let end = (virt_end + PAGE_SIZE as u64 - 1) & !(PAGE_SIZE as u64 - 1);
     while v < end {
+        // Nicht kanonische Adressen kann keine MMU aufloesen; sie kaemen aus
+        // kaputten Linkersymbolen und wuerden sonst still auf eine ganz andere
+        // Seite umgerechnet.
+        if !VirtAddr(v).is_canonical() {
+            return Err(MapError::Misaligned);
+        }
         let p = v - virt_base + phys_base;
         unsafe { space.map(VirtAddr(v), PhysAddr(p), flags, &mut *fa)? };
         n += 1;
-        v += PAGE_SIZE as u64;
+        // Am oberen Ende des Adressraums darf der Zaehler nicht auf 0
+        // umschlagen — das waere eine Endlosschleife, die den halben
+        // Adressraum neu abbildet.
+        match VirtAddr(v).checked_add(PAGE_SIZE as u64) {
+            Some(next) => v = next.as_u64(),
+            None => break,
+        }
     }
     Ok(n)
+}
+
+/// Prueft stichprobenfrei (jede Seite!), dass ein virtueller Bereich genau auf
+/// den erwarteten physischen Bereich zeigt.
+///
+/// Gibt `(geprueft, falsch)` zurueck. Damit laesst sich nach dem Umschalten
+/// belegen, dass das Abbild nicht nur *irgendwie*, sondern **richtig** liegt —
+/// ein um eine Seite verschobenes Mapping faellt sonst erst als sinnloser
+/// Absturz irgendwo im Code auf.
+fn verify_range(
+    space: &AddressSpace,
+    virt_start: u64,
+    virt_end: u64,
+    virt_base: u64,
+    phys_base: u64,
+) -> (u64, u64) {
+    let mut checked = 0u64;
+    let mut wrong = 0u64;
+    let mut v = virt_start & !(PAGE_SIZE as u64 - 1);
+    let end = (virt_end + PAGE_SIZE as u64 - 1) & !(PAGE_SIZE as u64 - 1);
+    while v < end {
+        let want = PhysAddr(v - virt_base + phys_base);
+        match space.translate(VirtAddr(v)) {
+            Some(got) if got == want => checked += 1,
+            _ => wrong += 1,
+        }
+        v += PAGE_SIZE as u64;
+    }
+    (checked, wrong)
 }
 
 /// Baut den EIGENEN Kernel-Adressraum auf und schaltet darauf um.
@@ -218,6 +267,45 @@ pub unsafe fn build_kernel_space(
         "Vor Umschaltung geprueft: {}/{} Pflichtbereiche im neuen Adressraum erreichbar",
         checked,
         checks.len()
+    );
+
+    // Nicht nur "irgendwo abgebildet", sondern RICHTIG abgebildet: jede Seite
+    // des Kernelabbilds muss auf genau den physischen Ort zeigen, an den der
+    // Bootloader sie geladen hat. Eine um eine Seite verschobene Abbildung
+    // besteht die Erreichbarkeitspruefung oben, stuerzt aber nach dem
+    // Umschalten an unvorhersehbarer Stelle ab.
+    let mut img_ok = 0u64;
+    let mut img_bad = 0u64;
+    for (start, end) in [sections.text, sections.rodata, sections.data] {
+        let (c, w) = verify_range(&space, start, end, kernel_virt, kernel_phys);
+        img_ok += c;
+        img_bad += w;
+    }
+    // Dasselbe fuer die Raender des Direct-Map-Fensters: erste und letzte
+    // grosse Seite muessen auf phys 0 bzw. hhdm_len - LARGE zeigen.
+    let hhdm_edges = [0u64, hhdm_len - large];
+    let mut hhdm_bad = 0u64;
+    for off in hhdm_edges {
+        if space.translate(VirtAddr(hhdm + off)) != Some(PhysAddr(off)) {
+            hhdm_bad += 1;
+        }
+    }
+    if img_bad > 0 || hhdm_bad > 0 {
+        klog!(
+            "mm",
+            "Umschaltung abgebrochen: {} Abbildseiten und {} HHDM-Raender zeigen woanders hin",
+            img_bad,
+            hhdm_bad
+        );
+        return Err(MapError::NotMapped);
+    }
+    klog!(
+        "mm",
+        "Abbild nachgeprueft: {} Seiten virt->phys korrekt (.text {}, .rodata {}, .data {}), HHDM-Raender ok",
+        img_ok,
+        MapFlags::KERNEL_CODE.rwx(),
+        MapFlags::READ.rwx(),
+        MapFlags::KERNEL_DATA.rwx()
     );
 
     // Umschalten. Ab hier gelten nur noch unsere Tabellen.

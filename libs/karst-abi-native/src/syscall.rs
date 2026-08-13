@@ -140,4 +140,80 @@ mod tests {
         }
         assert!(Syscall::from_raw(Syscall::MAX + 1).is_none());
     }
+
+    #[test]
+    fn names_are_unique_and_in_snake_case() {
+        // Die Namen landen in Diagnoseausgaben und spaeter in der libc-Bindung:
+        // doppelte oder unsaubere Namen fallen hier auf, nicht erst dort.
+        let mut seen = std::vec::Vec::new();
+        for n in 0..=Syscall::MAX {
+            let s = Syscall::from_raw(n).unwrap();
+            let name = s.name();
+            assert!(!seen.contains(&name), "Name {name} doppelt vergeben");
+            assert!(
+                name.bytes().all(|b| b.is_ascii_lowercase() || b == b'_'),
+                "Name {name} ist nicht snake_case"
+            );
+            assert!(!name.starts_with('_') && !name.ends_with('_'), "Name {name} unsauber");
+            seen.push(name);
+        }
+        assert_eq!(seen.len() as u64, Syscall::MAX + 1);
+    }
+
+    #[test]
+    fn unknown_numbers_are_rejected_without_panicking() {
+        // Ein Aufrufer setzt eine beliebige Zahl in das Nummernregister: der
+        // Dispatch darf nur `None` liefern, nie danebengreifen.
+        for n in [
+            Syscall::MAX + 1,
+            Syscall::MAX + 2,
+            100,
+            255,
+            0x1_0000,
+            u64::MAX / 2,
+            u64::MAX - 1,
+            u64::MAX,
+        ] {
+            assert!(Syscall::from_raw(n).is_none(), "Nummer {n} faelschlich akzeptiert");
+        }
+    }
+
+    #[test]
+    fn max_matches_the_table_size() {
+        assert_eq!(Syscall::MAX, 22);
+        assert_eq!(Syscall::from_raw(Syscall::MAX), Some(Syscall::ClockRead));
+        assert_eq!(Syscall::from_raw(0), Some(Syscall::Version));
+        // Luecken sind verboten: die Nummern 0..=MAX muessen alle belegt sein,
+        // damit eine Sprungtabelle im Kernel ohne Loecher arbeiten kann.
+        let filled = (0..=Syscall::MAX).filter(|n| Syscall::from_raw(*n).is_some()).count();
+        assert_eq!(filled as u64, Syscall::MAX + 1);
+    }
+
+    #[test]
+    fn the_native_abi_has_no_posix_shaped_calls() {
+        // Kernaussage der Architektur: kein fork, kein ioctl, kein errno, keine
+        // Signals in der NATIVEN ABI. Der Test haelt diese Zusage fest.
+        for n in 0..=Syscall::MAX {
+            let name = Syscall::from_raw(n).unwrap().name();
+            for verboten in ["fork", "ioctl", "signal", "errno", "dup2", "select"] {
+                assert!(!name.contains(verboten), "{name} riecht nach POSIX ({verboten})");
+            }
+        }
+    }
+
+    #[test]
+    fn abi_version_is_reported_and_nonzero() {
+        assert_eq!(ABI_VERSION, 1);
+        assert!(ABI_VERSION > 0, "Version 0 waere nicht von 'unbekannt' zu trennen");
+        assert_eq!(Syscall::Version as u64, 0);
+    }
+
+    #[test]
+    fn syscalls_are_copy_and_comparable() {
+        let a = Syscall::ChannelSend;
+        let b = a;
+        assert_eq!(a, b);
+        assert_ne!(Syscall::ChannelSend, Syscall::ChannelRecv);
+        assert_eq!(Syscall::from_raw(12), Some(Syscall::ChannelSend));
+    }
 }

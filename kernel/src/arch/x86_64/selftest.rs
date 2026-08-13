@@ -10,6 +10,11 @@ use super::{cpu, idt};
 /// Dieser Wert liegt im PML4-Eintrag 510, aber weit hinter Heap und Testseite.
 const UNMAPPED: u64 = 0xffff_ff40_0000_0000;
 
+/// Nicht kanonische Adresse: Bits 63..48 sind NICHT die Kopie von Bit 47.
+/// Ein Datenzugriff darauf ist laut Intel SDM Vol.3 keine Seitenfehler-, sondern
+/// eine Schutzverletzung — die CPU meldet `#GP` mit Fehlercode 0.
+const NONCANONICAL: u64 = 0x0000_8000_0000_0000;
+
 /// `int3` — Breakpoint. Das Tor ist ein Trap-Tor, der Handler kehrt zurueck.
 pub fn breakpoint() {
     unsafe { core::arch::asm!("int3", options(nomem, nostack)) };
@@ -72,6 +77,34 @@ pub unsafe fn nx_exec() -> ! {
         "[karst] test       FEHLER: Ausfuehren von .data bei {:p} war erlaubt — NX wirkungslos",
         p
     );
+    cpu::halt_forever()
+}
+
+/// Zugriff auf eine nicht kanonische Adresse. Beweist, dass der Handler mit
+/// Fehlercode (`fault_err!`-Pfad) samt Tor 13 wirklich erreichbar ist — und
+/// zugleich, dass eine solche Adresse eben KEINEN `#PF` erzeugt (deshalb
+/// benutzt der Page-Fault-Selbsttest eine kanonische Adresse).
+///
+/// # Safety
+/// Loest eine allgemeine Schutzverletzung aus; der Kernel haelt danach an.
+pub unsafe fn general_protection() -> ! {
+    unsafe { core::ptr::write_volatile(NONCANONICAL as *mut u64, 42) };
+    crate::serial_println!(
+        "[karst] test       FEHLER: Zugriff auf nicht kanonische Adresse {:#018x} war erlaubt",
+        NONCANONICAL
+    );
+    cpu::halt_forever()
+}
+
+/// Fuehrt `ud2` aus — die von Intel dafuer vorgesehene, dauerhaft ungueltige
+/// Instruktion. Beweist, dass die Tore ohne Fehlercode (`fault!`-Pfad) und
+/// damit Tor 6 wirklich greifen.
+///
+/// # Safety
+/// Loest `#UD` aus; der Kernel haelt danach an.
+pub unsafe fn invalid_opcode() -> ! {
+    unsafe { core::arch::asm!("ud2", options(nomem, nostack)) };
+    crate::serial_println!("[karst] test       FEHLER: ud2 hat keine Ausnahme ausgeloest");
     cpu::halt_forever()
 }
 

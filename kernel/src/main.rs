@@ -60,6 +60,32 @@ fn fmt_bytes(b: u64) -> (u64, &'static str) {
     }
 }
 
+/// Nennt die einkompilierten Fehler-Selbsttests im Klartext. Beim normalen Boot
+/// ist keiner davon aktiv — das steht dann auch genau so im Log, damit ein
+/// Testlauf nicht versehentlich fuer einen normalen Boot gehalten wird.
+fn active_selftests() -> &'static str {
+    // Genau ein --test-*-Feature ist sinnvoll; mehrere gleichzeitig loesen den
+    // erstgenannten aus. Die Aufzaehlung ist bewusst eine feste Kette, damit
+    // sie ohne Heap (der zu diesem Zeitpunkt noch fehlt) auskommt.
+    if cfg!(feature = "test-pagefault") {
+        "test-pagefault"
+    } else if cfg!(feature = "test-rodata") {
+        "test-rodata"
+    } else if cfg!(feature = "test-nx") {
+        "test-nx"
+    } else if cfg!(feature = "test-gp") {
+        "test-gp"
+    } else if cfg!(feature = "test-ud") {
+        "test-ud"
+    } else if cfg!(feature = "test-doublefault") {
+        "test-doublefault"
+    } else if cfg!(feature = "test-panic") {
+        "test-panic"
+    } else {
+        "keine (normaler Boot)"
+    }
+}
+
 /// Einsprungpunkt. Der Bootloader uebergibt hier im 64-Bit-Modus.
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
@@ -69,6 +95,13 @@ pub extern "C" fn kmain() -> ! {
     klog!("boot", "karst v{} — Kernel von Karstos", env!("CARGO_PKG_VERSION"));
     klog!("boot", "Architektur : {} (Basisseite {} B)", arch::NAME, arch::PAGE_SIZE);
     klog!("boot", "ABI         : {}", abi::enabled());
+    klog!(
+        "boot",
+        "Konfiguration: Bauart {}, POSIX {}, Fehler-Selbsttest {}",
+        if cfg!(debug_assertions) { "debug" } else { "release" },
+        if cfg!(feature = "posix") { "ja" } else { "nein" },
+        active_selftests()
+    );
 
     let mut brand = [0u8; 64];
     let n = arch::cpu_brand(&mut brand);
@@ -118,6 +151,14 @@ pub extern "C" fn kmain() -> ! {
         sections.data.0,
         sections.data.1,
         (sections.data.1 - sections.data.0) / 1024
+    );
+
+    klog!(
+        "mm",
+        "  gesamt {} KiB geladenes Abbild ({} Seiten a {} B)",
+        (sections.data.1 - sections.text.0) / 1024,
+        (sections.data.1 - sections.text.0).div_ceil(PAGE_SIZE as u64),
+        PAGE_SIZE
     );
 
     // ------------------------------------------------------------- Framebuffer
@@ -361,6 +402,16 @@ pub extern "C" fn kmain() -> ! {
     {
         klog!("test", "versuche Daten in .data auszufuehren (NX muss #PF ausloesen) ...");
         unsafe { arch::selftest::nx_exec() };
+    }
+    #[cfg(feature = "test-gp")]
+    {
+        klog!("test", "greife auf eine nicht kanonische Adresse zu (muss #GP ausloesen) ...");
+        unsafe { arch::selftest::general_protection() };
+    }
+    #[cfg(feature = "test-ud")]
+    {
+        klog!("test", "fuehre eine ungueltige Instruktion aus (muss #UD ausloesen) ...");
+        unsafe { arch::selftest::invalid_opcode() };
     }
     #[cfg(feature = "test-doublefault")]
     {

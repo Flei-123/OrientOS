@@ -3,6 +3,7 @@
 //! Alles unterhalb dieses Moduls darf Register, Instruktionen und Portadressen
 //! kennen. Alles ausserhalb nicht.
 
+pub mod context;
 pub mod cpu;
 pub mod gdt;
 pub mod idt;
@@ -25,6 +26,7 @@ impl ArchOps for X86_64 {
     const PAGE_SIZE: usize = 4096;
 
     type AddressSpace = paging::X86AddressSpace;
+    type Context = context::Context;
     type Timer = timer::Pit;
     type IntCtl = pic::Pic8259;
 

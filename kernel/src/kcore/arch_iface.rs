@@ -76,6 +76,40 @@ pub trait AddressSpaceOps: Sized {
     unsafe fn activate(&self);
 }
 
+/// Gesicherter Zustand eines Kontrollflusses (Threadkontext).
+///
+/// Der Core weiss nur, dass es so ein Ding gibt, dass man es fuer einen
+/// eigenen Stapel aufbauen und zwischen zweien umschalten kann. WELCHE
+/// Register dabei gerettet werden, steht ausschliesslich in
+/// `arch/<name>/context.rs`.
+pub trait ContextOps: Sized + Copy {
+    /// Kleinster Stapel, auf dem [`ContextOps::new`] noch sinnvoll arbeitet.
+    const MIN_STACK_BYTES: usize;
+
+    /// Noch nie gelaufener, leerer Kontext. Bekommt beim ersten Wechsel den
+    /// Zustand des gerade laufenden Kontrollflusses eingetragen.
+    fn empty() -> Self;
+
+    /// Baut einen Startkontext, der bei `entry` auf dem Stapel unterhalb von
+    /// `stack_top` beginnt.
+    ///
+    /// # Safety
+    /// `stack_top` muss das obere Ende eines exklusiv besessenen, mindestens
+    /// [`ContextOps::MIN_STACK_BYTES`] grossen, beschreibbaren Bereichs sein.
+    unsafe fn new(stack_top: VirtAddr, entry: extern "C" fn() -> !) -> Self;
+
+    /// Aktueller Stapelzeiger des gesicherten Kontextes (fuer Diagnose).
+    fn stack_pointer(&self) -> VirtAddr;
+
+    /// Sichert den laufenden Zustand nach `from` und setzt `to` fort.
+    ///
+    /// # Safety
+    /// `to` muss ein gueltiger, gerade nicht laufender Kontext sein, dessen
+    /// Stapel noch existiert; `from` muss beschreibbar sein. Der Aufruf kehrt
+    /// erst zurueck, wenn jemand wieder nach `from` wechselt.
+    unsafe fn switch(from: *mut Self, to: *const Self);
+}
+
 /// Periodischer Systemzeitgeber.
 pub trait TimerOps {
     /// Startet den Zeitgeber mit `hz` Ticks pro Sekunde.
@@ -119,6 +153,8 @@ pub trait ArchOps {
 
     /// Adressraum-Implementierung dieser Architektur.
     type AddressSpace: AddressSpaceOps;
+    /// Threadkontext dieser Architektur (Registerrettung).
+    type Context: ContextOps;
     /// Zeitgeber dieser Architektur.
     type Timer: TimerOps;
     /// Interruptcontroller dieser Architektur.

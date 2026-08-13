@@ -93,9 +93,122 @@ pub fn encode(r: Result<u64>) -> i64 {
 mod tests {
     use super::*;
 
+    /// Alle Fehlerwerte der ABI — Grundlage der erschoepfenden Tests.
+    /// Eine neue Variante faellt hier sofort auf (die Tests zaehlen mit).
+    pub(crate) const ALL_ERRORS: [Error; 9] = [
+        Error::BadHandle,
+        Error::RightsDenied,
+        Error::NotFound,
+        Error::InvalidArgs,
+        Error::Exhausted,
+        Error::WrongType,
+        Error::WouldBlock,
+        Error::Closed,
+        Error::NotSupported,
+    ];
+
+    /// Winziger deterministischer Generator — nur fuer die Eigenschaftstests
+    /// dieser Datei. Bewusst 4 Zeilen statt einer `rand`-Dependency.
+    struct Xs(u64);
+    impl Xs {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            self.0
+        }
+    }
+
     #[test]
     fn encoding_is_unambiguous() {
         assert_eq!(encode(Ok(42)), 42);
         assert!(encode(Err(Error::BadHandle)) < 0);
+    }
+
+    #[test]
+    fn error_numbers_are_dense_distinct_and_negative() {
+        let mut seen = std::vec::Vec::new();
+        for (i, e) in ALL_ERRORS.iter().enumerate() {
+            let raw = e.as_raw();
+            assert_eq!(raw, -(i as i64 + 1), "Nummer von {} verschoben", e.name());
+            assert!(raw < 0, "{} ist nicht negativ", e.name());
+            assert!(!seen.contains(&raw), "{} doppelt vergeben", e.name());
+            seen.push(raw);
+        }
+        // Die 0 bleibt fuer den Erfolgsfall reserviert.
+        assert!(!seen.contains(&0));
+    }
+
+    #[test]
+    fn error_names_are_unique_and_nonempty() {
+        let mut seen = std::vec::Vec::new();
+        for e in ALL_ERRORS {
+            let n = e.name();
+            assert!(!n.is_empty());
+            assert!(!seen.contains(&n), "Name {n} doppelt");
+            seen.push(n);
+        }
+        assert_eq!(seen.len(), ALL_ERRORS.len());
+    }
+
+    #[test]
+    fn every_error_encodes_to_its_own_raw_value() {
+        for e in ALL_ERRORS {
+            assert_eq!(encode(Err(e)), e.as_raw());
+            assert!(encode(Err(e)) < 0, "{} kollidiert mit dem Erfolgsbereich", e.name());
+        }
+    }
+
+    #[test]
+    fn success_values_stay_non_negative() {
+        for v in [0u64, 1, 42, 4096, i64::MAX as u64 - 1, i64::MAX as u64] {
+            let r = encode(Ok(v));
+            assert!(r >= 0, "Erfolg {v} wurde als Fehler kodiert: {r}");
+            assert_eq!(r as u64, v);
+        }
+    }
+
+    #[test]
+    fn out_of_contract_success_values_are_clamped_not_wrapped() {
+        // Werte >= 2^63 sind laut ABI verboten. Wichtig ist, dass sie NIE als
+        // Fehler durchgehen — sonst wuerde ein Erfolg zum Fehlercode.
+        for v in [1u64 << 63, u64::MAX, 0x8000_0000_0000_002a] {
+            let r = encode(Ok(v));
+            assert!(r >= 0, "Wert {v:#x} wurde zu einem Fehlercode {r}");
+            assert_eq!(r as u64, v & 0x7fff_ffff_ffff_ffff);
+        }
+    }
+
+    /// Eigenschaftstest: Erfolg und Fehler duerfen sich im Rueckgabekanal nie
+    /// verwechseln lassen, und erlaubte Erfolgswerte kommen unveraendert an.
+    #[test]
+    fn encode_never_confuses_success_and_error() {
+        let mut r = Xs(0x1234_5678_9abc_def1);
+        for _ in 0..20_000 {
+            let raw = r.next();
+            let v = raw >> 1; // im erlaubten Bereich (< 2^63)
+            let enc = encode(Ok(v));
+            assert!(enc >= 0);
+            assert_eq!(enc as u64, v);
+            for e in ALL_ERRORS {
+                assert_ne!(enc, e.as_raw(), "Erfolg {v} sieht aus wie {}", e.name());
+            }
+            // Auch der verbotene Bereich darf nicht in den Fehlerraum kippen.
+            assert!(encode(Ok(v | (1 << 63))) >= 0);
+        }
+    }
+
+    #[test]
+    fn result_alias_carries_the_error_type() {
+        let ok: Result<u64> = Ok(7);
+        let err: Result<u64> = Err(Error::WouldBlock);
+        assert_eq!(ok.unwrap(), 7);
+        assert_eq!(err.unwrap_err(), Error::WouldBlock);
+        assert_eq!(err.unwrap_err().name(), "WouldBlock");
+        // Copy/Eq gelten — der Kernel reicht Fehler ohne Klonen weiter.
+        let e = Error::Closed;
+        let f = e;
+        assert_eq!(e, f);
+        assert_ne!(Error::Closed, Error::NotFound);
     }
 }

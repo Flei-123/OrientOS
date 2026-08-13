@@ -14,6 +14,7 @@ static PANICKING: AtomicBool = AtomicBool::new(false);
 fn panic(info: &PanicInfo) -> ! {
     // Interrupts aus: ein Timer-Interrupt mitten im Panic-Druck wuerde die
     // Ausgabe zerreissen oder erneut panicken.
+    let irq_war_an = crate::arch::interrupts_enabled();
     crate::arch::disable_interrupts();
 
     if PANICKING.swap(true, Ordering::SeqCst) {
@@ -36,20 +37,26 @@ fn panic(info: &PanicInfo) -> ! {
     } else {
         crate::serial_println!("Laufzeit: Zeitgeber laeuft noch nicht ({} Ticks)", ticks);
     }
-    backtrace();
+    crate::serial_println!(
+        "Zustand : Interrupts beim Eintritt {}, jetzt abgeschaltet",
+        if irq_war_an { "an" } else { "aus" }
+    );
+    let frames = backtrace();
+    crate::serial_println!("Backtrace: {} Frame(s) aufgeloest", frames);
     crate::serial_println!("============================================");
 
     crate::arch::halt_forever();
 }
 
-/// Gibt einen Backtrace ueber Frame-Pointer-Unwinding aus.
+/// Gibt einen Backtrace ueber Frame-Pointer-Unwinding aus und liefert die Zahl
+/// der aufgeloesten Frames zurueck (0 = keine verwertbare Kette).
 ///
 /// Wir bauen den Kernel mit `-C force-frame-pointers=yes` (siehe `build.sh`),
 /// dadurch bildet RBP eine verkettete Liste `[rbp] = voriger rbp`,
 /// `[rbp+8] = Ruecksprungadresse`. Die Adressen sind gegen die Sektionsadressen
 /// aus `build/karst.map` bzw. via `llvm-addr2line` aufloesbar — siehe README,
 /// Abschnitt "Backtrace lesen".
-pub fn backtrace() {
+pub fn backtrace() -> usize {
     crate::serial_println!("Backtrace (Frame-Pointer, Adressen via addr2line aufloesbar):");
     let mut n = 0usize;
     crate::arch::backtrace(&mut |frame_ip: u64| {
@@ -57,6 +64,7 @@ pub fn backtrace() {
         n += 1;
     });
     if n == 0 {
-        crate::serial_println!("  <kein Frame-Pointer-Kette verfuegbar>");
+        crate::serial_println!("  <keine Frame-Pointer-Kette verfuegbar>");
     }
+    n
 }

@@ -24,9 +24,15 @@ Legende: **✔ fertig** · **▶ als Nächstes** · **○ geplant**
 
 ## Phase 2 — Scheduler und Zeit ▶
 
-* ▶ Kontextwechsel in Assembler (`arch/x86_64/context.rs`), Kernel-Threads
-* ▶ Round-Robin-Scheduler hinter einem `Scheduler`-Trait, Idle-Thread
-* ▶ Warteschlangen: `sleep(deadline)`, `yield`, Wecken durch den Zeitgeber
+* ✔ Kontextwechsel in Assembler (`arch/x86_64/context.rs`, `naked_asm!`),
+  Kernel-Threads mit eigenem Heap-Stapel und Wachzone
+* ✔ Kooperativer Round-Robin-Scheduler hinter dem `Scheduler`-Trait in
+  `kcore/sched.rs`; `run()` kehrt nach `kmain` zurück, wenn niemand mehr
+  lauffähig ist, und meldet eine Verklemmung statt hängen zu bleiben
+* ✔ `yield_now`, `block_current`/`unblock`, `sleep_ticks` — Wecken durch den
+  Zeitgeber (der Scheduler wartet derweil mit `wait_for_interrupt`); im Boot-Log
+  als drei Selbsttests nachweisbar (Wechselspiel, Schlafen/Wecken, Verklemmung)
+* ▶ Idle-Thread statt Warteschleife im Scheduler, Präemption durch den Zeitgeber
 * ○ APIC statt PIC: LAPIC-Timer, IOAPIC-Umleitungen, TSC-Deadline
 * ○ Monotone Uhr in Nanosekunden (`ClockRead`), Kalibrierung gegen HPET/PIT
 

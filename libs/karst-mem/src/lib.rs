@@ -27,6 +27,22 @@ pub const fn align_up(addr: u64, align: u64) -> u64 {
     (addr + align - 1) & !(align - 1)
 }
 
+/// Rundet `addr` auf das naechste Vielfache von `align` auf und meldet einen
+/// Ueberlauf, statt still auf 0 zu springen.
+///
+/// Noetig, weil eine defekte Firmware-Memory-Map Adressen dicht unter
+/// `u64::MAX` melden kann: `align_up` wuerde dann 0 liefern und eine Region
+/// scheinbar an den Anfang des Adressraums legen. Alle Stellen, die mit
+/// fremden Zahlen rechnen (siehe [`region::MemoryRegion::page_aligned`]),
+/// benutzen diese Variante.
+#[inline]
+pub const fn align_up_checked(addr: u64, align: u64) -> Option<u64> {
+    match addr.checked_add(align - 1) {
+        Some(v) => Some(v & !(align - 1)),
+        None => None,
+    }
+}
+
 /// Rundet `addr` auf das naechste Vielfache von `align` ab. `align` muss 2^n sein.
 #[inline]
 pub const fn align_down(addr: u64, align: u64) -> u64 {
@@ -100,6 +116,46 @@ mod tests {
                 assert_eq!(down, v);
             } else {
                 assert_eq!(up, down + align);
+            }
+        }
+    }
+
+    #[test]
+    fn align_up_checked_reports_overflow_instead_of_wrapping() {
+        // Der Regelfall verhaelt sich wie `align_up`.
+        for (v, a) in [(0u64, 4096u64), (1, 4096), (4096, 4096), (4097, 4096), (7, 8)] {
+            assert_eq!(align_up_checked(v, a), Some(align_up(v, a)), "v={v} a={a}");
+        }
+        // Der Ueberlaufbereich: `align_up` wuerde hier umlaufen (im Debugbau
+        // sogar in Panik geraten), die gepruefte Variante meldet None.
+        for v in [u64::MAX, u64::MAX - 1, u64::MAX - 4094] {
+            assert_eq!(align_up_checked(v, PAGE_SIZE), None, "v={v:#x}");
+            assert_eq!(v.wrapping_add(PAGE_SIZE - 1) & !(PAGE_SIZE - 1), 0);
+        }
+        // Genau die letzte noch darstellbare Seitengrenze geht noch.
+        let last = u64::MAX - 4095;
+        assert_eq!(align_up_checked(last, PAGE_SIZE), Some(last));
+        assert_eq!(align_up_checked(last - 1, PAGE_SIZE), Some(last));
+        // Ausrichtung 1 kann nie ueberlaufen.
+        assert_eq!(align_up_checked(u64::MAX, 1), Some(u64::MAX));
+    }
+
+    /// Eigenschaftstest: die gepruefte Variante stimmt ueberall dort mit
+    /// `align_up` ueberein, wo diese nicht umlaeuft — und nur dort.
+    #[test]
+    fn align_up_checked_agrees_with_align_up_where_defined() {
+        let mut r = Lcg::new(0xc0de);
+        for _ in 0..20_000 {
+            let align = 1u64 << r.range(0, 21) as u32;
+            let v = r.next_u64();
+            match align_up_checked(v, align) {
+                Some(up) => {
+                    assert_eq!(up % align, 0);
+                    assert!(up >= v);
+                    assert!(up - v < align);
+                    assert_eq!(up, align_up(v, align));
+                }
+                None => assert!(v > u64::MAX - (align - 1), "None trotz Spielraum"),
             }
         }
     }
@@ -212,7 +268,7 @@ mod tests {
         ];
         let frames = frames_for(summarize(&regions).ram_top);
         let mut bits = std::vec![0u64; Bitmap::words_needed(frames)];
-        let mut b = bitmap_from_map(&regions, &mut bits, frames);
+        let b = bitmap_from_map(&regions, &mut bits, frames);
         assert!(b.is_used(0) && b.is_used(1), "angeschnittener Frame vergeben");
         assert!(!b.is_used(2) && !b.is_used(3) && !b.is_used(4));
         assert!(b.is_used(5), "teilweise reservierter Frame muss belegt bleiben");

@@ -24,7 +24,7 @@ sudo apt install qemu-system-x86 xorriso mtools ovmf
 ./build.sh          # Kernel + bootfähiges build/karstos.iso
 ./run-qemu.sh       # startet, serielle Ausgabe im Terminal (Strg-C beendet)
 
-# 3. Alles prüfen (Host-Tests + 6 echte QEMU-Boots)
+# 3. Alles prüfen (Host-Tests + 10 echte QEMU-Boots)
 ./test.sh
 ```
 
@@ -36,13 +36,17 @@ sudo apt install qemu-system-x86 xorriso mtools ovmf
 | `./build.sh --debug` | Debug-Build |
 | `./build.sh --no-posix` | Gegenprobe: Kernel ohne POSIX-Schicht (`--no-default-features`) |
 | `./run-qemu.sh` | interaktiver Start, serielle Ausgabe auf stdout |
-| `./run-qemu.sh --check` | bootet, prüft 11 Merkmale im Log, **Exitcode** 0/1 (für CI) |
+| `./run-qemu.sh --check` | bootet, prüft 38 Merkmale im Log, **Exitcode** 0/1 (für CI) |
 | `./run-qemu.sh --uefi` | Boot über OVMF statt SeaBIOS |
 | `./run-qemu.sh --test-pagefault` | löst absichtlich `#PF` aus und prüft die Meldung |
 | `./run-qemu.sh --test-doublefault` | löst einen **echten** `#DF` aus (nicht `int 8`) |
 | `./run-qemu.sh --test-panic` | prüft Panic-Handler und Backtrace |
-| `./test.sh` | alles zusammen, 9 Schritte |
-| `cargo test --target x86_64-unknown-linux-gnu -p karst-mem -p karst-abi-native -p karst-abi-posix` | 24 Host-Tests der hardwarefreien Logik |
+| `./run-qemu.sh --test-rodata` | Schreibversuch auf `.rodata` muss `#PF` auslösen |
+| `./run-qemu.sh --test-nx` | Ausführungsversuch auf Daten muss `#PF` auslösen |
+| `./run-qemu.sh --test-gp` | nicht kanonische Adresse muss `#GP` (nicht `#PF`) auslösen |
+| `./run-qemu.sh --test-ud` | ungültige Instruktion (`ud2`) |
+| `./test.sh` | alles zusammen, 14 Schritte |
+| `cargo test --target x86_64-unknown-linux-gnu -p karst-mem -p karst-abi-native -p karst-abi-posix` | 129 Host-Tests der hardwarefreien Logik |
 
 ---
 
@@ -56,10 +60,11 @@ Auszug aus einem echten Boot (`./run-qemu.sh --check`, gekürzt):
 [karst] boot       ABI         : karst-native + posix (abwaehlbar)
 [karst] boot       Bootloader  : Limine 9.6.7
 [karst] mm         HHDM-Fenster: virt = phys + 0xffff800000000000
-[karst] mm         Kernelabbild: phys 0x000000001fd57000 -> virt 0xffffffff80000000
-[karst] mm           .text  ...  (32 KiB, R+X)
-[karst] mm           .rodata...  (12 KiB, R)
+[karst] mm         Kernelabbild: phys 0x000000001fce0000 -> virt 0xffffffff80000000
+[karst] mm           .text  ...  (76 KiB, R+X)
+[karst] mm           .rodata...  (20 KiB, R)
 [karst] mm           .data  ...  (72 KiB, R+W, NX)
+[karst] mm           gesamt 168 KiB geladenes Abbild (42 Seiten a 4096 B)
 [karst] video      Framebuffer : 1280x800 @ 32 bpp -> Textkonsole 160x50
 [karst] cpu        GDT + TSS geladen, Datensegmente flach
 [karst] cpu        IDT: 256 Tore, Ausnahmen 0..21 belegt
@@ -73,11 +78,15 @@ Auszug aus einem echten Boot (`./run-qemu.sh --check`, gekürzt):
 [karst] mm           0x0000fd000000..0x0000fd3e8000      3 MiB  framebuffer
 [karst] mm           0x00fd00000000..0x010000000000     12 GiB  reserved
 [karst] mm         Speicher    : 12 GiB gesamt, davon 508 MiB nutzbar
-[karst] mm         Frames      : 131039 verwaltet, 130170 frei (508 MiB)
+[karst] mm         Frames      : 131039 verwaltet, 130033 frei (507 MiB)
 [karst] mm         Frame-Bitmap: 16 KiB bei phys 0x000000100000
 [karst] mm         Eigener Adressraum aktiv (CR3 = 0x000000104000)
 [karst] mm           HHDM   : 3 GiB als 2026 grosse Seiten
-[karst] mm           Abbild : 29 Seiten mit getrennten Rechten
+[karst] mm           Abbild : 42 Seiten mit getrennten Rechten
+[karst] mm         Selbsttest MapError: 23/23 Fehlerfaelle nachweisbar ausgeloest
+                   (Misaligned 10, AlreadyMapped 3, NotMapped 4, OutOfFrames 4, ParentHugePage 2)
+[karst] mm         Selbsttest Frames: 26/26 Zusagen erfuellt, 130014 frei
+[karst] heap       Selbsttest Heap: 13/13 Zusagen erfuellt, 0 B belegt, 1 Loecher
 [karst] mm         Selbsttest Paging: map 0xffffff0010000000 -> 0x00000010d000,
                    schreiben/lesen ok, translate ok, unmap ok
 [karst] heap       Kernel-Heap : 1024 KiB bei virt 0xffffff0000000000
@@ -89,6 +98,13 @@ Auszug aus einem echten Boot (`./run-qemu.sh --check`, gekürzt):
 [karst] abi        posix-Schicht aktiv: read(2) auf unbekannten Fd -> -9 (= -EBADF)
 [karst] irq        Zeitgeber laeuft mit 100 Hz, Interrupts frei (IF gesetzt)
 [karst] irq        Tick 5 — 5 s Laufzeit, 500 Ticks gezaehlt
+[karst] sched      Thread A (Kennung 1): Durchlauf 1/3
+[karst] sched      Thread B (Kennung 2): Durchlauf 1/3
+[karst] sched      Threadwechsel: 16 Wechsel, zurueck in kmain (2 Threads a 16 KiB Stapel,
+                   Spur 121212, 5/5 Zusagen)
+[karst] boot       Selbsttestbilanz: 79/79 bestanden (#BP 1/1, Paging 3/3, MapError 36/36,
+                   Frames 26/26, Heap 13/13)
+[karst] boot       Startbilanz : 129483 Frames frei (1556 belegt), Heap 0 / 2166784 B belegt, 507 Ticks
 [karst] boot       Startvorgang abgeschlossen. karst laeuft.
 ```
 
@@ -158,11 +174,11 @@ karstos/
 
 | | |
 |---|---|
-| Quellzeilen (ohne `vendor/`) | ca. 4 950 |
+| Quellzeilen `kernel/src` + `libs` (inkl. Tests) | 10 625 |
 | Externe Crates | **2** — `limine` (Protokollstrukturen), `spin` (Sperren) |
-| Geladene Kernelgröße | ca. 113 KiB (`.text` 32 KiB, `.rodata` 10 KiB, `.data` 6 KiB, `.bss` 64 KiB) |
-| Host-Tests | 24, alle grün |
-| QEMU-Prüfungen | 11 Merkmale je Boot, 6 Boots im `test.sh` |
+| Geladene Kernelgröße | 168 KiB, 42 Seiten (`.text` 76 KiB R+X, `.rodata` 20 KiB R, `.data` 72 KiB R+W+NX) |
+| Host-Tests | 129, alle grün (75 `karst-mem`, 33 `karst-abi-native`, 21 `karst-abi-posix`) |
+| QEMU-Prüfungen | 38 Merkmale je `--check`-Boot, 10 Boots im `test.sh` |
 | Nightly-Features | 3, einzeln begründet (ARCHITECTURE.md § 9) |
 
 ---

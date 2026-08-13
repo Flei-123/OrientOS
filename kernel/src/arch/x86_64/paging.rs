@@ -121,13 +121,66 @@ pub struct X86AddressSpace {
     root: PhysAddr,
 }
 
+/// Merkzettel ueber die Zwischentabellen, die ein einzelner Abstieg NEU
+/// angelegt hat (hoechstens drei: PDPT, PD, PT).
+///
+/// Scheitert die Abbildung spaeter doch noch — weil unterwegs die Frames
+/// ausgehen, eine grosse Seite im Weg steht oder das Blatt schon belegt ist —,
+/// dann waeren diese frisch angelegten, voellig leeren Tabellen sonst fuer
+/// immer verloren: sie haengen an einem Teilbaum, den niemand mehr betritt,
+/// und der Frame-Allocator sieht sie als belegt. [`Fresh::rollback`] haengt sie
+/// wieder aus und gibt die Frames zurueck, sodass ein fehlgeschlagenes
+/// `map`/`map_large` den Speicherstand **exakt unveraendert** hinterlaesst.
+struct Fresh {
+    /// Elterneintraege, die auf die neuen Tabellen zeigen (von oben nach unten).
+    ents: [*mut u64; 3],
+    /// Die zugehoerigen Frames.
+    frames: [PhysAddr; 3],
+    /// Wie viele Eintraege belegt sind.
+    n: usize,
+}
+
+impl Fresh {
+    /// Leerer Merkzettel.
+    const fn new() -> Self {
+        Fresh { ents: [core::ptr::null_mut(); 3], frames: [PhysAddr(0); 3], n: 0 }
+    }
+
+    /// Vermerkt eine neu angelegte Tabelle.
+    fn push(&mut self, entry: *mut u64, frame: PhysAddr) {
+        if self.n < self.ents.len() {
+            self.ents[self.n] = entry;
+            self.frames[self.n] = frame;
+            self.n += 1;
+        }
+    }
+
+    /// Macht alle neu angelegten Tabellen rueckgaengig (unterste zuerst).
+    ///
+    /// # Safety
+    /// Darf nur aufgerufen werden, solange unter diesen Tabellen nichts
+    /// eingetragen wurde — genau das ist bei einem gescheiterten Abstieg der
+    /// Fall. Ein TLB-Eintrag kann nicht existieren, weil die Eintraege vorher
+    /// nicht praesent waren und dazwischen kein Zugriff stattfand.
+    unsafe fn rollback(&mut self, alloc: &mut dyn FrameAllocator) {
+        while self.n > 0 {
+            self.n -= 1;
+            unsafe { *self.ents[self.n] = 0 };
+            alloc.free_frame(self.frames[self.n]);
+        }
+    }
+}
+
 impl X86AddressSpace {
     /// Sorgt dafuer, dass unterhalb von `entry` eine Tabelle existiert.
+    ///
+    /// Gibt zusaetzlich zurueck, ob die Tabelle in diesem Aufruf **neu**
+    /// entstanden ist — nur solche duerfen zurueckgerollt werden.
     unsafe fn ensure_child(
         entry: *mut u64,
         alloc: &mut dyn FrameAllocator,
         user: bool,
-    ) -> Result<PhysAddr, MapError> {
+    ) -> Result<(PhysAddr, bool), MapError> {
         let e = unsafe { *entry };
         if e & PRESENT == 0 {
             let frame = alloc.alloc_frame().ok_or(MapError::OutOfFrames)?;
@@ -137,33 +190,50 @@ impl X86AddressSpace {
                 bits |= USER;
             }
             unsafe { *entry = bits };
-            Ok(frame)
+            Ok((frame, true))
         } else if e & HUGE != 0 {
             Err(MapError::ParentHugePage)
         } else {
             if user && e & USER == 0 {
                 unsafe { *entry = e | USER };
             }
-            Ok(PhysAddr(e & ADDR_MASK))
+            Ok((PhysAddr(e & ADDR_MASK), false))
         }
     }
 
     /// Laeuft bis zur Tabelle der angegebenen Ebene hinab und legt fehlende an.
+    ///
+    /// Bei Erfolg kommt neben der Zieltabelle der Merkzettel der neu
+    /// angelegten Zwischentabellen zurueck; der Aufrufer muss ihn im
+    /// Fehlerfall zurueckrollen. Scheitert der Abstieg selbst, raeumt diese
+    /// Funktion bereits auf und der Speicherstand ist unveraendert.
     unsafe fn walk_to(
         &mut self,
         v: u64,
         stop_level: u32,
         alloc: &mut dyn FrameAllocator,
         user: bool,
-    ) -> Result<*mut PageTable, MapError> {
+    ) -> Result<(*mut PageTable, Fresh), MapError> {
         let mut table = self.root;
         let mut level = 4u32;
+        let mut fresh = Fresh::new();
         while level > stop_level {
             let e = unsafe { core::ptr::addr_of_mut!((*table_ptr(table)).entries[idx(v, level)]) };
-            table = unsafe { Self::ensure_child(e, alloc, user)? };
+            match unsafe { Self::ensure_child(e, alloc, user) } {
+                Ok((child, is_new)) => {
+                    if is_new {
+                        fresh.push(e, child);
+                    }
+                    table = child;
+                }
+                Err(err) => {
+                    unsafe { fresh.rollback(alloc) };
+                    return Err(err);
+                }
+            }
             level -= 1;
         }
-        Ok(table_ptr(table))
+        Ok((table_ptr(table), fresh))
     }
 }
 
@@ -195,9 +265,10 @@ impl AddressSpaceOps for X86AddressSpace {
         check_phys(phys.as_u64(), PAGE_SIZE as u64)?;
         let user = flags.contains(MapFlags::USER);
         let v = virt.as_u64();
-        let pt = unsafe { self.walk_to(v, 1, alloc, user)? };
+        let (pt, mut fresh) = unsafe { self.walk_to(v, 1, alloc, user)? };
         let leaf = unsafe { &mut (*pt).entries[idx(v, 1)] };
         if *leaf & PRESENT != 0 {
+            unsafe { fresh.rollback(alloc) };
             return Err(MapError::AlreadyMapped);
         }
         *leaf = phys.as_u64() | pte_flags(flags, false);
@@ -216,9 +287,10 @@ impl AddressSpaceOps for X86AddressSpace {
         check_phys(phys.as_u64(), LARGE_PAGE as u64)?;
         let user = flags.contains(MapFlags::USER);
         let v = virt.as_u64();
-        let pd = unsafe { self.walk_to(v, 2, alloc, user)? };
+        let (pd, mut fresh) = unsafe { self.walk_to(v, 2, alloc, user)? };
         let leaf = unsafe { &mut (*pd).entries[idx(v, 2)] };
         if *leaf & PRESENT != 0 {
+            unsafe { fresh.rollback(alloc) };
             return Err(MapError::AlreadyMapped);
         }
         *leaf = phys.as_u64() | pte_flags(flags, true);

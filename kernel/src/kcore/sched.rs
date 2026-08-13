@@ -15,23 +15,39 @@
 //!   der reihum den naechsten lauffaehigen Thread waehlt (Round-Robin).
 //! * [`exit_current`] meldet den laufenden Thread ab; sein Stapel wird
 //!   eingezogen, sobald der Scheduler wieder laeuft.
+//! * [`block_current`] legt den laufenden Thread schlafen, bis ihn jemand mit
+//!   [`unblock`] weckt; [`sleep_ticks`] legt ihn fuer eine Anzahl Zeitgeber-
+//!   Ticks schlafen und wird vom Scheduler selbst wieder geweckt.
 //! * Sind alle Threads fertig, kehrt [`Scheduler::run`] nach `kmain` zurueck.
+//!   Schlafen alle uebrigen Threads ohne Weckzeit, meldet `run` eine
+//!   **Verklemmung** und kehrt ebenfalls zurueck, statt haengen zu bleiben.
 //!
-//! Es gibt **keine** Praeemption: der Zeitgeberinterrupt zaehlt nur Ticks. Damit
-//! braucht der Scheduler weder Sperren noch abgeschaltete Interrupts, und der
-//! Boot bleibt deterministisch.
+//! Es gibt **keine** Praeemption: der Zeitgeberinterrupt zaehlt nur Ticks. Der
+//! Scheduler liest diesen Zaehler ([`crate::kcore::arch_iface::TimerOps`]), um
+//! Schlaefer faellig zu machen; wecken tut er sie erst, wenn er selbst wieder
+//! laeuft. Damit braucht er weder Sperren noch abgeschaltete Interrupts, und
+//! der Boot bleibt deterministisch.
 
 use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ptr::{addr_of, addr_of_mut};
+use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 
-use crate::kcore::arch_iface::{ArchOps, ContextOps};
+use crate::kcore::arch_iface::{ArchOps, ContextOps, TimerOps};
 use crate::kcore::mem::VirtAddr;
 use crate::klog;
 
 /// Kontexttyp der aktiven Architektur — der Core kennt nur den Trait.
 type Ctx = <crate::arch::Active as ArchOps>::Context;
+
+/// Zeitgeber der aktiven Architektur — der Core kennt nur [`TimerOps`].
+type Clock = crate::arch::Timer;
+
+/// Aktueller Stand des Zeitgebers in Ticks.
+fn now() -> u64 {
+    <Clock as TimerOps>::ticks()
+}
 
 /// Kennung eines lauffaehigen Kontrollflusses.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -46,6 +62,15 @@ pub enum ThreadState {
     Blocked,
     /// Beendet, Stapel darf eingezogen werden.
     Finished,
+}
+
+/// Warum ein blockierter Thread wieder lauffaehig wird.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WakeReason {
+    /// Nur durch [`Scheduler::unblock`] — der Scheduler weckt ihn nie von selbst.
+    Explicit,
+    /// Sobald der Zeitgeber diesen Tickstand erreicht hat.
+    AtTick(u64),
 }
 
 /// Ein Scheduler. Architekturneutral: er entscheidet nur, WER als naechstes
@@ -67,8 +92,20 @@ pub trait Scheduler {
     unsafe fn yield_now(&mut self);
     /// Markiert einen Thread als beendet.
     fn exit(&mut self, id: ThreadId);
+    /// Legt den laufenden Thread schlafen und gibt die CPU ab. Er wird erst
+    /// wieder lauffaehig, wenn [`Scheduler::unblock`] ihn weckt bzw. der
+    /// Zeitgeber die Weckzeit erreicht hat.
+    ///
+    /// # Safety
+    /// Wechselt den Stapel; nur aus einem Thread dieses Schedulers heraus.
+    unsafe fn block_current(&mut self, wake: WakeReason);
+    /// Macht einen blockierten Thread wieder lauffaehig. Liefert `false`, wenn
+    /// es den Thread nicht gibt oder er gar nicht blockiert war.
+    fn unblock(&mut self, id: ThreadId) -> bool;
     /// Anzahl der verwalteten Threads.
     fn count(&self) -> usize;
+    /// Anzahl der gerade blockierten Threads.
+    fn blocked(&self) -> usize;
     /// Laesst alle lauffaehigen Threads reihum laufen und kehrt zurueck,
     /// sobald keiner mehr lauffaehig ist. Ergebnis: Anzahl der Wechsel.
     ///
@@ -96,6 +133,8 @@ struct Thread {
     stack: Option<Box<[u8]>>,
     /// Wie oft dieser Thread die CPU bekommen hat.
     slices: usize,
+    /// Weckbedingung, solange `state == Blocked`.
+    wake: WakeReason,
 }
 
 /// Kooperativer Round-Robin-Scheduler.
@@ -114,6 +153,14 @@ pub struct CoopScheduler {
     next_id: u64,
     /// Laeuft gerade [`Scheduler::run`]?
     running: bool,
+    /// Wie oft der Scheduler einen Schlaefer zur Weckzeit lauffaehig gemacht hat.
+    wakeups: usize,
+    /// Wie oft er auf den Zeitgeber gewartet hat, weil niemand lauffaehig war.
+    idle_waits: usize,
+    /// Hat [`Scheduler::run`] wegen einer Verklemmung abgebrochen?
+    deadlocked: bool,
+    /// Groesste gemessene Stapelnutzung eines beendeten Threads (Bytes).
+    peak_stack: usize,
 }
 
 impl CoopScheduler {
@@ -127,7 +174,27 @@ impl CoopScheduler {
             switches: 0,
             next_id: 1,
             running: false,
+            wakeups: 0,
+            idle_waits: 0,
+            deadlocked: false,
+            peak_stack: 0,
         }
+    }
+
+    /// Wie oft ein Schlaefer durch die Weckzeit lauffaehig wurde.
+    pub fn wakeups(&self) -> usize {
+        self.wakeups
+    }
+
+    /// Wie oft der Scheduler mangels lauffaehiger Threads auf den Zeitgeber
+    /// gewartet hat.
+    pub fn idle_waits(&self) -> usize {
+        self.idle_waits
+    }
+
+    /// Hat der letzte [`Scheduler::run`] wegen einer Verklemmung abgebrochen?
+    pub fn deadlocked(&self) -> bool {
+        self.deadlocked
     }
 
     /// Ist die Wachzone am unteren Ende jedes noch vorhandenen Stapels
@@ -157,13 +224,57 @@ impl CoopScheduler {
         None
     }
 
-    /// Zieht die Stapel beendeter Threads ein.
+    /// Macht alle Schlaefer lauffaehig, deren Weckzeit erreicht ist.
+    /// Liefert die Anzahl der geweckten Threads.
+    fn wake_due(&mut self) -> usize {
+        let jetzt = now();
+        let mut n = 0;
+        for t in self.threads.iter_mut() {
+            if t.state == ThreadState::Blocked {
+                if let WakeReason::AtTick(deadline) = t.wake {
+                    if jetzt >= deadline {
+                        t.state = ThreadState::Ready;
+                        t.wake = WakeReason::Explicit;
+                        n += 1;
+                    }
+                }
+            }
+        }
+        self.wakeups += n;
+        n
+    }
+
+    /// Wartet ein Thread auf eine Weckzeit, die der Zeitgeber noch erreichen
+    /// kann?
+    fn has_timed_sleeper(&self) -> bool {
+        self.threads
+            .iter()
+            .any(|t| t.state == ThreadState::Blocked && matches!(t.wake, WakeReason::AtTick(_)))
+    }
+
+    /// Zieht die Stapel beendeter Threads ein und merkt sich vorher, wie tief
+    /// der Thread seinen Stapel wirklich benutzt hat.
     fn reap(&mut self) {
         for t in self.threads.iter_mut() {
             if t.state == ThreadState::Finished {
+                if let Some(s) = &t.stack {
+                    let unberuehrt = s.iter().take_while(|&&b| b == STACK_FILL).count();
+                    let benutzt = s.len() - unberuehrt;
+                    if benutzt > self.peak_stack {
+                        self.peak_stack = benutzt;
+                    }
+                }
                 t.stack = None;
             }
         }
+    }
+
+    /// Groesste gemessene Stapelnutzung eines beendeten Threads in Bytes.
+    ///
+    /// Gemessen am Fuellmuster: alles unterhalb der tiefsten beruehrten Stelle
+    /// traegt noch [`STACK_FILL`].
+    pub fn peak_stack_bytes(&self) -> usize {
+        self.peak_stack
     }
 }
 
@@ -192,6 +303,7 @@ impl Scheduler for CoopScheduler {
             ctx,
             stack: Some(stack),
             slices: 0,
+            wake: WakeReason::Explicit,
         });
         Some(id)
     }
@@ -223,14 +335,64 @@ impl Scheduler for CoopScheduler {
         }
     }
 
+    unsafe fn block_current(&mut self, wake: WakeReason) {
+        if let Some(i) = self.current {
+            self.threads[i].state = ThreadState::Blocked;
+            self.threads[i].wake = wake;
+        }
+        // Sicher: Bedingung wie bei [`Scheduler::yield_now`] — der Aufrufer ist
+        // ein Thread dieses Schedulers.
+        unsafe { self.yield_now() };
+    }
+
+    fn unblock(&mut self, id: ThreadId) -> bool {
+        match self.threads.iter_mut().find(|t| t.id == id) {
+            Some(t) if t.state == ThreadState::Blocked => {
+                t.state = ThreadState::Ready;
+                t.wake = WakeReason::Explicit;
+                true
+            }
+            _ => false,
+        }
+    }
+
     fn count(&self) -> usize {
         self.threads.len()
+    }
+
+    fn blocked(&self) -> usize {
+        self.threads.iter().filter(|t| t.state == ThreadState::Blocked).count()
     }
 
     unsafe fn run(&mut self) -> usize {
         let before = self.switches;
         self.running = true;
-        while let Some(i) = self.pick() {
+        self.deadlocked = false;
+        loop {
+            self.wake_due();
+            let i = match self.pick() {
+                Some(i) => i,
+                None => {
+                    // Niemand lauffaehig. Entweder sind alle fertig (dann ist
+                    // der Lauf zu Ende), oder es wartet jemand auf eine
+                    // Weckzeit (dann warten wir stromsparend auf den
+                    // Zeitgeber), oder alle warten auf ein Wecken, das
+                    // niemand mehr ausloesen kann: Verklemmung.
+                    if !self.has_timed_sleeper() {
+                        self.deadlocked = self.blocked() > 0;
+                        break;
+                    }
+                    if !crate::arch::interrupts_enabled() {
+                        // Ohne Interrupts wird der Tickzaehler nie weiterlaufen
+                        // — warten waere ein Haenger.
+                        self.deadlocked = true;
+                        break;
+                    }
+                    self.idle_waits += 1;
+                    crate::arch::wait_for_interrupt();
+                    continue;
+                }
+            };
             self.current = Some(i);
             self.threads[i].slices += 1;
             self.switches += 1;
@@ -287,6 +449,55 @@ pub fn yield_now() {
     // Sicher: `s` zeigt auf den Scheduler, der diesen Thread gestartet hat und
     // waehrend des gesamten Laufs an derselben Stelle liegt.
     unsafe { (*s).yield_now() };
+}
+
+/// Kennung des laufenden Threads (0 = kein Scheduler bzw. der Scheduler selbst).
+pub fn current_id() -> ThreadId {
+    let s = active();
+    if s.is_null() {
+        return ThreadId(0);
+    }
+    // Sicher: siehe [`yield_now`].
+    unsafe { (*s).current() }
+}
+
+/// Legt den laufenden Thread schlafen, bis ihn jemand mit [`unblock`] weckt.
+///
+/// Ausserhalb eines Threads passiert nichts.
+pub fn block_current() {
+    let s = active();
+    if s.is_null() {
+        return;
+    }
+    // Sicher: siehe [`yield_now`].
+    unsafe { (*s).block_current(WakeReason::Explicit) };
+}
+
+/// Legt den laufenden Thread fuer mindestens `ticks` Zeitgeber-Ticks schlafen.
+///
+/// `0` verhaelt sich wie [`yield_now`]. Ausserhalb eines Threads passiert nichts.
+pub fn sleep_ticks(ticks: u64) {
+    let s = active();
+    if s.is_null() {
+        return;
+    }
+    if ticks == 0 {
+        yield_now();
+        return;
+    }
+    let deadline = now() + ticks;
+    // Sicher: siehe [`yield_now`].
+    unsafe { (*s).block_current(WakeReason::AtTick(deadline)) };
+}
+
+/// Weckt einen blockierten Thread des aktiven Schedulers.
+pub fn unblock(id: ThreadId) -> bool {
+    let s = active();
+    if s.is_null() {
+        return false;
+    }
+    // Sicher: siehe [`yield_now`].
+    unsafe { (*s).unblock(id) }
 }
 
 /// Meldet den laufenden Thread ab; kehrt nie zurueck.
@@ -420,5 +631,190 @@ pub fn boot_selftest() -> bool {
         core::str::from_utf8(spur).unwrap_or("?"),
         zusagen
     );
-    zusagen == 5
+    let schlaf_ok = sleep_selftest();
+    let verklemmung_ok = deadlock_selftest();
+    schlaf_ok && verklemmung_ok && zusagen == 5
+}
+
+// ------------------------------------------------- Selbsttest Schlafen/Wecken
+
+/// So viele Ticks schlaeft der Schlaefer-Thread.
+const SLEEP_TICKS: u64 = 3;
+
+/// Tatsaechlich verstrichene Ticks des Schlaefers.
+static SLEPT: AtomicU64 = AtomicU64::new(0);
+/// Fortlaufende Nummer, um die Reihenfolge der Ereignisse zu belegen.
+static ORDER: AtomicUsize = AtomicUsize::new(0);
+/// Reihenfolgenummer, als der Schlaefer den Wartenden geweckt hat (0 = nie).
+static WOKE_AT: AtomicUsize = AtomicUsize::new(0);
+/// Reihenfolgenummer, als der Wartende wieder lief (0 = nie).
+static RESUMED_AT: AtomicUsize = AtomicUsize::new(0);
+/// Kennung des wartenden Threads, sobald bekannt.
+static WAITER: AtomicU64 = AtomicU64::new(0);
+
+/// Schlaefer: schlaeft echte Zeitgeber-Ticks ab und weckt danach den Wartenden.
+extern "C" fn thread_sleeper() -> ! {
+    let vorher = now();
+    klog!("sched", "Thread S (Kennung {}): schlaeft {} Ticks", current_id().0, SLEEP_TICKS);
+    sleep_ticks(SLEEP_TICKS);
+    let verstrichen = now() - vorher;
+    SLEPT.store(verstrichen, Ordering::Relaxed);
+    klog!("sched", "Thread S: nach {} Ticks aufgewacht", verstrichen);
+    let waiter = ThreadId(WAITER.load(Ordering::Relaxed));
+    if unblock(waiter) {
+        WOKE_AT.store(ORDER.fetch_add(1, Ordering::Relaxed) + 1, Ordering::Relaxed);
+        klog!("sched", "Thread S: weckt Thread W (Kennung {})", waiter.0);
+    }
+    exit_current()
+}
+
+/// Wartender: blockiert ohne Weckzeit und laeuft erst weiter, wenn ihn der
+/// Schlaefer weckt.
+extern "C" fn thread_waiter() -> ! {
+    WAITER.store(current_id().0, Ordering::Relaxed);
+    klog!("sched", "Thread W (Kennung {}): blockiert bis zum Wecken", current_id().0);
+    block_current();
+    RESUMED_AT.store(ORDER.fetch_add(1, Ordering::Relaxed) + 1, Ordering::Relaxed);
+    klog!("sched", "Thread W: geweckt, laeuft weiter");
+    exit_current()
+}
+
+/// Selbsttest von Blockieren, Schlafen und Wecken.
+///
+/// Zwei Threads: einer schlaeft echte Zeitgeber-Ticks ab (der Scheduler wartet
+/// derweil stromsparend), der andere blockiert ohne Weckzeit und wird vom
+/// Schlaefer geweckt. Fuenf Zusagen:
+///
+/// 1. der Schlaefer hat mindestens [`SLEEP_TICKS`] Ticks geschlafen,
+/// 2. der Scheduler hat genau einen Schlaefer zur Weckzeit lauffaehig gemacht,
+/// 3. er hat dabei mindestens einmal auf den Zeitgeber gewartet,
+/// 4. der Wartende lief erst **nach** dem Wecken wieder,
+/// 5. keine Verklemmung, am Ende ist kein Thread mehr blockiert.
+fn sleep_selftest() -> bool {
+    SLEPT.store(0, Ordering::Relaxed);
+    ORDER.store(0, Ordering::Relaxed);
+    WOKE_AT.store(0, Ordering::Relaxed);
+    RESUMED_AT.store(0, Ordering::Relaxed);
+    WAITER.store(0, Ordering::Relaxed);
+
+    let mut s = CoopScheduler::new();
+    // Reihenfolge: der Wartende muss zuerst laufen, damit er seine Kennung
+    // hinterlegt und blockiert, bevor der Schlaefer ihn wecken will.
+    if s.spawn(thread_waiter, TEST_STACK).is_none() || s.spawn(thread_sleeper, TEST_STACK).is_none()
+    {
+        klog!("sched", "FEHLER: Schlaftest konnte keine Threads anlegen (Heap?)");
+        return false;
+    }
+    with_active(&mut s, |s| {
+        // Sicher: genau ein Lauf, aus dem Kontext von `kmain`.
+        unsafe { s.run() }
+    });
+
+    let geschlafen = SLEPT.load(Ordering::Relaxed);
+    let woke = WOKE_AT.load(Ordering::Relaxed);
+    let resumed = RESUMED_AT.load(Ordering::Relaxed);
+    let schlaf_ok = geschlafen >= SLEEP_TICKS;
+    let weck_ok = s.wakeups() == 1;
+    let idle_ok = s.idle_waits() > 0;
+    let reihenfolge_ok = woke > 0 && resumed > woke;
+    let sauber_ok = !s.deadlocked() && s.blocked() == 0 && s.stacks_intact();
+    // Fehlerpfade: unbekannte Kennung und bereits beendeter Thread lassen sich
+    // nicht wecken; ausserhalb eines Threads sind die globalen Helfer folgenlos.
+    let unbekannt_ok = !s.unblock(ThreadId(0)) && !s.unblock(ThreadId(4711)) && !unblock(ThreadId(1));
+    let ausserhalb_ok = {
+        yield_now();
+        block_current();
+        sleep_ticks(1);
+        current_id() == ThreadId(0)
+    };
+    let zusagen = (schlaf_ok as u8)
+        + (weck_ok as u8)
+        + (idle_ok as u8)
+        + (reihenfolge_ok as u8)
+        + (sauber_ok as u8)
+        + (unbekannt_ok as u8)
+        + (ausserhalb_ok as u8);
+    if zusagen != 7 {
+        klog!(
+            "sched",
+            "FEHLER: Schlaftest (Schlafdauer {}, Weckung {}, Warten {}, Reihenfolge {}, Abschluss {}, Fehlerpfade {}, ausserhalb {})",
+            schlaf_ok,
+            weck_ok,
+            idle_ok,
+            reihenfolge_ok,
+            sauber_ok,
+            unbekannt_ok,
+            ausserhalb_ok
+        );
+    }
+    klog!(
+        "sched",
+        "Schlafen/Wecken: {} Ticks geschlafen (>= {}), {} Zeitweckung(en), {} Leerlaufwarten, Wartender geweckt: {}, {}/7 Zusagen",
+        geschlafen,
+        SLEEP_TICKS,
+        s.wakeups(),
+        s.idle_waits(),
+        if reihenfolge_ok { "ja" } else { "nein" },
+        zusagen
+    );
+    klog!(
+        "sched",
+        "Stapelnutzung: hoechstens {} von {} B je Thread benutzt, Wachzonen unversehrt",
+        s.peak_stack_bytes(),
+        TEST_STACK
+    );
+    zusagen == 7
+}
+
+// ----------------------------------------------- Selbsttest Verklemmungsschutz
+
+/// Thread, der sich ohne Weckzeit blockiert und deshalb nie wieder laeuft.
+extern "C" fn thread_sleeping_beauty() -> ! {
+    klog!("sched", "Thread V (Kennung {}): blockiert ohne Wecker", current_id().0);
+    block_current();
+    // Unerreichbar: niemand weckt diesen Thread. Faende der Scheduler doch
+    // einen Weg hierher, meldete es der Selbsttest ueber diese Zeile.
+    klog!("sched", "FEHLER: verklemmter Thread wurde geweckt");
+    exit_current()
+}
+
+/// Selbsttest des Verklemmungsschutzes.
+///
+/// Ein einziger Thread blockiert ohne Weckzeit. [`Scheduler::run`] darf dann
+/// **nicht** haengen bleiben, sondern muss die Verklemmung melden und nach
+/// `kmain` zurueckkehren. Drei Zusagen: Rueckkehr mit gesetzter
+/// Verklemmungsmeldung, genau ein blockierter Thread, genau zwei Wechsel
+/// (hin und zurueck).
+fn deadlock_selftest() -> bool {
+    let mut s = CoopScheduler::new();
+    if s.spawn(thread_sleeping_beauty, TEST_STACK).is_none() {
+        klog!("sched", "FEHLER: Verklemmungstest konnte keinen Thread anlegen (Heap?)");
+        return false;
+    }
+    let wechsel = with_active(&mut s, |s| {
+        // Sicher: genau ein Lauf, aus dem Kontext von `kmain`.
+        unsafe { s.run() }
+    });
+    let erkannt = s.deadlocked();
+    let blockiert = s.blocked() == 1;
+    let wechsel_ok = wechsel == 2;
+    let zusagen = (erkannt as u8) + (blockiert as u8) + (wechsel_ok as u8);
+    if zusagen != 3 {
+        klog!(
+            "sched",
+            "FEHLER: Verklemmungstest (erkannt {}, blockiert {}, Wechsel {})",
+            erkannt,
+            blockiert,
+            wechsel
+        );
+    }
+    klog!(
+        "sched",
+        "Verklemmungsschutz: run() kehrte nach {} Wechseln zurueck, {} Thread(s) blockiert, Meldung {}, {}/3 Zusagen",
+        wechsel,
+        s.blocked(),
+        if erkannt { "gesetzt" } else { "fehlt" },
+        zusagen
+    );
+    zusagen == 3
 }

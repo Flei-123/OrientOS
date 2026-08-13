@@ -18,8 +18,9 @@ use crate::kcore::arch_iface::AddressSpaceOps;
 use crate::kcore::mem::{FrameAllocator, MapError, MapFlags, PhysAddr, VirtAddr, PAGE_SIZE};
 use crate::klog;
 
-/// Basisadresse der Testseiten. Eigener, sonst unbenutzter PML4-Eintrag (509),
-/// damit weder Heap (510), Kernelabbild (511) noch HHDM (256) beruehrt werden.
+/// Basisadresse der Testseiten. Eigener, sonst unbenutzter Zweig (Nummer 509)
+/// der obersten Tabellenebene, damit weder Heap (510), Kernelabbild (511) noch
+/// HHDM (256) beruehrt werden.
 pub const PROBE_BASE: u64 = 0xffff_fe80_0000_0000;
 
 /// 1 GiB — Schrittweite, mit der ein garantiert leerer Teilbaum getroffen wird.
@@ -32,6 +33,12 @@ const STARVE_SMALL: u64 = PROBE_BASE + 200 * GIB;
 /// Wie [`STARVE_SMALL`], aber fuer eine grosse Seite (1-GiB-Vielfache sind
 /// automatisch 2-MiB-ausgerichtet).
 const STARVE_LARGE: u64 = PROBE_BASE + 201 * GIB;
+/// Teilbaum fuer den Ruecknahme-Test: hier gehen die Frames mitten im Abstieg
+/// aus, sodass bereits angelegte Zwischentabellen wieder verschwinden muessen.
+const ROLLBACK_BASE: u64 = PROBE_BASE + 300 * GIB;
+/// Adresse in einem Teilbaum, dessen oberster Eintrag existiert, dessen tiefere
+/// Ebenen aber fehlen — trifft den `NotMapped`-Zweig mitten im Abstieg.
+const PARTIAL_SUBTREE: u64 = PROBE_BASE + 8 * GIB;
 
 /// Nicht kanonische Adresse (Bit 47 gesetzt, obere Bits null). Die MMU koennte
 /// sie nie aufloesen; die Abstraktion muss sie abweisen statt umzurechnen.
@@ -56,6 +63,39 @@ impl FrameAllocator for StarvedAlloc {
     fn free_frame(&mut self, _frame: PhysAddr) {}
 }
 
+/// Frame-Quelle, die nach `left` Frames versiegt, sonst aber echte Frames aus
+/// dem Kernel-Allocator durchreicht.
+///
+/// Damit laesst sich der interessanteste Fehlerpfad reproduzieren: die Frames
+/// gehen **mitten im Abstieg** aus, nachdem schon Zwischentabellen angelegt
+/// wurden. Der Adressraum muss diese Tabellen wieder aushaengen und die Frames
+/// zurueckgeben — sonst waere jeder gescheiterte `map`-Versuch ein Leck.
+struct LimitedAlloc<'a> {
+    /// Echter Frame-Allocator dahinter.
+    inner: &'a mut dyn FrameAllocator,
+    /// Wie viele Frames noch herausgegeben werden.
+    left: usize,
+    /// Wie viele Frames tatsaechlich herausgegeben wurden.
+    handed: usize,
+}
+
+impl FrameAllocator for LimitedAlloc<'_> {
+    fn alloc_frame(&mut self) -> Option<PhysAddr> {
+        if self.left == 0 {
+            return None;
+        }
+        let f = self.inner.alloc_frame()?;
+        self.left -= 1;
+        self.handed += 1;
+        Some(f)
+    }
+    fn free_frame(&mut self, frame: PhysAddr) {
+        self.inner.free_frame(frame);
+        self.left += 1;
+        self.handed -= 1;
+    }
+}
+
 /// Ergebnis eines Einzelfalls.
 #[derive(Clone, Copy)]
 pub struct Case {
@@ -77,9 +117,9 @@ pub struct Edge {
 }
 
 /// Anzahl der geprueften Fehlerfaelle.
-const N_ERR: usize = 17;
+const N_ERR: usize = 23;
 /// Anzahl der geprueften Grenzfall-Zusagen.
-const N_EDGE: usize = 7;
+const N_EDGE: usize = 13;
 
 /// Fuehrt Fehlerfall- und Grenzfalltests aus und meldet sie ins Boot-Log.
 ///
@@ -108,6 +148,12 @@ pub unsafe fn map_errors(space: &mut AddressSpace) -> (usize, usize) {
         Case { name: "unmap-in-grosse-seite", want: MapError::ParentHugePage, hit: false },
         Case { name: "unmaplarge-doppelt", want: MapError::NotMapped, hit: false },
         Case { name: "maplarge-ueber-4k-seite", want: MapError::AlreadyMapped, hit: false },
+        Case { name: "maplarge-phys-unausgerichtet", want: MapError::Misaligned, hit: false },
+        Case { name: "maplarge-phys-zu-gross", want: MapError::Misaligned, hit: false },
+        Case { name: "maplarge-nicht-kanonisch", want: MapError::Misaligned, hit: false },
+        Case { name: "unmap-nicht-kanonisch", want: MapError::Misaligned, hit: false },
+        Case { name: "unmap-teilbaum-mittendrin", want: MapError::NotMapped, hit: false },
+        Case { name: "map-frames-gehen-unterwegs-aus", want: MapError::OutOfFrames, hit: false },
     ];
     let mut edges: [Edge; N_EDGE] = [
         Edge { name: "translate-mit-offset", hit: false },
@@ -117,11 +163,21 @@ pub unsafe fn map_errors(space: &mut AddressSpace) -> (usize, usize) {
         Edge { name: "unmaplarge-gibt-frame", hit: false },
         Edge { name: "translate-nach-unmaplarge-leer", hit: false },
         Edge { name: "translate-nicht-kanonisch-leer", hit: false },
+        Edge { name: "seiten-ueber-pd-grenze", hit: false },
+        Edge { name: "nur-lesen-abbilden", hit: false },
+        Edge { name: "grosse-seite-letztes-byte", hit: false },
+        Edge { name: "wieder-abbilden-nach-unmap", hit: false },
+        Edge { name: "ruecknahme-ohne-frameverlust", hit: false },
+        Edge { name: "nach-ruecknahme-wieder-abbildbar", hit: false },
     ];
 
     let mut guard = crate::mm::frame::lock();
     let fa = guard.as_mut().expect("Frame-Allocator");
     let mut starved = StarvedAlloc;
+
+    // Frame-Stand zu Beginn — am Ende wird ausgewiesen, wie viele Frames der
+    // Selbsttest als Zwischentabellen im Probebaum zurueckgelassen hat.
+    let free_at_entry = fa.free();
 
     let a = VirtAddr(PROBE_BASE);
     let large = VirtAddr(PROBE_BASE + 4 * 1024 * 1024);
@@ -147,6 +203,16 @@ pub unsafe fn map_errors(space: &mut AddressSpace) -> (usize, usize) {
         )
     } == Err(MapError::Misaligned);
     errs[5].hit = unsafe { space.unmap(VirtAddr(a.as_u64() + 8)) } == Err(MapError::Misaligned);
+    errs[17].hit = unsafe {
+        space.map_large(large, PhysAddr(HUGE_PHYS + PAGE_SIZE as u64), flags, &mut *fa)
+    } == Err(MapError::Misaligned);
+    errs[18].hit = unsafe { space.map_large(large, PhysAddr(PHYS_TOO_BIG), flags, &mut *fa) }
+        == Err(MapError::Misaligned);
+    errs[19].hit =
+        unsafe { space.map_large(VirtAddr(NONCANONICAL), huge_phys, flags, &mut *fa) }
+            == Err(MapError::Misaligned);
+    errs[20].hit =
+        unsafe { space.unmap(VirtAddr(NONCANONICAL)) } == Err(MapError::Misaligned);
 
     // ------------------------------------------- doppeltes Mapping / translate
     if let Some(frame) = fa.alloc_frame() {
@@ -165,6 +231,10 @@ pub unsafe fn map_errors(space: &mut AddressSpace) -> (usize, usize) {
         // --------------------------------------------------- leerer Teilbaum
         errs[8].hit =
             unsafe { space.unmap(VirtAddr(EMPTY_SUBTREE)) } == Err(MapError::NotMapped);
+        // Halb vorhandener Baum: die oberste Ebene existiert (der Probebaum
+        // wurde eben angelegt), eine Ebene darunter fehlt.
+        errs[21].hit =
+            unsafe { space.unmap(VirtAddr(PARTIAL_SUBTREE)) } == Err(MapError::NotMapped);
 
         // ------------------------------------------------- keine Frames mehr
         errs[9].hit = unsafe {
@@ -190,6 +260,12 @@ pub unsafe fn map_errors(space: &mut AddressSpace) -> (usize, usize) {
             errs[14].hit = unsafe { space.unmap(inner) } == Err(MapError::ParentHugePage);
             edges[3].hit = space.translate(VirtAddr(large.as_u64() + 0x1_2345))
                 == Some(PhysAddr(HUGE_PHYS + 0x1_2345));
+            // Letztes Byte der grossen Seite muss noch dazugehoeren, das erste
+            // Byte dahinter nicht mehr.
+            let lsz = <AddressSpace as AddressSpaceOps>::LARGE_PAGE_SIZE as u64;
+            edges[9].hit = space.translate(VirtAddr(large.as_u64() + lsz - 1))
+                == Some(PhysAddr(HUGE_PHYS + lsz - 1))
+                && space.translate(VirtAddr(large.as_u64() + lsz)).is_none();
             edges[4].hit = unsafe { space.unmap(large) } == Ok(huge_phys);
             edges[5].hit = space.translate(large).is_none();
             errs[15].hit = unsafe { space.unmap(large) } == Err(MapError::NotMapped);
@@ -202,11 +278,61 @@ pub unsafe fn map_errors(space: &mut AddressSpace) -> (usize, usize) {
             let _ = unsafe { space.unmap(large) };
         }
 
+        // --------------------------- zwei Seiten ueber eine Tabellengrenze
+        // `large` ist 2-MiB-ausgerichtet: die Seite davor liegt in einer
+        // anderen Seitentabelle als `large` selbst.
+        let below = VirtAddr(large.as_u64() - PAGE_SIZE as u64);
+        if unsafe { space.map(below, frame, flags, &mut *fa) }.is_ok() {
+            edges[7].hit = unsafe { space.map(large, frame, flags, &mut *fa) }.is_ok()
+                && space.translate(below) == Some(frame)
+                && space.translate(large) == Some(frame)
+                && unsafe { space.unmap(large) } == Ok(frame)
+                && space.translate(below) == Some(frame);
+            let _ = unsafe { space.unmap(below) };
+        }
+
+        // ------------------------------------------- nur lesbar abbilden
+        // Rechte aendern nichts an der Uebersetzung; geschrieben wird hier
+        // nicht (das prueft der .rodata-Selbsttest in `arch`).
+        if unsafe { space.map(a, frame, MapFlags::READ, &mut *fa) }.is_ok() {
+            edges[8].hit = space.translate(a) == Some(frame);
+            edges[10].hit = unsafe { space.unmap(a) } == Ok(frame)
+                // dieselbe Adresse muss danach wieder abbildbar sein
+                && unsafe { space.map(a, frame, flags, &mut *fa) }.is_ok()
+                && space.translate(a) == Some(frame)
+                && unsafe { space.unmap(a) } == Ok(frame);
+        }
+
+        // ------------------------------- Ruecknahme halb gebauter Teilbaeume
+        // In ROLLBACK_BASE fehlen mehrere Ebenen. Mit nur einem Frame Vorrat
+        // scheitert der Abstieg unterwegs; die schon angelegte Tabelle muss
+        // wieder verschwinden, sonst waere sie fuer immer verloren.
+        let rb = VirtAddr(ROLLBACK_BASE);
+        let free_before = fa.free();
+        let still_handed = {
+            let mut lim = LimitedAlloc { inner: &mut *fa, left: 1, handed: 0 };
+            errs[22].hit = unsafe { space.map(rb, frame, flags, &mut lim) }
+                == Err(MapError::OutOfFrames);
+            lim.handed
+        };
+        edges[11].hit = errs[22].hit
+            && still_handed == 0
+            && fa.free() == free_before
+            && space.translate(rb).is_none();
+        // Nach der Ruecknahme muss dieselbe Adresse regulaer abbildbar sein.
+        edges[12].hit = unsafe { space.map(rb, frame, flags, &mut *fa) }.is_ok()
+            && space.translate(rb) == Some(frame)
+            && unsafe { space.unmap(rb) } == Ok(frame);
+
         fa.free_frame(frame);
     }
 
     // translate darf fuer eine nicht kanonische Adresse nichts erfinden.
     edges[6].hit = space.translate(VirtAddr(NONCANONICAL)).is_none();
+
+    // Bilanz: alle Datenframes sind zurueckgegeben; was fehlt, sind genau die
+    // Zwischentabellen, die der Probebaum jetzt dauerhaft belegt.
+    let tables_left = free_at_entry.saturating_sub(fa.free());
 
     let ok_err = errs.iter().filter(|c| c.hit).count();
     let ok_edge = edges.iter().filter(|e| e.hit).count();
@@ -223,16 +349,18 @@ pub unsafe fn map_errors(space: &mut AddressSpace) -> (usize, usize) {
     klog!(
         "mm",
         "Selbsttest MapError: {}/{} Fehlerfaelle nachweisbar ausgeloest \
-         (Misaligned 6, AlreadyMapped 3, NotMapped 4, OutOfFrames 3, ParentHugePage 2)",
+         (Misaligned 10, AlreadyMapped 3, NotMapped 4, OutOfFrames 4, ParentHugePage 2)",
         ok_err,
         errs.len()
     );
     klog!(
         "mm",
         "Selbsttest Grenzfaelle: {}/{} Zusagen erfuellt \
-         (translate mit Versatz, 2-MiB-Seite abbilden/uebersetzen/aufloesen)",
+         (translate mit Versatz, 2-MiB-Seite abbilden/uebersetzen/aufloesen, \
+         Tabellengrenze, Ruecknahme halber Teilbaeume), {} Frames als Tabellen im Probebaum",
         ok_edge,
-        edges.len()
+        edges.len(),
+        tables_left
     );
     (ok_err + ok_edge, errs.len() + edges.len())
 }

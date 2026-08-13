@@ -397,6 +397,19 @@ pub fn lock() -> MutexGuard<'static, Option<BitmapFrameAllocator>> {
     ALLOCATOR.lock()
 }
 
+/// Sperrt den Frame-Allocator **nur, wenn er gerade frei ist**.
+///
+/// Fuer Aufrufer, die mitten in einem anderen Vorgang stecken und nicht warten
+/// duerfen — allen voran das Nachwachsen des Heaps ([`crate::mm::heap::grow`]):
+/// dort haelt der Aufrufer bereits die Heap-Sperre. Waere die Frame-Sperre
+/// genau dann von einem Kontrollfluss gehalten, der seinerseits Heap-Speicher
+/// anfordert, wuerde ein blockierendes [`lock`] den Kernel stehen lassen.
+/// `None` heisst schlicht: jetzt nicht — der Aufrufer meldet einen sauberen
+/// Misserfolg, statt zu haengen.
+pub fn try_lock() -> Option<MutexGuard<'static, Option<BitmapFrameAllocator>>> {
+    ALLOCATOR.try_lock()
+}
+
 /// Freie Frames (0, solange nicht initialisiert).
 pub fn free_frames() -> usize {
     ALLOCATOR.lock().as_ref().map_or(0, |a| a.free())
@@ -536,17 +549,26 @@ const DRAIN_CHUNKS: usize = 32;
 /// 12. die Buchhaltungsinvariante `belegt + frei == verwaltet` gilt nach jedem
 ///     der obigen Faelle — auch nach den Fehlerpfaden.
 ///
-/// Vorangestellt laeuft [`map_selftest`]; seine Faelle zaehlen in dasselbe
-/// Ergebnis, weil sie dieselbe Zusage pruefen: kein Frame wird vergeben, der
-/// nicht vergeben werden darf.
+/// Vorangestellt laufen [`crate::kcore::mem::selftest`] (die Adressrechnung,
+/// auf der jede Zeile hier steht) und [`map_selftest`]; ihre Faelle zaehlen in
+/// dasselbe Ergebnis, weil sie dieselbe Zusage pruefen: kein Frame wird
+/// vergeben, der nicht vergeben werden darf.
 ///
 /// Rueckgabe: `(bestanden, gesamt)`.
 pub fn selftest() -> (usize, usize) {
-    // Erst die Auswertung erfundener Memory-Maps (ohne Sperre, ohne Hardware),
-    // dann der laufende Allocator.
+    // Zuerst die reine Adressarithmetik der core-Schicht (kein Speicherzugriff).
+    let (addr_ok, addr_total) = crate::kcore::mem::selftest();
+    klog!(
+        "mm",
+        "Selbsttest Adressrechnung: {}/{} Zusagen erfuellt (Ausrichtung, Ueberlauf, Kanonizitaet, HHDM-Fenster, Rechte, Fehlertexte)",
+        addr_ok,
+        addr_total
+    );
+    // Dann die Auswertung erfundener Memory-Maps (ohne Sperre, ohne Hardware),
+    // zuletzt der laufende Allocator.
     let (map_ok, map_total) = map_selftest();
-    let total = 12usize + map_total;
-    let mut ok = map_ok;
+    let total = 12usize + map_total + addr_total;
+    let mut ok = map_ok + addr_ok;
     let mut g = ALLOCATOR.lock();
     let Some(a) = g.as_mut() else {
         klog!("mm", "Selbsttest Frames: FEHLER — Allocator nicht initialisiert");

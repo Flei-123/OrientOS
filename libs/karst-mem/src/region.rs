@@ -3,7 +3,7 @@
 //! Der Bootloader-spezifische Code (z. B. Limine) uebersetzt seine Antwort in
 //! diese Typen; alles darueber kennt nur noch `MemoryRegion`.
 
-use crate::{align_down, align_up, PAGE_SIZE};
+use crate::{align_down, align_up_checked, PAGE_SIZE};
 
 /// Art einer physischen Speicherregion — bootloaderunabhaengig.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,15 +81,21 @@ impl MemoryRegion {
         Self { start, len, kind }
     }
 
+    /// Ende der Region (exklusiv).
+    ///
+    /// Saettigend: eine defekte Memory-Map mit `start + len > u64::MAX` darf
+    /// nicht in einen Umlauf laufen und die Region scheinbar bei 0 enden
+    /// lassen — sonst waere `end() < start` und jede Bereichspruefung darueber
+    /// haette das falsche Vorzeichen.
     #[inline]
     pub const fn end(&self) -> u64 {
-        self.start + self.len
+        self.start.saturating_add(self.len)
     }
 
     /// Auf Seitengrenzen eingeschraenkte Region (start aufrunden, end abrunden).
     /// Gibt `None` zurueck, wenn danach nichts uebrig bleibt.
     pub fn page_aligned(&self) -> Option<(u64, u64)> {
-        let s = align_up(self.start, PAGE_SIZE);
+        let s = align_up_checked(self.start, PAGE_SIZE)?;
         let e = align_down(self.end(), PAGE_SIZE);
         if e > s {
             Some((s, e))
@@ -125,15 +131,19 @@ pub struct MemorySummary {
 }
 
 /// Berechnet Kennzahlen ueber eine Regionsliste.
+///
+/// Alle Summen saettigen: die Liste kommt vom Bootloader/der Firmware, ist also
+/// fremde Eingabe. Ein Ueberlauf wuerde im Release-Bau still umlaufen und die
+/// Bitmapgroesse zu klein rechnen — die Saettigung ist hier die sichere Seite.
 pub fn summarize(regions: &[MemoryRegion]) -> MemorySummary {
     let mut s = MemorySummary::default();
     for r in regions {
-        s.total_bytes += r.len;
+        s.total_bytes = s.total_bytes.saturating_add(r.len);
         if r.kind.is_allocatable() {
-            s.usable_bytes += r.len;
+            s.usable_bytes = s.usable_bytes.saturating_add(r.len);
         }
         if r.kind == RegionKind::BootloaderReclaimable {
-            s.reclaimable_bytes += r.len;
+            s.reclaimable_bytes = s.reclaimable_bytes.saturating_add(r.len);
         }
         if r.end() > s.highest_address {
             s.highest_address = r.end();
@@ -334,6 +344,53 @@ mod tests {
         assert_eq!(s.reclaimable_bytes, 0x2000);
         assert_eq!(s.total_bytes, 0x8000);
         assert_eq!(s.ram_top, 0x8000);
+    }
+
+    // ------------------------------------------------- defekte Firmware-Angaben
+
+    #[test]
+    fn region_end_saturates_instead_of_wrapping() {
+        // Eine Firmware, die start+len ueber das Adressraumende hinaus meldet,
+        // darf nicht dazu fuehren, dass die Region scheinbar bei 0 endet.
+        let r = MemoryRegion::new(u64::MAX - 0xfff, 0x1_0000, RegionKind::Usable);
+        assert_eq!(r.end(), u64::MAX, "end() ist umgelaufen");
+        assert!(r.end() >= r.start, "end() liegt vor start");
+        let all = MemoryRegion::new(1, u64::MAX, RegionKind::Reserved);
+        assert_eq!(all.end(), u64::MAX);
+    }
+
+    #[test]
+    fn regions_at_the_top_of_the_address_space_yield_no_frames() {
+        // page_aligned muss hier None liefern (aufrunden wuerde ueberlaufen),
+        // statt einen Bereich am Anfang des Adressraums zu behaupten.
+        let r = MemoryRegion::new(u64::MAX - 0x800, 0x800, RegionKind::Usable);
+        assert_eq!(r.page_aligned(), None);
+        let r2 = MemoryRegion::new(u64::MAX, 0, RegionKind::Usable);
+        assert_eq!(r2.page_aligned(), None);
+        // Die letzte vollstaendig darstellbare Seite bleibt nutzbar.
+        let last_page = MemoryRegion::new(u64::MAX - 0x1fff, 0x1000, RegionKind::Usable);
+        let (s, e) = last_page.page_aligned().expect("letzte Seite ging verloren");
+        assert_eq!(s % PAGE_SIZE, 0);
+        assert_eq!(e % PAGE_SIZE, 0);
+        assert!(e > s);
+    }
+
+    #[test]
+    fn summary_saturates_on_absurd_lengths() {
+        // Zwei Regionen, deren Laengen zusammen ueberlaufen. Die Summe darf
+        // nicht umlaufen (das ergaebe eine viel zu kleine Bitmap), sondern
+        // saettigt auf u64::MAX.
+        let regions = [
+            MemoryRegion::new(0, u64::MAX, RegionKind::Usable),
+            MemoryRegion::new(0x1000, u64::MAX, RegionKind::Usable),
+        ];
+        let s = summarize(&regions);
+        assert_eq!(s.total_bytes, u64::MAX);
+        assert_eq!(s.usable_bytes, u64::MAX);
+        assert_eq!(s.ram_top, u64::MAX);
+        assert!(s.highest_address >= s.ram_top);
+        // frames_for bleibt rechenbar und ueberzieht die Bitmap nicht.
+        assert_eq!(frames_for(s.ram_top), (u64::MAX / PAGE_SIZE) as usize);
     }
 
     /// Eigenschaftstest: fuer zufaellige Maps muessen die Kennzahlen immer in

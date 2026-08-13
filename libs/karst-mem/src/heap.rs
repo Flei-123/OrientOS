@@ -28,9 +28,16 @@ pub const HEADER: usize = core::mem::size_of::<AllocHeader>();
 /// (muss den `FreeBlock`-Kopf aufnehmen und danach noch nutzbar sein).
 pub const MIN_BLOCK: usize = 32;
 
+/// Rundet `v` auf ein Vielfaches von `a` (2^n) auf und meldet einen Ueberlauf,
+/// statt still auf 0 umzulaufen. Der Heap rechnet ausschliesslich damit — jede
+/// der drei Stellen verarbeitet Zahlen, die von aussen kommen (Layout-Groesse,
+/// Layout-Ausrichtung, Regionsgrenzen).
 #[inline]
-const fn align_up(v: usize, a: usize) -> usize {
-    (v + a - 1) & !(a - 1)
+const fn align_up_checked(v: usize, a: usize) -> Option<usize> {
+    match v.checked_add(a - 1) {
+        Some(x) => Some(x & !(a - 1)),
+        None => None,
+    }
 }
 
 /// Kopf eines freien Loches — liegt IM Loch, kostet also keinen Extraspeicher.
@@ -87,8 +94,16 @@ impl Heap {
     /// `start..start+size` muss gueltiger, beschreibbarer, exklusiv dem Heap
     /// gehoerender Speicher sein und fuer die Lebensdauer des Heaps gelten.
     pub unsafe fn add_region(&mut self, start: *mut u8, size: usize) {
-        let s = align_up(start as usize, ALIGN);
-        let e = (start as usize + size) & !(ALIGN - 1);
+        // Ueberlaufsicher: `start` kommt aus dem Frame-Allocator, `size` aus
+        // der Memory-Map. Rechnet eine der beiden Zahlen um, entstuende ein
+        // Loch mit absurder Groesse, aus dem der Heap Speicher vergaebe, den
+        // es nicht gibt. Im Zweifel wird die Region verworfen.
+        let Some(s) = align_up_checked(start as usize, ALIGN) else {
+            return;
+        };
+        let Some(e) = (start as usize).checked_add(size).map(|v| v & !(ALIGN - 1)) else {
+            return;
+        };
         if e <= s || e - s < MIN_BLOCK {
             return;
         }
@@ -118,7 +133,14 @@ impl Heap {
     /// Nur mit gueltigem `Layout` aufrufen.
     pub unsafe fn alloc(&mut self, layout: Layout) -> *mut u8 {
         let align = if layout.align() > ALIGN { layout.align() } else { ALIGN };
-        let need = align_up(if layout.size() == 0 { 1 } else { layout.size() }, ALIGN);
+        // Ueberlaufsicher aufrunden: eine Groesse dicht unter `usize::MAX`
+        // wuerde beim Aufrunden auf 0 umlaufen und dann JEDEN freien Block als
+        // passend erscheinen lassen — der Ruecklauf waere ein Zeiger auf
+        // fremden Speicher. Solche Anfragen scheitern hier sofort.
+        let want = if layout.size() == 0 { 1 } else { layout.size() };
+        let Some(need) = align_up_checked(want, ALIGN) else {
+            return ptr::null_mut();
+        };
 
         let mut prev: *mut *mut FreeBlock = &mut self.head;
         let mut cur = self.head;
@@ -126,7 +148,17 @@ impl Heap {
             let bstart = cur as usize;
             let bsize = unsafe { (*cur).size };
             let bend = bstart + bsize;
-            let payload = align_up(bstart + HEADER, align);
+            // Auch die Ausrichtung wird ueberlaufsicher gerechnet: eine absurd
+            // grosse Ausrichtung darf nur zum Fehlschlag fuehren, nie zu einem
+            // umgelaufenen Zeiger.
+            let payload = match align_up_checked(bstart + HEADER, align) {
+                Some(v) => v,
+                None => {
+                    prev = unsafe { &mut (*cur).next };
+                    cur = unsafe { (*cur).next };
+                    continue;
+                }
+            };
 
             if payload.checked_add(need).map_or(false, |end| end <= bend) {
                 let rest = bend - (payload + need);
@@ -417,7 +449,8 @@ mod tests {
         // Beide Regionen muessen wirklich Speicher hergeben.
         let l = Layout::from_size_align(2048, 16).unwrap();
         let mut got = std::vec::Vec::new();
-        while let p = unsafe { h.alloc(l) } {
+        loop {
+            let p = unsafe { h.alloc(l) };
             if p.is_null() {
                 break;
             }
@@ -553,6 +586,132 @@ mod tests {
         }
         assert_eq!(h.hole_count(), 1);
         assert_eq!(h.free(), h.size());
+    }
+
+    #[test]
+    fn absurd_sizes_fail_without_wrapping() {
+        let (mut h, _) = heap_with(64 * 1024);
+        let voll = h.free();
+        // Die groesstmoeglichen zulaessigen Layouts. Wichtig ist, dass die
+        // Aufrundung auf 16 Byte NICHT umlaeuft — sonst waere `need` klein und
+        // irgendein Block wuerde faelschlich passen.
+        for size in [isize::MAX as usize - 15, isize::MAX as usize / 2, 1usize << 40] {
+            let l = Layout::from_size_align(size, 16).unwrap();
+            assert!(unsafe { h.alloc(l) }.is_null(), "size {size:#x} lieferte einen Zeiger");
+            assert_eq!(align_up_checked(size, ALIGN).is_some(), true);
+        }
+        // Direkter Nachweis der Schutzrechnung: eine Groesse, die beim
+        // Aufrunden ueberliefe, meldet None — und `alloc` gibt dann `null`.
+        assert_eq!(align_up_checked(usize::MAX, ALIGN), None);
+        assert_eq!(align_up_checked(usize::MAX - 14, ALIGN), None);
+        assert_eq!(align_up_checked(usize::MAX - 15, ALIGN), Some(usize::MAX - 15));
+        // Ausrichtung dicht unter dem Adressraumende: nur Fehlschlag erlaubt.
+        let wild = Layout::from_size_align(16, 1usize << 62).unwrap();
+        assert!(unsafe { h.alloc(wild) }.is_null());
+        assert_eq!(h.used(), 0);
+        assert_eq!(h.free(), voll, "Fehlversuche haben den Heap veraendert");
+        // Der Heap muss danach ganz normal weiterarbeiten.
+        let ok = Layout::from_size_align(128, 16).unwrap();
+        let p = unsafe { h.alloc(ok) };
+        assert!(!p.is_null());
+        unsafe { h.dealloc(p, ok) };
+        assert_eq!(h.hole_count(), 1);
+    }
+
+    #[test]
+    fn regions_that_would_overflow_the_address_space_are_ignored() {
+        let mut h = Heap::empty();
+        // Laenge laeuft ueber das Adressraumende hinaus.
+        unsafe { h.add_region(0xffff_ffff_ffff_f000usize as *mut u8, usize::MAX) };
+        assert_eq!(h.size(), 0, "unmoegliche Region wurde uebernommen");
+        // Startadresse so hoch, dass schon das Aufrunden ueberlaufen wuerde.
+        unsafe { h.add_region(usize::MAX as *mut u8, 64) };
+        assert_eq!(h.size(), 0);
+        assert_eq!(h.hole_count(), 0);
+        assert!(unsafe { h.alloc(Layout::from_size_align(16, 16).unwrap()) }.is_null());
+
+        // Danach eine echte Region: der Heap muss davon unbeeindruckt sein.
+        let (h2, _) = heap_with(4096);
+        let mut h2 = h2;
+        assert!(h2.size() > 0);
+        let l = Layout::from_size_align(64, 16).unwrap();
+        let p = unsafe { h2.alloc(l) };
+        assert!(!p.is_null());
+        unsafe { h2.dealloc(p, l) };
+    }
+
+    #[test]
+    fn header_survives_alignment_padding() {
+        // Bei grosser Ausrichtung liegt vor dem Header ein Fueller. `dealloc`
+        // muss trotzdem den GANZEN Block zurueckgeben — sonst versickert bei
+        // jeder ausgerichteten Allokation ein Stueck Heap.
+        let (mut h, _) = heap_with(64 * 1024);
+        let voll = h.free();
+        for _ in 0..50 {
+            let l = Layout::from_size_align(24, 512).unwrap();
+            let p = unsafe { h.alloc(l) };
+            assert!(!p.is_null());
+            assert_eq!(p as usize % 512, 0);
+            unsafe { h.dealloc(p, l) };
+            assert_eq!(h.free(), voll, "Fueller wurde nicht zurueckgegeben");
+            assert_eq!(h.hole_count(), 1);
+        }
+    }
+
+    #[test]
+    fn dealloc_accepts_a_different_but_compatible_layout() {
+        // Der Header kennt die echte Blockgroesse; `dealloc` darf deshalb nicht
+        // vom uebergebenen Layout abhaengen (Rust erlaubt hier z. B. `realloc`-
+        // nahe Faelle nicht, aber der Kernel ruft mit dem Layout des Typs auf).
+        let (mut h, _) = heap_with(8192);
+        let voll = h.free();
+        let a = Layout::from_size_align(100, 16).unwrap();
+        let p = unsafe { h.alloc(a) };
+        assert!(!p.is_null());
+        // Gleiche Groesse, kleinere Ausrichtung -> gleicher Block.
+        let b = Layout::from_size_align(100, 8).unwrap();
+        unsafe { h.dealloc(p, b) };
+        assert_eq!(h.free(), voll);
+        assert_eq!(h.used(), 0);
+        assert_eq!(h.hole_count(), 1);
+    }
+
+    #[test]
+    fn stats_report_fragmentation_honestly() {
+        // Nach dem Freigeben jedes zweiten Blocks muss `largest_hole` deutlich
+        // kleiner sein als `free` — genau diese Zahl steht im OOM-Bericht des
+        // Kernels und darf nicht schoengerechnet sein.
+        let (mut h, _) = heap_with(32 * 1024);
+        let l = Layout::from_size_align(256, 16).unwrap();
+        let mut ps = std::vec::Vec::new();
+        loop {
+            let p = unsafe { h.alloc(l) };
+            if p.is_null() {
+                break;
+            }
+            ps.push(p);
+        }
+        assert!(ps.len() >= 16);
+        for (i, p) in ps.iter().enumerate() {
+            if i % 2 == 0 {
+                unsafe { h.dealloc(*p, l) };
+            }
+        }
+        let s = h.stats();
+        assert!(s.holes >= ps.len() / 2 - 1, "Loecher werden falsch gezaehlt");
+        assert!(s.largest_hole < s.free, "Fragmentierung wird verschwiegen");
+        assert!(s.largest_hole >= 256);
+        assert_eq!(s.used + s.free, s.size);
+        // Eine Anfrage groesser als das groesste Loch muss scheitern.
+        let zu_gross = Layout::from_size_align(s.largest_hole + 1, 16).unwrap();
+        assert!(unsafe { h.alloc(zu_gross) }.is_null());
+        for (i, p) in ps.iter().enumerate() {
+            if i % 2 == 1 {
+                unsafe { h.dealloc(*p, l) };
+            }
+        }
+        assert_eq!(h.hole_count(), 1);
+        assert_eq!(h.stats().largest_hole, h.size());
     }
 
     // -------------------------------------------------------- Eigenschaftstests

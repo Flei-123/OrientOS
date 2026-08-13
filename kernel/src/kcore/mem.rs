@@ -347,3 +347,115 @@ pub fn hhdm_contains(v: VirtAddr, phys_limit: u64) -> bool {
         None => false,
     }
 }
+
+/// Selbsttest der Adressrechnung im laufenden Kernel.
+///
+/// Diese Datei ist Grundlage jeder Speicheroperation, hat aber keine
+/// Host-Tests: der Kernel ist ein `no_std`-Binary und wird nicht mit `cargo
+/// test` uebersetzt. Damit die **gepruefte** Rechnerei nicht bloss behauptet
+/// ist, laeuft sie hier im Boot einmal gegen ihre Randfaelle. Kein Zugriff auf
+/// Speicher, nur Arithmetik — der Test ist damit auch dann gefahrlos, wenn
+/// noch gar nichts abgebildet ist.
+///
+/// Geprueft werden:
+/// 1. Ausrichtung: `align_down`/`align_up`/`is_aligned` passen zueinander,
+/// 2. [`PhysAddr::checked_add`] und [`PhysAddr::checked_align_up`] melden den
+///    Ueberlauf am Adressraumende, statt still auf 0 umzuschlagen,
+/// 3. [`VirtAddr::is_canonical`] trennt die beiden gueltigen Haelften von der
+///    nicht abbildbaren Mitte,
+/// 4. der HHDM-Offset laesst sich nicht auf einen ANDEREN Wert umbiegen
+///    ([`set_hhdm_offset`] weist das ab; derselbe Wert bleibt erlaubt),
+/// 5. [`phys_to_virt_checked`] meldet einen Ueberlauf statt einer falschen
+///    Adresse, und hin/zurueck ergibt wieder den Ausgangswert,
+/// 6. [`virt_to_phys_hhdm_checked`] und [`hhdm_contains`] weisen Adressen
+///    unterhalb bzw. jenseits des Fensters ab,
+/// 7. [`MapFlags::is_sane`] erkennt W^X-Verstoesse und nicht lesbare Rechte,
+/// 8. jede [`MapError`]-Variante hat eine nichtleere Klartextbegruendung.
+///
+/// Rueckgabe: `(bestanden, gesamt)`.
+pub fn selftest() -> (usize, usize) {
+    let total = 8usize;
+    let mut ok = 0usize;
+
+    // 1 — Ausrichtung.
+    let a = PhysAddr(0x1234_5678);
+    let v = VirtAddr(0xffff_8000_0000_1001);
+    if a.align_down(PAGE_SIZE as u64).is_aligned(PAGE_SIZE as u64)
+        && a.align_up(PAGE_SIZE as u64).is_aligned(PAGE_SIZE as u64)
+        && a.align_up(PAGE_SIZE as u64).as_u64() - a.align_down(PAGE_SIZE as u64).as_u64()
+            == PAGE_SIZE as u64
+        && v.align_down(PAGE_SIZE as u64).as_u64() == 0xffff_8000_0000_1000
+        && v.align_up(PAGE_SIZE as u64).as_u64() == 0xffff_8000_0000_2000
+        && PhysAddr(0x2000).align_up(PAGE_SIZE as u64).as_u64() == 0x2000
+        && !PhysAddr(1).is_aligned(PAGE_SIZE as u64)
+    {
+        ok += 1;
+    }
+
+    // 2 — Ueberlauf am oberen Ende.
+    if PhysAddr(u64::MAX).checked_add(1).is_none()
+        && PhysAddr(u64::MAX).checked_align_up(PAGE_SIZE as u64).is_none()
+        && PhysAddr(u64::MAX - PAGE_SIZE as u64).checked_add(1).is_some()
+        && VirtAddr(u64::MAX).checked_add(1).is_none()
+    {
+        ok += 1;
+    }
+
+    // 3 — Kanonizitaet.
+    if VirtAddr(0x0000_7fff_ffff_ffff).is_canonical()
+        && VirtAddr(0xffff_8000_0000_0000).is_canonical()
+        && !VirtAddr(0x0000_8000_0000_0000).is_canonical()
+        && !VirtAddr(0xffff_7fff_ffff_ffff).is_canonical()
+    {
+        ok += 1;
+    }
+
+    // 4 — der HHDM-Offset ist unveraenderlich, sobald er steht.
+    let off = hhdm_offset();
+    if off != 0 && !set_hhdm_offset(off ^ 0x1000) && set_hhdm_offset(off) && hhdm_offset() == off {
+        ok += 1;
+    }
+
+    // 5 — Hin- und Rueckrechnung, Ueberlauf gemeldet.
+    let p = PhysAddr(0x10_0000);
+    if phys_to_virt_checked(p).map(virt_to_phys_hhdm) == Some(p)
+        && phys_to_virt_checked(PhysAddr(u64::MAX)).is_none()
+        && phys_to_virt(p).as_u64() == p.as_u64() + off
+    {
+        ok += 1;
+    }
+
+    // 6 — ausserhalb des Fensters.
+    if virt_to_phys_hhdm_checked(VirtAddr(off - 1)).is_none()
+        && virt_to_phys_hhdm_checked(VirtAddr(off)) == Some(PhysAddr(0))
+        && hhdm_contains(VirtAddr(off + 0x1000), 0x1_0000)
+        && !hhdm_contains(VirtAddr(off + 0x1_0000), 0x1_0000)
+        && !hhdm_contains(VirtAddr(0x1000), 0x1_0000)
+    {
+        ok += 1;
+    }
+
+    // 7 — Rechte.
+    if MapFlags::KERNEL_DATA.is_sane()
+        && MapFlags::KERNEL_CODE.is_sane()
+        && !MapFlags::KERNEL_DATA.union(MapFlags::EXEC).is_sane()
+        && !MapFlags::WRITE.is_sane()
+        && MapFlags::KERNEL_CODE.rwx().len() == 2
+    {
+        ok += 1;
+    }
+
+    // 8 — jede Fehlervariante erklaert sich.
+    let alle = [
+        MapError::OutOfFrames,
+        MapError::AlreadyMapped,
+        MapError::NotMapped,
+        MapError::Misaligned,
+        MapError::ParentHugePage,
+    ];
+    if alle.iter().all(|e| !e.describe().is_empty()) {
+        ok += 1;
+    }
+
+    (ok, total)
+}

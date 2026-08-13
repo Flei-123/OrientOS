@@ -201,6 +201,40 @@ entstehende `#NP` während der Zustellung einer Ausnahme ist laut Intel SDM
 Vol. 3, Tabelle 6-5 genau die Bedingung für `#DF`. Der Handler auf IST 1
 berichtet anschließend und hält an.
 
+### Kontextwechsel und kooperativer Scheduler (Phase 2)
+
+Die Arbeit ist genau zweigeteilt:
+
+* **`kernel/src/arch/x86_64/context.rs`** ist die einzige Datei, die weiß,
+  *welche* Register beim Wechsel zu retten sind. `switch_stacks` ist ein
+  `naked_asm!`-Rumpf: callee-saved Register (`rbx`, `rbp`, `r12`–`r15`) und
+  `RFLAGS` auf den eigenen Stapel, Stapelzeiger nach `*from` sichern, den aus
+  `*to` laden, zurückholen, `ret`. Ein gesicherter Kontext ist deshalb genau
+  **ein Wort** (der Stapelzeiger). Ein frischer Stapel wird so vorbelegt, dass
+  das `ret` beim ersten Einlasten in den Einsprung springt; darunter liegt eine
+  Landeadresse, die per `panic!` meldet, falls ein Rumpf trotz `-> !` zurückkehrt.
+* **`kernel/src/kcore/sched.rs`** entscheidet nur, *wer* läuft: `Scheduler`-Trait
+  (`spawn`, `yield_now`, `block_current`, `unblock`, `exit`, `run`) und die
+  Implementierung `CoopScheduler` — Round-Robin, **kooperativ**, ohne Sperren.
+  In dieser Datei kommt kein Registername vor; sie kennt nur `ContextOps` und
+  `TimerOps`.
+
+Jeder Thread bekommt einen eigenen Kernelstapel aus dem Heap, gefüllt mit `0xa5`.
+Daraus folgen zwei prüfbare Aussagen: die untersten 64 Byte müssen nach dem Lauf
+noch das Muster tragen (Wachzone), und die tiefste berührte Stelle ist die
+gemessene Stapelnutzung (`peak_stack_bytes`, im Boot-Log gemeldet).
+
+`sleep_ticks(n)` blockiert mit einer Weckzeit auf dem Tickzähler des Zeitgebers;
+der Scheduler weckt Fällige, bevor er wählt, und wartet ansonsten mit
+`wait_for_interrupt`. Blockieren alle übrigen Threads **ohne** Weckzeit, kehrt
+`run` mit gesetzter Verklemmungsmeldung zurück, statt hängen zu bleiben.
+
+Drei Selbsttests laufen bei jedem Boot und stehen im seriellen Log:
+Wechselspiel zweier Threads (`Threadwechsel: … Spur 121212`), Schlafen/Wecken
+(`Schlafen/Wecken: … Zusagen`) und der Verklemmungsschutz
+(`Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck …`). Danach läuft
+`kmain` normal weiter — der Scheduler ist noch **nicht** dauerhaft aktiv.
+
 ---
 
 ## 6. Panic und Backtrace
@@ -306,7 +340,9 @@ auf dem Host dann an einem zweiten `core` scheitert
 
 Ehrliche Liste, damit niemand mehr erwartet, als der Code hält:
 
-* kein Scheduler, keine Threads, kein Userspace (Ring 3 wird nie betreten)
+* kein Userspace (Ring 3 wird nie betreten); der Scheduler in `kcore/sched.rs`
+  ist **kooperativ** — keine Präemption, kein Idle-Thread, keine Prioritäten,
+  nur Kernel-Threads, und er läuft nur während der Selbsttests im Boot
 * keine Syscall-Einsprungstelle (`syscall`/`sysret` sind vorbereitet, nicht verdrahtet)
 * kein VFS, keine Blockgeräte, keine Tastatur (IRQ 1 wird nur quittiert)
 * kein SMP — genau eine CPU; die serielle Ausgabe ist deshalb ungesperrt

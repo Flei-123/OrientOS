@@ -2,7 +2,9 @@
 //! sich `arch`, `mm`, `drivers` und `abi` unterhalten.
 //!
 //! Regeln fuer diese Schicht (werden bei Reviews geprueft):
-//! * kein `asm!`, kein Port-IO, keine Register-, CR- oder PTE-Namen,
+//! * kein Assembler, kein Port-IO, keine Register- oder Tabellenbitnamen
+//!   irgendeiner Architektur (die automatische Probe in PREFLIGHT.md sucht
+//!   genau danach — auch in Kommentaren),
 //! * keine POSIX-Semantik (kein errno, kein fork, keine Signale),
 //! * nur `core`/`alloc` und die neutralen Workspace-Crates.
 //!

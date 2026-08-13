@@ -110,18 +110,29 @@ impl<'a> Bitmap<'a> {
         if count == 0 || count > self.frames {
             return Err(AllocError::OutOfMemory);
         }
-        let start_cursor = self.cursor;
-        let mut i = start_cursor;
-        let mut wrapped = false;
-        while !(wrapped && i >= start_cursor) {
-            if i + count > self.frames {
+        // Letzter moeglicher Startindex. Es gibt genau `last_start + 1`
+        // Kandidaten; mehr darf die Suche nie betrachten.
+        let last_start = self.frames - count;
+        // Der Suchzeiger darf hinter dem letzten Kandidaten stehen (etwa wenn
+        // die Bitmap gerade voll belegt ist). Dann faengt die Suche bei 0 an.
+        // Ohne diesen Rueckfall drehte sich die Schleife hier endlos: sie setzte
+        // `i` immer wieder auf 0, kam wegen `i + count > frames` nie bis zum
+        // Startzeiger zurueck und meldete darum niemals OutOfMemory.
+        let mut i = if self.cursor > last_start { 0 } else { self.cursor };
+        // Harte Obergrenze: jeder Kandidat wird hoechstens einmal geprueft.
+        // Damit terminiert die Suche unabhaengig vom Zustand der Bitmap.
+        let mut budget = last_start + 1;
+        while budget > 0 {
+            if i > last_start {
+                // Umlauf an den Anfang; danach gilt wieder i <= last_start,
+                // dieser Zweig kann sich also nicht wiederholen.
                 i = 0;
-                wrapped = true;
                 continue;
             }
             // Wortweiser Schnellvorlauf: volle Woerter ueberspringen.
             if count == 1 && i % 64 == 0 && self.bits[i / 64] == u64::MAX {
                 i += 64;
+                budget = budget.saturating_sub(64);
                 continue;
             }
             let mut ok = true;
@@ -141,15 +152,24 @@ impl<'a> Bitmap<'a> {
                 self.cursor = i + count;
                 return Ok(i);
             }
+            // `j` ist der erste belegte Frame im Fenster: alle Startpositionen
+            // bis einschliesslich `j` koennen nicht passen.
+            budget = budget.saturating_sub(j + 1 - i);
             i = j + 1;
         }
         Err(AllocError::OutOfMemory)
     }
 
     /// Gibt `count` Frames ab `index` frei.
+    ///
+    /// `index + count` wird bewusst ueberlaufsicher gerechnet: der Aufrufer
+    /// leitet den Index aus einer physischen Adresse ab, und ein verrutschter
+    /// Wert wuerde im Release-Bau still umlaufen und dann Frames am Anfang der
+    /// Bitmap freigeben, die jemand anderem gehoeren.
     pub fn free(&mut self, index: FrameIndex, count: usize) -> Result<(), AllocError> {
-        if index + count > self.frames {
-            return Err(AllocError::OutOfRange);
+        match index.checked_add(count) {
+            Some(end) if end <= self.frames => {}
+            _ => return Err(AllocError::OutOfRange),
         }
         for i in index..index + count {
             if self.test(i) {
@@ -410,6 +430,74 @@ mod tests {
             }
         }
         assert_eq!(b.free_frames(), owned.iter().filter(|x| !**x).count());
+    }
+
+    #[test]
+    fn free_with_wrapping_index_is_rejected() {
+        // Ein verrutschter Index (z. B. aus einer falsch gerechneten physischen
+        // Adresse) darf nicht per Umlauf Frames am Anfang der Bitmap freigeben.
+        let mut buf = [0u64; 4];
+        let mut b = make(256, &mut buf);
+        b.free_range(0, 256);
+        let f = b.alloc_contiguous(16).unwrap();
+        assert_eq!(f, 0);
+        assert_eq!(b.free(usize::MAX, 1), Err(AllocError::OutOfRange));
+        assert_eq!(b.free(usize::MAX, 2), Err(AllocError::OutOfRange));
+        assert_eq!(b.free(1, usize::MAX), Err(AllocError::OutOfRange));
+        assert_eq!(b.free(usize::MAX / 2, usize::MAX / 2 + 4), Err(AllocError::OutOfRange));
+        assert_eq!(b.free_frames(), 240, "abgewiesenes free hat etwas veraendert");
+        for i in 0..16 {
+            assert!(b.is_used(i), "Frame {i} wurde durch Umlauf freigegeben");
+        }
+        assert_eq!(b.free(0, 16), Ok(()));
+        assert_eq!(b.free_frames(), 256);
+    }
+
+    #[test]
+    fn ranges_beyond_the_end_are_clamped_not_wrapped() {
+        // free_range/reserve_range bekommen im Kernel Grenzen aus der
+        // Memory-Map; die duerfen ueber das Bitmapende hinausragen.
+        let mut buf = [0u64; 2];
+        let mut b = make(100, &mut buf);
+        b.free_range(0, usize::MAX);
+        assert_eq!(b.free_frames(), 100);
+        b.reserve_range(90, usize::MAX);
+        assert_eq!(b.free_frames(), 90);
+        b.free_range(usize::MAX - 1, usize::MAX); // start hinter dem Ende
+        assert_eq!(b.free_frames(), 90, "Bereich hinter dem Ende hatte Wirkung");
+        b.reserve_range(usize::MAX, usize::MAX);
+        assert_eq!(b.free_frames(), 90);
+    }
+
+    #[test]
+    fn cursor_never_points_outside_after_free() {
+        // free() zieht den Suchzeiger zurueck. Danach muss die naechste
+        // Allokation genau den freigegebenen Bereich finden — auch wenn der
+        // Zeiger vorher am Ende der Bitmap stand.
+        let mut buf = [0u64; 4];
+        let mut b = make(256, &mut buf);
+        b.free_range(0, 256);
+        while b.alloc().is_ok() {}
+        assert_eq!(b.free_frames(), 0);
+        b.free(250, 6).unwrap();
+        assert_eq!(b.alloc_contiguous(6), Ok(250));
+        b.free(0, 256).unwrap();
+        assert_eq!(b.free_frames(), 256);
+        assert_eq!(b.alloc_contiguous(256), Ok(0), "Bitmap nicht wieder am Stueck");
+    }
+
+    #[test]
+    fn contiguous_request_at_the_very_end_fits_exactly() {
+        let mut buf = [0u64; 4];
+        let mut b = make(200, &mut buf); // Ende mitten im vierten Wort
+        b.free_range(0, 200);
+        b.reserve_range(0, 190);
+        // Genau die letzten 10 Frames sind frei — nicht einer mehr.
+        assert_eq!(b.alloc_contiguous(11), Err(AllocError::OutOfMemory));
+        assert_eq!(b.alloc_contiguous(10), Ok(190));
+        assert_eq!(b.free_frames(), 0);
+        assert!(b.is_used(199));
+        assert!(b.is_used(200), "hinter dem Ende gilt immer als belegt");
     }
 
     // ------------------------------------------------------- Eigenschaftstest

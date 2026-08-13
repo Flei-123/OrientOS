@@ -46,10 +46,18 @@ Legende: **✔ fertig** · **◐ teilweise** · **▶ als Nächstes** · **○ g
   `wait_for_interrupt` zurück. Im Boot-Log: `Leerlauf-Thread: 3 Einlastung(en),
   3 Tick(s) im Leerlauf, eigener Stapel 8192 B, Wachzone unversehrt` sowie
   `Leerlauf unter Verdraengung: 5 Einlastung(en), 5 Tick(s) …`
-* ✔ Verdrängung auch für Ring-3-Programme — ein Tick aus CPL 3 wird gezählt und
-  gegen ein Zeitbudget gebucht (`arch/x86_64/preempt.rs` → `kcore::user`).
-  Läuft das Budget ab, wird das Programm abgeräumt, statt die Rechenschleife
-  durchlaufen zu lassen. Im Boot-Log: `Zeitbudget von Ring 3 erschoepft
+* ✔ **Verdrängung von Ring-3-Programmen mit Fortsetzung.** Läuft das Programm
+  in einem Thread mit eigenem Kernelstapel (`user::set_preemptible`), legt die
+  CPU den Rahmen des Privilegwechsels auf genau diesen Stapel — der Zeitgeber
+  darf dann mitten im Rahmen umschalten, und das `iretq` am Ende des Einsprungs
+  setzt das Programm später exakt dort fort. Nachweis in **jedem** Boot: ein
+  Rechenprogramm ohne einen einzigen Systemaufruf wird unterbrochen und endet
+  trotzdem regulär, während ein zweiter Thread vorankommt —
+  `Ring 3 verdraengt: 12 Unterbrechung(en) durch den Zeitgeber, danach
+  fortgesetzt, CS=0x0023 (RPL=3), Ende 0`
+* ✔ Wachhund für Ring-3-Code, der NICHT in einem eigenen Thread läuft (Rahmen
+  liegt dann auf dem gemeinsamen Systemaufrufstapel): Zeitbudget, danach wird
+  abgeräumt statt gewechselt. Im Boot-Log: `Zeitbudget von Ring 3 erschoepft
   (RIP=…) — Programm wird abgeraeumt` und `Schutzwall: Rechenschleife ohne
   Systemaufruf -> vom Zeitgeber unterbrochen und abgeraeumt (ok)`;
   damit 5/5 statt 4/4 abgewehrten Übergriffen
@@ -256,7 +264,10 @@ Prioritäten messbar), **Ring 3** (`CPL=3`, Systemaufruf, Negativtest auf eine
 Kerneladresse), **ELF64 aus einem Startdateisystem** (16 ELF- + 10 Archiv-Negativfälle) und
 die **capability-basierte ABI** (Handle-Tabelle je Prozess, 3 + 12 Negativfälle,
 dazu Port-, Übergabe- und Namensraum-Negativfälle).
-Alles im Boot-Log belegt, `./test.sh` läuft mit 19 Schritten grün.
+Dazu kommt seit dieser Runde die **Verdrängung von Ring 3 mit Fortsetzung**
+(12 Unterbrechungen, Programm endet trotzdem mit Code 0, Zählthread kommt
+parallel auf 12 Mio. Durchläufe). Alles im Boot-Log belegt, `./test.sh` läuft
+mit 21 Schritten grün.
 
 Ehrlich offen geblieben — und deshalb als Nächstes dran:
 
@@ -264,11 +275,13 @@ Ehrlich offen geblieben — und deshalb als Nächstes dran:
    Kerneladressraum auf Seiten mit Benutzerbit. Solange das so ist, sind zwei
    unprivilegierte Prozesse nicht voneinander isoliert. Das ist die wichtigste
    offene Lücke dieser Phase und wird nicht schöngeredet.
-2. **Echter Wechsel zwischen zwei Ring-3-Programmen.** Ein Tick aus CPL 3 wird
-   inzwischen gegen ein Zeitbudget gebucht und beendet ein Programm, das zu
-   lange rechnet (Wachhund greift, im Boot-Log belegt). Was noch fehlt, ist der
-   *Wechsel* statt des Abbruchs: dafür muss der Zeitgeberpfad den User-Rahmen
-   mitsichern und den Kernelstapel des Ziels nachziehen. Braucht Punkt 1.
+2. **Zwei Ring-3-Programme gleichzeitig.** Ein einzelnes Programm wird
+   inzwischen wirklich verdrängt und fortgesetzt (Rahmen auf dem Kernelstapel
+   seines Threads). Was noch fehlt: **mehrere** unprivilegierte Programme
+   nebeneinander. Dafür müssen der gemerkte Kernelstapelzeiger (`SAVED_RSP`),
+   der Zustand „läuft unprivilegiert" und `TSS.rsp0` je Thread geführt werden
+   statt einmal pro CPU — heute lässt der Kernel deshalb bewusst nur ein
+   unprivilegiertes Programm zur Zeit zu. Braucht Punkt 1 für echte Isolation.
 3. **Ein `init`, das bleibt.** Bisher endet der unprivilegierte Teil als
    Selbsttest im Bootweg; danach läuft `kmain` weiter. Ein Prozess, der die
    Kontrolle behält, braucht Punkt 1 und einen Weg, Handles nachzureichen.

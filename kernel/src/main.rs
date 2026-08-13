@@ -490,7 +490,13 @@ pub extern "C" fn kmain() -> ! {
         panic!("Selbsttest des Panic-Handlers");
     }
 
-    idle()
+    // Die Fehler-Selbsttests oben kehren nicht zurueck (`-> !`). In genau
+    // diesen Bauten ist der Leerlauf deshalb unerreichbar — gewollt, und der
+    // einzige Ort im Baum, an dem eine Warnung ausdruecklich erlaubt ist.
+    #[allow(unreachable_code)]
+    {
+        idle()
+    }
 }
 
 /// Leerlauf: warten, bis etwas passiert, und jede Sekunde ein Lebenszeichen.

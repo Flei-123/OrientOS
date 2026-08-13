@@ -1,4 +1,4 @@
-# PREFLIGHT — Zustand VOR Gauntlet-Runde 2
+# PREFLIGHT — Zustand des Projekts (Stand nach Runde 3)
 
 **Dieses Projekt ist gebaut, kompiliert warnungsfrei und bootet nachweislich.**
 Nicht neu anfangen, nichts wegwerfen, keine funktionierende Datei löschen.
@@ -7,23 +7,47 @@ Wer den Boot kaputt macht, hat einen Totalausfall produziert, keinen Fortschritt
 ## Nachgewiesener Zustand (13.08.2026, vollständiger `./test.sh`-Lauf)
 
 ```
- 1/15 Host-Tests (129 Tests, 3 Crates)                     bestanden
- 2/15 Kernel baut (Release, mit POSIX)                     bestanden
- 3/15 Kernel baut OHNE POSIX-Schicht                       bestanden
- 4/15 Boot in QEMU (BIOS)                                  bestanden
- 5/15 Boot in QEMU ohne POSIX-Schicht                      bestanden
- 6/15 Selbsttest Page Fault                                bestanden
- 7/15 Selbsttest Double Fault (echter #DF auf IST-Stapel)  bestanden
- 8/15 Selbsttest Panic-Handler                             bestanden
- 9/15 Selbsttest .rodata schreibgeschuetzt                 bestanden
-10/15 Selbsttest NX (Daten ausfuehren)                     bestanden
-11/15 Selbsttest #GP (nicht kanonische Adresse)            bestanden
-12/15 Selbsttest #UD (ud2)                                 bestanden
-13/15 Boot ueber UEFI (OVMF)                               bestanden
-14/15 Produktname kommt nur aus branding.rs                bestanden
-15/15 Architekturgrenze und Codehygiene                    bestanden
+ 1/21 Host-Tests (151 Tests, 3 Crates)                     bestanden
+ 2/21 Kernel baut (Release, mit POSIX, --fresh)            bestanden
+ 3/21 Kernel baut OHNE POSIX-Schicht                       bestanden
+ 4/21 Boot in QEMU (BIOS)                                  bestanden
+ 5/21 Boot in QEMU ohne POSIX-Schicht                      bestanden
+ 6/21 Selbsttest Page Fault                                bestanden
+ 7/21 Selbsttest Double Fault (echter #DF auf IST-Stapel)  bestanden
+ 8/21 Selbsttest Panic-Handler                             bestanden
+ 9/21 Selbsttest .rodata schreibgeschuetzt                 bestanden
+10/21 Selbsttest NX (Daten ausfuehren)                     bestanden
+11/21 Selbsttest #GP (nicht kanonische Adresse)            bestanden
+12/21 Selbsttest #UD (ud2)                                 bestanden
+13/21 Boot ueber UEFI (OVMF)                               bestanden
+14/21 Produktname kommt nur aus branding.rs                bestanden
+15/21 Architekturgrenze und Codehygiene                    bestanden
+16/21 Verdraengung: Wechsel ohne yield, Prioritaeten       bestanden
+17/21 Ring 3: Programm, Systemaufruf, Schutzwall           bestanden
+18/21 ELF-Lader aus dem Startdateisystem                   bestanden
+19/21 Capabilities: Handle-Negativtests                    bestanden
+20/21 Ring 3 wird verdraengt und FORTGESETZT               bestanden
+21/21 Doku-Verweise zeigen auf den genannten Code          bestanden
 ############ ALLE TESTS BESTANDEN ############
 ```
+
+Log des Laufs: `build/FINAL-21-verify.log`. Messwerte des Laufs: 18 290
+Rust-Zeilen, 170/170 Selbsttest-Zusagen im Boot, 38 Prüfmerkmale je
+QEMU-Boot, 0 Compilerwarnungen (im Bausystem als Fehler geschaltet).
+
+## Nachgetragen in Runde 3 (Nacharbeit nach der Jury)
+
+* **Ring 3 wird verdrängt UND fortgesetzt** — nicht nur abgeräumt. Der Rahmen
+  des Privilegwechsels liegt auf dem Kernelstapel des tragenden Threads
+  (`TRAP_GAP`), deshalb darf mitten im Rahmen gewechselt werden. Nachweis in
+  jedem Boot (`Ring 3 verdraengt: … danach fortgesetzt … Ende 0`).
+* **SMEP/SMAP sind in jedem Testlauf wirklich an**: `run-qemu.sh` startet mit
+  `-cpu max`; der Überspringen-Pfad wird eigens mit `--cpu-basic` geprüft.
+* **Warnungen sind Fehler** (`[workspace.lints.rust] warnings = "deny"`), und
+  der Nachweis läuft gegen ein Log einer ECHTEN Neuübersetzung
+  (`build.sh --fresh`, `BUILD-EVIDENZ`-Zeile).
+* **Doku-Verweise sind maschinell geprüft** (`tests/verweise.py`, Format
+  `` `datei.rs:Zeile` (`Anker`) ``) — verrutschte Zeilennummern fallen sofort auf.
 
 ## Was läuft (nicht neu erfinden — lesen, dann erweitern)
 

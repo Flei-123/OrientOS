@@ -7,6 +7,12 @@ members = [
     "libs/karst-mem",
 ]
 
+# Warnungen sind unerledigte Arbeit: sie brechen den Bau ab, statt nur im Log
+# zu stehen. Gilt ausschliesslich fuer die EIGENEN Crates (nicht fuer
+# build-std/core), weil [lints] pro Paket wirkt und nicht ueber RUSTFLAGS.
+[workspace.lints.rust]
+warnings = "deny"
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"

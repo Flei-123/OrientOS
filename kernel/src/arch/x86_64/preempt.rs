@@ -28,14 +28,18 @@
 //! Zwei Sicherheitsregeln, die dieser Pfad strikt einhaelt:
 //! 1. Der Interrupt wird **vor** dem Wechsel quittiert (EOI) — sonst blieben
 //!    weitere Ticks aus, solange der verdraengte Thread schlaeft.
-//! 2. Gewechselt wird nur, wenn privilegierter Code unterbrochen wurde
-//!    (RPL des gesicherten Codesegments == 0). Ein Tick, der ein
-//!    unprivilegiertes Programm trifft, wird gezaehlt und dem Wachhund
-//!    vorgelegt (`user::note_user_tick`): ein Programm, das sein Zeitbudget
-//!    ueberzieht, wird abgeraeumt, damit eine Rechenschleife in Ring 3 den
-//!    Kernel nicht anhaelt. Ein Wechsel MIT spaeterer Fortsetzung des
-//!    unprivilegierten Programms ist noch nicht moeglich (der Rahmen liegt
-//!    auf dem gemeinsamen Eintrittsstapel) und in ROADMAP.md offen gefuehrt.
+//! 2. Trifft der Tick ein unprivilegiertes Programm (RPL des gesicherten
+//!    Codesegments == 3), haengt alles daran, WO sein Rahmen liegt:
+//!    * Wurde das Programm aus einem Thread mit eigenem Kernelstapel
+//!      gestartet (`user::set_preemptible`), liegt der Rahmen auf genau
+//!      diesem Stapel. Dann wird wie in Ring 0 umgeschaltet; der Rahmen
+//!      bleibt liegen, bis der Thread wieder an der Reihe ist, und das
+//!      `iretq` am Ende des Einsprungs SETZT DAS PROGRAMM FORT.
+//!    * Sonst liegt er auf dem gemeinsamen Systemaufrufstapel, den der
+//!      naechste Privilegwechsel ueberschreibt — dort wird nicht gewechselt,
+//!      sondern nur der Wachhund befragt (`user::note_user_tick`): ein
+//!      Programm, das sein Zeitbudget ueberzieht, wird abgeraeumt, damit eine
+//!      Rechenschleife in Ring 3 den Startvorgang nicht anhaelt.
 
 use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
@@ -50,6 +54,16 @@ static USER_TICKS: AtomicU64 = AtomicU64::new(0);
 
 /// Wie oft der Wachhund aus diesem Pfad ein Programm abgeraeumt hat.
 static USER_ABORTS: AtomicU64 = AtomicU64::new(0);
+
+/// Wie oft ein unprivilegiertes Programm verdraengt und spaeter FORTGESETZT
+/// wurde (nicht abgeraeumt).
+static USER_PREEMPTIONS: AtomicU64 = AtomicU64::new(0);
+
+/// Verdraengungen unprivilegierter Programme, die mit einer Fortsetzung
+/// endeten.
+pub fn user_preemptions() -> u64 {
+    USER_PREEMPTIONS.load(Ordering::Relaxed)
+}
 
 /// Ende-Code, den ein vom Wachhund abgeraeumtes Programm bekommt.
 ///
@@ -167,16 +181,29 @@ unsafe extern "C" fn irq0_dispatch(frame: *mut FullFrame) {
     // Sicher: `frame` zeigt auf den Registersatz auf dem eigenen Stapel.
     let (cs, rip, rsp) = unsafe { ((*frame).cs, (*frame).rip, (*frame).rsp) };
     if cs & 3 == 3 {
-        // Der Tick hat ein unprivilegiertes Programm getroffen. Umschalten auf
-        // einen anderen Thread kann dieser Pfad noch nicht (der Rahmen liegt
-        // auf dem gemeinsamen Eintrittsstapel, siehe ROADMAP), aber der
-        // Wachhund muss auch hier laufen: sonst haelt eine Rechenschleife in
-        // Ring 3 den ganzen Startvorgang an, sobald die Verdraengung
-        // eingeschaltet ist.
+        // Der Tick hat ein unprivilegiertes Programm getroffen.
         USER_TICKS.fetch_add(1, Ordering::Relaxed);
+        // Der Rahmen kommt von der Hardware: Selektor und Stapel des
+        // Programms sind damit gemessen, nicht behauptet.
+        super::user::note_user_frame(cs, rsp);
+        if super::user::preemptible() {
+            // Verdraengbarer Lauf: der Rahmen liegt auf dem Kernelstapel
+            // GENAU DIESES Threads (siehe `user::enter`). Umschalten ist
+            // deshalb erlaubt — der Rahmen bleibt liegen, bis der Thread
+            // wieder an der Reihe ist, und das `iretq` am Ende dieses
+            // Einsprungs setzt das unprivilegierte Programm exakt dort fort,
+            // wo der Zeitgeber es unterbrochen hat.
+            if faellig {
+                USER_PREEMPTIONS.fetch_add(1, Ordering::Relaxed);
+                crate::kcore::preempt::switch_now();
+            }
+            return;
+        }
+        // Sonst (Programm laeuft nicht in einem eigenen Thread) bleibt es beim
+        // Wachhund: eine Rechenschleife in Ring 3 darf den Startvorgang nicht
+        // anhalten.
         if super::user::note_user_tick() {
             USER_ABORTS.fetch_add(1, Ordering::Relaxed);
-            super::user::note_user_frame(cs, rsp);
             crate::klog!(
                 "trap",
                 "Zeitbudget von Ring 3 erschoepft (RIP={:#018x}) — Programm wird abgeraeumt",

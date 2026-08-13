@@ -24,21 +24,21 @@
 //!   bekommt ihn ueber [`crate::kcore::user::ArchSupport`] als Bytes plus
 //!   zwei Einsprungversaetzen und weiss nicht, was darin steht.
 //!
-//! **Nachweis der Schutzbits.** Das voreingestellte QEMU-Rechnermodell meldet
-//! SMEP/SMAP per CPUID NICHT; der Kernel ueberspringt sie dann und vermerkt
-//! das im Boot-Log ("Ausfuehrsperre nein (uebersprungen)"). Dass der Pfad
-//! trotzdem stimmt, wird NICHT behauptet, sondern gemessen: `tests/step-17`
-//! startet dasselbe Abbild ein zweites Mal mit einem Rechnermodell, das die
-//! Bits meldet, und prueft das Ergebnis:
+//! **Nachweis der Schutzbits.** SMEP/SMAP werden nur gesetzt, wenn CPUID sie
+//! meldet. Das QEMU-Standardmodell (`qemu64`) meldet sie NICHT — liefe jeder
+//! Test damit, waere die CR4-Logik hier toter Code. `run-qemu.sh` startet
+//! deshalb standardmaessig mit `-cpu max`, und im Boot-Log jedes Laufs steht:
 //!
 //! ```text
-//! qemu-system-x86_64 -machine q35 -cpu max -m 512M -cdrom build/*.iso \
-//!     -boot d -no-reboot -display none -serial file:build/ring3-smap.$$.log
 //! ==> [..] CPU-Schutz  : Schnellaufruf ja, Ausfuehrsperre ja,
 //!                        Zugriffssperre ja, Per-CPU-Basis ja
 //! ==> [..] Schutzwall  : 5/5 Uebergriffe aus Ring 3 abgewehrt
-//! ==> [..] Selbsttestbilanz: 166/166 bestanden
 //! ```
+//!
+//! Der ANDERE Pfad (CPU ohne die Bits, Kernel ueberspringt sie und vermerkt
+//! das) wird eigens geprueft: `tests/step-17-ring3.sh` startet dasselbe Abbild
+//! ein zweites Mal mit `--cpu-basic` und erwartet dort
+//! "Ausfuehrsperre nein (uebersprungen)" bei sonst gleichem Ergebnis.
 //!
 //! Mit gesetztem CR4.SMAP laufen alle Systemaufrufe, die unprivilegierten
 //! Speicher anfassen, weiterhin durch — das Fenster (`stac`/`clac`) sitzt also
@@ -146,6 +146,20 @@ static USER_TICKS: AtomicU64 = AtomicU64::new(0);
 static mut SAVED_RSP: u64 = 0;
 /// Sind die Schutzbits SMEP/SMAP tatsaechlich eingeschaltet?
 static SMAP_ON: AtomicBool = AtomicBool::new(false);
+/// Darf das laufende unprivilegierte Programm verdraengt und SPAETER
+/// FORTGESETZT werden?
+///
+/// Steht der Schalter, dann
+/// * laesst der Zeitgeberpfad das Programm nicht abraeumen (kein Wachhund),
+/// * liegt der Rahmen eines Privilegwechsels auf dem Kernelstapel des
+///   AUFRUFENDEN Threads (siehe [`enter`]) statt auf dem gemeinsamen
+///   Systemaufrufstapel — nur dann darf mitten im Rahmen umgeschaltet werden.
+static PREEMPTIBLE: AtomicBool = AtomicBool::new(false);
+/// Abstand zwischen dem Stapelzeiger des aufrufenden Threads und der Stelle,
+/// an der die CPU den Rahmen eines Privilegwechsels ablegt. Muss groesser sein
+/// als alles, was [`enter_ring3`] unterhalb von [`enter`] noch ablegt (dort
+/// sind es 11 Worte).
+const TRAP_GAP: u64 = 512;
 
 /// Hoechstzahl Zeitgeber-Ticks, die ein Programm laufen darf, bevor der
 /// Kernel es abraeumt. Ohne diese Grenze wuerde eine Endlosschleife im
@@ -259,6 +273,23 @@ __user_demo_spin:
     syscall
 3:  jmp 3b
 
+    /* Verdraengungs-Probe: rechnet lange, ohne je einen Systemaufruf
+       abzusetzen — beendet sich am Ende aber REGULAER mit Code 0. Sie ist der
+       Gegenpol zur Wachhund-Probe: hier soll der Zeitgeber das Programm
+       NICHT abraeumen, sondern nur unterbrechen und spaeter fortsetzen.
+       Kommt Code 0 zurueck, hat das Programm jede Unterbrechung ueberlebt. */
+    .balign 16
+    .globl __user_demo_pspin
+__user_demo_pspin:
+    movabs rcx, 30000000
+2:  dec rcx
+    jnz 2b
+    mov eax, 18                           /* 18 = process_exit                 */
+    xor edi, edi                          /* eigener Prozess                   */
+    xor esi, esi                          /* Beendigungscode 0                 */
+    syscall
+1:  jmp 1b
+
     .balign 8
 __user_demo_msg:
     .ascii "Gruesse aus Ring 3"
@@ -279,6 +310,7 @@ unsafe extern "C" {
     static __user_demo_kjump: u8;
     static __user_demo_hole: u8;
     static __user_demo_spin: u8;
+    static __user_demo_pspin: u8;
     static __user_demo_end: u8;
 }
 
@@ -287,8 +319,8 @@ unsafe extern "C" {
 /// nicht ausgeloest.
 const SPIN_SELF_EXIT: u64 = 7;
 
-/// Das Beispielprogramm als Bytes plus seine drei Einsprungversaetze.
-fn demo_image() -> (&'static [u8], usize, usize, usize) {
+/// Das Beispielprogramm als Bytes plus seine vier Einsprungversaetze.
+fn demo_image() -> (&'static [u8], usize, usize, usize, usize) {
     let start = &raw const __user_demo_start as usize;
     let end = &raw const __user_demo_end as usize;
     let main = &raw const __user_demo_main as usize;
@@ -296,8 +328,9 @@ fn demo_image() -> (&'static [u8], usize, usize, usize) {
     // SAFETY: Die Symbole umschliessen einen zusammenhaengenden, nur lesbaren
     // Block im Kernelabbild; er wird ausschliesslich kopiert.
     let tramp = &raw const __user_demo_trampoline as usize;
+    let pspin = &raw const __user_demo_pspin as usize;
     let bytes = unsafe { core::slice::from_raw_parts(start as *const u8, end - start) };
-    (bytes, main - start, fault - start, tramp - start)
+    (bytes, main - start, fault - start, tramp - start, pspin - start)
 }
 
 /// Die Uebergriffe, die das Bild anbietet, samt erwartetem Ausgang.
@@ -406,13 +439,14 @@ pub unsafe fn init() -> bool {
 
     // Dem Core sagen, womit er arbeiten kann. Der Core kennt nur Bytes und
     // zwei Versaetze — kein Maschinendetail wandert nach oben.
-    let (bytes, main_off, fault_off, tramp_off) = demo_image();
+    let (bytes, main_off, fault_off, tramp_off, pspin_off) = demo_image();
     let (probes, probe_count) = demo_probes();
     crate::kcore::user::register_arch_support(ArchSupport {
         program: bytes,
         entry_offset: main_off,
         fault_offset: fault_off,
         trampoline_offset: tramp_off,
+        preempt_offset: pspin_off,
         open_window: open_user_window,
         close_window: close_user_window,
         probes,
@@ -429,6 +463,21 @@ pub fn ready() -> bool {
 /// Laeuft gerade ein unprivilegiertes Programm?
 pub fn in_user() -> bool {
     IN_USER.load(Ordering::Acquire)
+}
+
+/// Schaltet um, ob das NAECHSTE unprivilegierte Programm verdraengbar ist.
+///
+/// Liefert `true`, weil diese Architektur es anbietet. Der Aufrufer muss aus
+/// einem Thread mit eigenem Kernelstapel kommen — sonst laege der Rahmen des
+/// Privilegwechsels auf einem Stapel, der beim Umschalten weiterbenutzt wird.
+pub fn set_preemptible(on: bool) -> bool {
+    PREEMPTIBLE.store(on, Ordering::Release);
+    true
+}
+
+/// Darf das laufende Programm verdraengt und fortgesetzt werden?
+pub fn preemptible() -> bool {
+    PREEMPTIBLE.load(Ordering::Acquire)
 }
 
 /// Hinterlegt den Kernelstapel fuer den naechsten Privilegwechsel.
@@ -483,7 +532,10 @@ pub fn note_user_frame(cs: u64, rsp: u64) {
 /// Zaehlt einen Zeitgebertick, der ein unprivilegiertes Programm getroffen hat.
 /// Liefert `true`, wenn das Programm sein Zeitbudget ueberschritten hat.
 pub fn note_user_tick() -> bool {
+    // Ein verdraengbares Programm wird unterbrochen, nicht abgeraeumt — der
+    // Wachhund haette dort nichts zu suchen.
     IN_USER.load(Ordering::Acquire)
+        && !PREEMPTIBLE.load(Ordering::Acquire)
         && USER_TICKS.fetch_add(1, Ordering::Relaxed) + 1 >= USER_TICK_LIMIT
 }
 
@@ -531,6 +583,27 @@ pub unsafe fn enter(entry: VirtAddr, stack_top: VirtAddr) -> UserExit {
     ABORTED.store(false, Ordering::Relaxed);
     IN_USER.store(true, Ordering::Release);
 
+    // Verdraengbarer Lauf: der Rahmen, den die CPU beim Wechsel von Ring 3
+    // nach Ring 0 ablegt, muss auf dem Kernelstapel GENAU DIESES Threads
+    // landen. Nur dann darf der Zeitgeberpfad mitten im Rahmen auf einen
+    // anderen Thread umschalten — der Rahmen bleibt dann liegen, bis dieser
+    // Thread wieder an der Reihe ist, und `iretq` setzt das Programm fort.
+    // Auf dem gemeinsamen Systemaufrufstapel waere er dagegen beim naechsten
+    // Wechsel ueberschrieben worden.
+    let voriger_stapel = if PREEMPTIBLE.load(Ordering::Acquire) {
+        let sp: u64;
+        // SAFETY: liest nur den eigenen Stapelzeiger.
+        unsafe {
+            core::arch::asm!("mov {}, rsp", out(reg) sp, options(nomem, nostack, preserves_flags))
+        };
+        // SAFETY: liest ein Wort aus dem Per-CPU-Block dieser Datei.
+        let alt = unsafe { (*(&raw const PERCPU)).kernel_rsp };
+        set_kernel_stack(VirtAddr::new(sp - TRAP_GAP));
+        Some(alt)
+    } else {
+        None
+    };
+
     // SAFETY: Der Aufrufer buergt fuer die Abbildungen; der Ruecksprung laeuft
     // ueber `resume_kernel*` und stellt genau diesen Stapel wieder her.
     unsafe {
@@ -543,6 +616,9 @@ pub unsafe fn enter(entry: VirtAddr, stack_top: VirtAddr) -> UserExit {
     };
 
     IN_USER.store(false, Ordering::Release);
+    if let Some(alt) = voriger_stapel {
+        set_kernel_stack(VirtAddr::new(alt));
+    }
     let cs = MEASURED_CS.load(Ordering::Relaxed);
     UserExit {
         entered: cs != 0 || SYSCALLS.load(Ordering::Relaxed) > 0,

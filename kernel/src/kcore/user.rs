@@ -88,6 +88,11 @@ pub struct ArchSupport {
     /// springt dann in das Programm. Damit ist der Nachweis auch fuer
     /// Programme moeglich, die der Kernel nicht selbst geschrieben hat.
     pub trampoline_offset: usize,
+    /// Versatz eines Einsprungs, der LANGE rechnet, keinen einzigen
+    /// Systemaufruf absetzt und sich am Ende regulaer mit Code 0 beendet.
+    /// Damit laesst sich pruefen, ob der Zeitgeber ein unprivilegiertes
+    /// Programm unterbricht UND spaeter fortsetzt (statt es abzuraeumen).
+    pub preempt_offset: usize,
     /// Oeffnet das Fenster, durch das der Kernel unprivilegierte Daten lesen
     /// darf (nur noetig, wenn die CPU eine Zugriffssperre kennt).
     pub open_window: fn(),
@@ -492,6 +497,27 @@ pub unsafe fn run(entry: VirtAddr, stack_top: VirtAddr) -> UserExit {
     unsafe { <crate::arch::Active as ArchOps>::enter_user(entry, stack_top) }
 }
 
+/// Wie [`run`], aber der Zeitgeber darf das Programm unterbrechen und spaeter
+/// FORTSETZEN, statt es abzuraeumen.
+///
+/// Nur aus einem Thread mit eigenem Kernelstapel aufrufen: der Rahmen des
+/// Privilegwechsels liegt dann auf genau diesem Stapel und ueberlebt einen
+/// Kontextwechsel. Bietet die Architektur das nicht an, laeuft das Programm
+/// wie bei [`run`] (mit Wachhund).
+///
+/// # Safety
+/// Wie [`run`].
+pub unsafe fn run_preemptible(entry: VirtAddr, stack_top: VirtAddr) -> UserExit {
+    if !<crate::arch::Active as ArchOps>::set_user_preemptible(true) {
+        // SAFETY: Bedingung des Aufrufers, unveraendert weitergereicht.
+        return unsafe { run(entry, stack_top) };
+    }
+    // SAFETY: wie oben.
+    let x = unsafe { run(entry, stack_top) };
+    <crate::arch::Active as ArchOps>::set_user_preemptible(false);
+    x
+}
+
 /// Schreibt das Ergebnis eines Ausflugs in die unprivilegierte Ebene so ins
 /// Log, dass es maschinell pruefbar ist.
 pub fn report_exit(x: &UserExit) {
@@ -509,6 +535,148 @@ pub fn report_exit(x: &UserExit) {
     } else {
         klog!("user", "Ring 3      : nicht betreten — {}", x.reason);
     }
+}
+
+// ------------------------- Nachweis: Ring 3 wird verdraengt UND fortgesetzt
+
+/// Stapel des Threads, der das unprivilegierte Programm traegt. Grosszuegig,
+/// weil auf demselben Stapel zusaetzlich der Rahmen jedes Privilegwechsels
+/// samt Interruptpfad liegt.
+const R3_THREAD_STACK: usize = 32 * 1024;
+/// Stapel des mitlaufenden Zaehlthreads.
+const R3_COUNTER_STACK: usize = 8 * 1024;
+/// Sicherheitsfrist des Zaehlthreads (Ticks), falls das Programm nie endet.
+const R3_DEADLINE_TICKS: u64 = 600;
+
+/// Einsprungadresse des Programms fuer [`r3_program_thread`].
+static R3_ENTRY: AtomicU64 = AtomicU64::new(0);
+/// Stapelspitze des Programms fuer [`r3_program_thread`].
+static R3_STACK: AtomicU64 = AtomicU64::new(0);
+/// Ist das Programm durch?
+static R3_DONE: AtomicU64 = AtomicU64::new(0);
+/// Gemessener Codesegment-Selektor des Programms.
+static R3_CS: AtomicU64 = AtomicU64::new(0);
+/// Beendigungscode des Programms.
+static R3_EXIT: AtomicU64 = AtomicU64::new(0);
+/// Lief es wirklich unprivilegiert?
+static R3_ENTERED: AtomicU64 = AtomicU64::new(0);
+/// Durchlaeufe des Zaehlthreads, waehrend das Programm lief.
+static R3_SPINS: AtomicU64 = AtomicU64::new(0);
+
+/// Traegt das unprivilegierte Programm. Ruft KEIN `yield` — jeder Wechsel,
+/// der hier stattfindet, kommt vom Zeitgeber.
+extern "C" fn r3_program_thread() -> ! {
+    let entry = VirtAddr(R3_ENTRY.load(Ordering::Relaxed));
+    let stack = VirtAddr(R3_STACK.load(Ordering::Relaxed));
+    // SAFETY: beide Adressen wurden vom Aufrufer unprivilegiert abgebildet und
+    // bleiben es, bis dieser Lauf zu Ende ist.
+    let x = unsafe { run_preemptible(entry, stack) };
+    R3_CS.store(x.code_selector as u64, Ordering::Relaxed);
+    R3_EXIT.store(x.code, Ordering::Relaxed);
+    R3_ENTERED.store(u64::from(x.entered && x.privilege_level == 3), Ordering::Relaxed);
+    R3_DONE.store(1, Ordering::Release);
+    crate::kcore::sched::exit_current()
+}
+
+/// Zaehlt, solange das Programm laeuft. Ebenfalls ohne `yield`: dass dieser
+/// Thread ueberhaupt vorankommt, waehrend nebenan ein unprivilegiertes
+/// Programm rechnet, ist der Beleg der Verdraengung.
+extern "C" fn r3_counter_thread() -> ! {
+    let frist = crate::kcore::preempt::ticks_seen() + R3_DEADLINE_TICKS;
+    while R3_DONE.load(Ordering::Acquire) == 0 {
+        R3_SPINS.fetch_add(1, Ordering::Relaxed);
+        if crate::kcore::preempt::ticks_seen() >= frist {
+            break;
+        }
+    }
+    crate::kcore::sched::exit_current()
+}
+
+/// Nachweis, dass der Zeitgeber ein unprivilegiertes Programm unterbricht und
+/// es danach FORTSETZT — nicht abraeumt.
+///
+/// Aufbau: zwei gleichrangige, verdraengbare Threads. Einer startet das
+/// Rechenprogramm in Ring 3, der andere zaehlt. Keiner der beiden gibt
+/// freiwillig ab, und das Programm setzt keinen einzigen Systemaufruf ab,
+/// bevor es fertig ist. Kommt es trotzdem mit Code 0 zurueck, waehrend der
+/// Zaehlthread vorangekommen ist, kann das nur am Zeitgeber liegen.
+///
+/// Liefert `(bestanden, gesamt)`.
+fn run_preempt_probe(sup: &ArchSupport, stack_top: u64) -> (usize, usize) {
+    let total = 4usize;
+    if !crate::kcore::preempt::available() {
+        klog!("user", "Ring 3      : Verdraengung nicht verfuegbar — Nachweis uebersprungen");
+        return (0, 0);
+    }
+    R3_ENTRY.store(DEMO_BASE + sup.preempt_offset as u64, Ordering::Relaxed);
+    R3_STACK.store(stack_top, Ordering::Relaxed);
+    for c in [&R3_DONE, &R3_CS, &R3_EXIT, &R3_ENTERED, &R3_SPINS] {
+        c.store(0, Ordering::Relaxed);
+    }
+    let vorher = <crate::arch::Active as ArchOps>::user_preemptions();
+    crate::kcore::preempt::set_quantum(1);
+    // SAFETY: der Planer des Laufs ist gleich lauffaehig; der Zeitgeberpfad
+    // fragt ausschliesslich ueber `charge_tick` nach.
+    if !unsafe { crate::kcore::preempt::enable() } {
+        klog!("user", "Ring 3      : Verdraengung liess sich nicht einschalten");
+        return (0, total);
+    }
+    let lauf = crate::kcore::sched::run_two_preemptible(
+        r3_program_thread,
+        r3_counter_thread,
+        R3_THREAD_STACK,
+        R3_COUNTER_STACK,
+    );
+    // SAFETY: der Lauf ist beendet, es gibt keinen Thread mehr zu verdraengen.
+    unsafe { crate::kcore::preempt::disable() };
+    let Some(lauf) = lauf else {
+        klog!("user", "Ring 3      : Verdraengungsnachweis konnte keine Threads anlegen");
+        return (0, total);
+    };
+    let unterbrechungen = <crate::arch::Active as ArchOps>::user_preemptions() - vorher;
+    let cs = R3_CS.load(Ordering::Relaxed);
+    let ende = R3_EXIT.load(Ordering::Relaxed);
+    let spins = R3_SPINS.load(Ordering::Relaxed);
+
+    let mut ok = 0usize;
+    // 1. Das Programm lief wirklich unprivilegiert.
+    if R3_ENTERED.load(Ordering::Relaxed) == 1 && cs & 3 == 3 {
+        ok += 1;
+    }
+    // 2. Der Zeitgeber hat es mitten im Lauf unterbrochen.
+    if unterbrechungen > 0 {
+        ok += 1;
+    }
+    // 3. Es lief danach WEITER und beendete sich regulaer mit Code 0. Waere es
+    //    abgeraeumt worden, stuende hier ein anderer Code.
+    if ende == 0 && R3_DONE.load(Ordering::Relaxed) == 1 {
+        ok += 1;
+    }
+    // 4. Der andere Thread kam waehrenddessen voran, ohne dass jemand
+    //    freiwillig abgegeben hat.
+    if spins > 0 && lauf.forced > 0 && lauf.clean {
+        ok += 1;
+    }
+    klog!(
+        "user",
+        "Ring 3 verdraengt: {} Unterbrechung(en) durch den Zeitgeber, danach fortgesetzt, CS={:#06x} (RPL={}), Ende {}",
+        unterbrechungen,
+        cs,
+        cs & 3,
+        ende
+    );
+    klog!(
+        "user",
+        "Ring 3 verdraengt: Zaehlthread kam auf {} Durchlaeufe, {} erzwungene und {} freiwillige Wechsel, Ticks {}/{}, {}/{} Zusagen",
+        spins,
+        lauf.forced,
+        lauf.coop,
+        lauf.ticks[0],
+        lauf.ticks[1],
+        ok,
+        total
+    );
+    (ok, total)
 }
 
 // --------------------------------------------------------------- Selbsttest
@@ -651,7 +819,12 @@ pub fn boot_selftest(space: &mut AddressSpace) -> (usize, usize) {
     ok += o;
     let total = total + t;
 
-    // 7) Abraeumen — der Kernel gibt jede Seite und jeden Frame zurueck.
+    // 7) Verdraengung in Ring 3: unterbrechen und FORTSETZEN statt abraeumen.
+    let (o, t) = run_preempt_probe(&sup, stack_top);
+    ok += o;
+    let total = total + t;
+
+    // 8) Abraeumen — der Kernel gibt jede Seite und jeden Frame zurueck.
     let frei = pages.teardown(space);
     klog!(
         "user",

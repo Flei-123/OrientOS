@@ -116,6 +116,14 @@ impl ArchOps for X86_64 {
         user::set_kernel_stack(top)
     }
 
+    fn set_user_preemptible(on: bool) -> bool {
+        user::set_preemptible(on)
+    }
+
+    fn user_preemptions() -> u64 {
+        preempt::user_preemptions()
+    }
+
     unsafe fn enter_user(entry: VirtAddr, stack_top: VirtAddr) -> UserExit {
         unsafe { user::enter(entry, stack_top) }
     }

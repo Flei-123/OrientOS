@@ -294,6 +294,55 @@ unprivilegierten Bereich. Der Negativtest greift von Ring 3 auf
 (Schutzverletzung, Userspace), der Prozess wird abgeräumt, der Kernel läuft
 weiter.
 
+### 5b'. Verdrängung bis nach Ring 3 — und warum der Stapel darüber entscheidet
+
+Ein Programm in Ring 3 zu **unterbrechen** ist einfach: der Zeitgeber feuert,
+die CPU wechselt nach Ring 0. Es später **fortzusetzen** ist die eigentliche
+Aufgabe — und sie hängt an genau einer Frage: *auf welchem Stapel liegt der
+Rahmen, den die CPU beim Privilegwechsel ablegt?*
+
+Die CPU nimmt dafür `TSS.rsp0`. Zeigt der auf einen **gemeinsamen** Stapel
+(so läuft der Systemaufrufpfad), darf der Zeitgeberpfad dort nicht einfach den
+Thread wechseln: der nächste Privilegwechsel eines anderen Kontrollflusses
+schriebe genau über diesen Rahmen. Das Programm käme in einen Zustand zurück,
+den es nie hatte — ein Fehler, der nicht an der Fehlerstelle knallt, sondern
+irgendwann später mit einem falschen Register.
+
+Deshalb gibt es zwei Betriebsarten, hart getrennt durch einen Schalter
+(`user::set_preemptible`):
+
+| | Rahmen liegt auf | Tick aus CPL 3 bewirkt |
+|---|---|---|
+| Programm läuft **aus dem Bootweg** | gemeinsamer Systemaufrufstapel | Wachhund: Zeitbudget, dann abräumen |
+| Programm läuft **in einem Thread** (`spawn_prio`) | Kernelstapel **dieses** Threads | echter Kontextwechsel, später `iretq` zurück ins Programm |
+
+Im zweiten Fall setzt `user::enter` `TSS.rsp0` auf den eigenen Stapelzeiger
+minus `TRAP_GAP` (512 B Abstand zu dem, was der Einsprung selbst noch ablegt)
+und stellt den alten Wert danach wieder her. Der Rahmen liegt damit auf dem
+Stapel des Threads, überlebt jeden Wechsel und wird erst beim `iretq` am Ende
+des Interrupt-Einsprungs wieder abgebaut.
+
+Nachgewiesen wird das in **jedem** Boot, nicht in einem Sondermodus: zwei
+gleichrangige Threads, einer trägt ein Rechenprogramm in Ring 3, das
+30 Mio. Durchläufe lang keinen einzigen Systemaufruf absetzt, der andere zählt.
+Keiner gibt freiwillig ab. Ergebnis im Log:
+
+```text
+[karst] user  Ring 3 verdraengt: 12 Unterbrechung(en) durch den Zeitgeber,
+              danach fortgesetzt, CS=0x0023 (RPL=3), Ende 0
+[karst] user  Ring 3 verdraengt: Zaehlthread kam auf 12040431 Durchlaeufe,
+              26 erzwungene und 2 freiwillige Wechsel, Ticks 13/13, 4/4 Zusagen
+```
+
+`Ende 0` ist der entscheidende Wert: das Programm hat sich **selbst regulär
+beendet**, nachdem es zwölfmal unterbrochen wurde. Ein abgeräumtes Programm
+hätte einen anderen Code.
+
+Grenze, die bewusst so bleibt: es läuft immer nur **ein** unprivilegiertes
+Programm zur Zeit — `SAVED_RSP`, der Zustand „läuft unprivilegiert" und
+`TSS.rsp0` sind je CPU geführt, nicht je Thread. Das ist der nächste Schritt
+(ROADMAP, Punkt 2), kein Versehen.
+
 ### 5c. Startdateisystem und ELF64-Lader (Phase 3)
 
 `limine.conf` reicht `build/initramfs.img` als Bootloader-Modul herein.
@@ -463,6 +512,29 @@ auf dem Host dann an einem zweiten `core` scheitert
 
 ---
 
+## 9b. Warnungen sind Fehler — und der Nachweis muss echt sein
+
+Zwei Dinge, die getrennt gehören:
+
+1. **Der Bau selbst hält dagegen.** `Cargo.toml` setzt
+   `[workspace.lints.rust] warnings = "deny"`, jede eigene Crate übernimmt das
+   mit `[lints] workspace = true`. Eine Warnung bricht damit den Bau ab, statt
+   nur im Log zu stehen. Bewusst über `[lints]` und nicht über `RUSTFLAGS`:
+   `RUSTFLAGS` würde auch das mitgebaute `core`/`compiler_builtins` treffen,
+   die uns nicht gehören.
+2. **Der Nachweis darf kein No-op sein.** Ein Folgebau schreibt nur
+   `Finished ... in 0.09s` — in so einem Log nach `^warning:` zu suchen ist
+   wertlos. `./build.sh --fresh` fasst deshalb die eigenen Quellen an, erzwingt
+   eine echte Übersetzung und legt das Ergebnis als `build/cargo-build-fresh.log`
+   ab; die letzte Zeile jedes Bau-Logs sagt ausdrücklich, ob übersetzt wurde
+   (`BUILD-EVIDENZ: echte Uebersetzung (4 Crate(s))` bzw. `No-op`). `test.sh`
+   baut mit `--fresh` und lässt den Schritt fallen, wenn dieses Log fehlt oder
+   keine `Compiling`-Zeile enthält.
+
+Gegenprobe (einmal von Hand gefahren, damit die Mechanik nicht nur behauptet
+ist): eine absichtlich unbenutzte Variable in `libs/karst-mem` führte zu
+`error: unused variable: 'ungenutzt'` und einem abgebrochenen Bau.
+
 ## 9a. Der Name ist Konfiguration, kein Code
 
 Im Quelltext steht **kein Produktname**. Kernel- und OS-Name kommen aus
@@ -499,12 +571,20 @@ Ehrliche Liste, damit niemand mehr erwartet, als der Code hält:
 * **Ein Adressraum.** Die unprivilegierten Seiten liegen im Kerneladressraum
   (mit Benutzerbit); es gibt noch **keinen Adressraum je Prozess** und damit
   keine Isolation zwischen zwei unprivilegierten Prozessen.
-* **Präemption nur für Kernel-Threads aus `spawn_prio`.** Kooperative Threads
-  bleiben absichtlich unverdrängt, und ein Tick in Ring 3 wird nur gezählt —
-  ein Ring-3-Programm wird noch **nicht** verdrängt.
+* **Präemption nur für Threads aus `spawn_prio`.** Kooperative Threads bleiben
+  absichtlich unverdrängt. Ein Ring-3-Programm **wird** verdrängt und
+  fortgesetzt, sobald es in einem solchen Thread läuft (Rahmen auf dessen
+  Kernelstapel); läuft es dagegen direkt aus dem Bootweg, greift statt des
+  Wechsels der Wachhund.
+* **Nur ein unprivilegiertes Programm zur Zeit.** `SAVED_RSP`, „läuft
+  unprivilegiert" und `TSS.rsp0` sind je CPU geführt, nicht je Thread. Zwei
+  Ring-3-Programme gleichzeitig würden sich ins Gehege kommen — der Kernel
+  startet deshalb bewusst nur eines.
 * kein Idle-Thread; der Scheduler wartet mit `wait_for_interrupt`
-* SMEP/SMAP werden nur gesetzt, wenn CPUID sie meldet — auf der
-  QEMU-Standard-CPU sind sie damit **aus** (im Log vermerkt)
+* SMEP/SMAP werden nur gesetzt, wenn CPUID sie meldet. `run-qemu.sh` startet
+  deshalb standardmäßig mit `-cpu max` (dieses Modell meldet sie), sonst wäre
+  die CR4-Logik in jedem Testlauf toter Code. Der Überspringen-Pfad wird eigens
+  mit `--cpu-basic` geprüft (Schritt „Ring 3")
 * die POSIX-Schicht übersetzt Fd → Handle durch **denselben** Verteiler, hat
   aber noch keinen `open`-Weg — ohne VFS gibt es nichts zu öffnen
 * kein VFS, keine Blockgeräte, keine Tastatur (IRQ 1 wird nur quittiert)

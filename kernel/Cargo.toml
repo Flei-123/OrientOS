@@ -16,6 +16,9 @@ path = "src/main.rs"
 test = false
 bench = false
 
+[lints]
+workspace = true
+
 [dependencies]
 # Limine-Bootprotokoll-Bindings. Begruendung in ARCHITECTURE.md: reine
 # Struct-Definitionen des Protokolls, kein Code der zur Laufzeit etwas tut.

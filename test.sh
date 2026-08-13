@@ -21,7 +21,9 @@ run cargo test --target x86_64-unknown-linux-gnu \
       -p karst-mem -p karst-abi-native -p karst-abi-posix
 
 step "Kernel baut (Release, mit POSIX)"
-run ./build.sh
+# --fresh: die eigenen Crates werden wirklich neu uebersetzt. Sonst waere das
+# Bau-Log ein No-op und die Warnungspruefung weiter unten wertlos.
+run ./build.sh --fresh
 
 step "Kernel baut OHNE POSIX-Schicht"
 run ./build.sh --no-posix
@@ -119,17 +121,36 @@ arch_leak() {
     echo "  kein todo!()/unimplemented!() im Baum"
     # Warnungsfreiheit: der letzte Build darf keine einzige Compilerwarnung
     # erzeugt haben. Warnungen sind kein Rauschen, sondern unerledigte Arbeit.
-    if [[ -f build/cargo-build.log ]]; then
-        local warns
-        warns=$(grep -c '^warning:' build/cargo-build.log || true)
-        # Die Sammelzeile "generated N warnings" zaehlt selbst als warning.
+    # Nachweis, dass wirklich uebersetzt wurde: ein No-op-Log ("Finished ...
+    # in 0.09s") ist als Beleg fuer Warnungsfreiheit wertlos, und eine
+    # fehlende Datei darf die Pruefung nicht stillschweigend ueberspringen.
+    local blog=build/cargo-build-fresh.log
+    if [[ ! -f "$blog" ]]; then
+        echo "kein Log einer echten Uebersetzung ($blog fehlt) — ./build.sh --fresh laufen lassen"
+        return 1
+    fi
+    if ! grep -q '^ *Compiling ' "$blog"; then
+        echo "$blog belegt keine echte Uebersetzung (kein 'Compiling')"
+        return 1
+    fi
+    local warns crates_built
+    crates_built=$(grep -c '^ *Compiling ' "$blog")
+    for f in "$blog" build/cargo-build.log; do
+        warns=$(grep -c '^warning:' "$f" || true)
         if [[ "$warns" -gt 0 ]]; then
-            echo "Compilerwarnungen im letzten Build: $warns"
-            grep '^warning:' build/cargo-build.log | sort | uniq -c | head
+            echo "Compilerwarnungen in $f: $warns"
+            grep '^warning:' "$f" | sort | uniq -c | head
             return 1
         fi
-        echo "  Build ohne Compilerwarnungen"
+    done
+    echo "  Build ohne Compilerwarnungen ($crates_built Crate(s) wirklich uebersetzt)"
+    # Zusaetzlich haelt das Bausystem selbst dagegen: [workspace.lints.rust]
+    # warnings = "deny" laesst jede Warnung den Bau abbrechen.
+    if ! grep -q 'warnings = "deny"' Cargo.toml; then
+        echo "Cargo.toml: [workspace.lints.rust] warnings = \"deny\" fehlt"
+        return 1
     fi
+    echo "  Warnungen sind im Bausystem als Fehler geschaltet (deny)"
     local crates
     crates=$(grep -cE '^name = ' Cargo.lock)
     echo "  Crates in Cargo.lock (inkl. eigener): $crates"

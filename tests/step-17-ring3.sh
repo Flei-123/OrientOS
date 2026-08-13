@@ -11,7 +11,7 @@ ring3_check() {
     # Jede Zusage einzeln pruefen — eine Sammelzahl allein waere zu leicht
     # gruen zu bekommen.
     for muster in \
-        'CPU-Schutz  : Schnellaufruf ja,.*Per-CPU-Basis ja' \
+        'CPU-Schutz  : Schnellaufruf ja, Ausfuehrsperre ja, Zugriffssperre ja, Per-CPU-Basis ja' \
         'Systemaufrufpfad: eingerichtet' \
         'Abbildung   : Programm 0x[0-9a-f]+ \([0-9]+ B, RX\), Stapel 0x0000[0-9a-f]+\.\.0x0000[0-9a-f]+ \(RW, NX\)' \
         'Prozess     : pid [0-9]+ unprivilegiert, 1 Handle uebergeben' \
@@ -47,39 +47,33 @@ ring3_check() {
     else
         echo "  [ ok ] kein Uebergriff aus Ring 3 kam durch"
     fi
-    # Die Schutzbits der CPU (Ausfuehr-/Zugriffssperre) meldet das
-    # voreingestellte QEMU-Rechnermodell NICHT; der Kernel ueberspringt sie
-    # dann und vermerkt das. Damit dieser Pfad nicht nur behauptet ist, wird
-    # dasselbe Abbild ein zweites Mal mit einem Rechnermodell gestartet, das
-    # die Bits meldet — dort muessen sie tatsaechlich eingeschaltet sein UND
-    # der ganze Startvorgang muss weiterhin sauber durchlaufen (das offene
-    # Zugriffsfenster sitzt also an den richtigen Stellen).
-    local smaplog="build/ring3-smap.$$.log"
-    : > "$smaplog"
-    timeout 180 qemu-system-x86_64 -machine q35 -cpu max -m 512M \
-        -cdrom build/karstos.iso -boot d -no-reboot -display none \
-        -serial "file:$smaplog" >/dev/null 2>&1
+    # Gegenprobe fuer den ANDEREN Pfad: meldet die CPU die Schutzbits nicht,
+    # muss der Kernel sie sauber ueberspringen, das vermerken und trotzdem
+    # vollstaendig durchlaufen. Der Regelfall (Bits vorhanden, CR4 gesetzt)
+    # steckt oben im normalen Lauf — run-qemu.sh startet standardmaessig mit
+    # `-cpu max`, damit die CR4-Logik in KEINEM Lauf toter Code ist.
+    local plainlog="build/ring3-plain.$$.log"
+    : > "$plainlog"
+    ./run-qemu.sh --test-ring3 --cpu-basic >/dev/null 2>&1
+    cp -f build/boot.log "$plainlog"
     for muster in \
-        'CPU-Schutz  : Schnellaufruf ja, Ausfuehrsperre ja, Zugriffssperre ja, Per-CPU-Basis ja' \
+        'CPU-Schutz  : Schnellaufruf ja, Ausfuehrsperre nein \(uebersprungen\), Zugriffssperre nein \(uebersprungen\), Per-CPU-Basis ja' \
         'Ring 3      : CS=0x[0-9a-f]+ \(RPL=3\), CPL=3, .*, Ende 0' \
         'Schutzwall  : ([0-9]+)/\1 Uebergriffe aus Ring 3 abgewehrt' \
         'Selbsttestbilanz: ([0-9]+)/\1 bestanden' \
         'Startvorgang abgeschlossen' \
         ; do
-        if grep -qE "$muster" "$smaplog"; then
-            echo "  [ ok ] mit Schutzbits: $muster"
+        if grep -qE "$muster" "$plainlog"; then
+            echo "  [ ok ] ohne Schutzbits: $muster"
         else
-            echo "  [FEHL] mit Schutzbits fehlt: $muster"
+            echo "  [FEHL] ohne Schutzbits fehlt: $muster"
             rc=1
         fi
     done
-    if grep -qE 'FEHLER|WARNUNG' "$smaplog"; then
-        echo "  [FEHL] Lauf mit eingeschalteten Schutzbits meldet FEHLER/WARNUNG"
-        rc=1
-    else
-        echo "  [ ok ] Lauf mit eingeschalteten Schutzbits bleibt fehlerfrei"
-    fi
-    rm -f "$smaplog"
+    rm -f "$plainlog"
+    # Das Abbild fuer die naechsten Schritte wieder mit dem Standardmodell
+    # herstellen (der Lauf oben hat build/boot.log ueberschrieben).
+    ./run-qemu.sh --test-ring3 >/dev/null 2>&1
     # Der Privilegwechsel selbst darf nur in arch/ stehen: kein syscall-MSR,
     # kein swapgs, kein iretq ausserhalb von kernel/src/arch/.
     if grep -rnE '\b(swapgs|iretq|sysret|LSTAR|STAR|SFMASK)\b' kernel/src --include='*.rs' \

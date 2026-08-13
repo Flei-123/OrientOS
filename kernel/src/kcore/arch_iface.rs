@@ -308,6 +308,21 @@ pub trait ArchOps {
         UserExit { reason: "Architektur kennt keine unprivilegierte Ebene", ..UserExit::default() }
     }
 
+    /// Schaltet um, ob ein unprivilegiertes Programm vom Zeitgeber verdraengt
+    /// und spaeter FORTGESETZT werden darf (statt abgeraeumt zu werden).
+    ///
+    /// Liefert `false`, wenn die Architektur das nicht anbietet. Der Aufrufer
+    /// muss aus einem Thread mit eigenem Kernelstapel kommen.
+    fn set_user_preemptible(_on: bool) -> bool {
+        false
+    }
+
+    /// Wie oft ein unprivilegiertes Programm verdraengt und danach
+    /// fortgesetzt wurde.
+    fn user_preemptions() -> u64 {
+        0
+    }
+
     /// Codesegment-Selektor des gerade laufenden Kontrollflusses (Diagnose).
     fn code_selector() -> u16 {
         0

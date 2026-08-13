@@ -1190,6 +1190,59 @@ fn deadlock_selftest() -> bool {
     zusagen == 3
 }
 
+// -------------------------------------------- Zweier-Lauf fuer fremde Nachweise
+
+/// Ergebnis eines Laufs mit zwei verdraengbaren Threads.
+pub struct TwoRun {
+    /// Erzwungene (zeitgebergetriebene) Wechsel waehrend des Laufs.
+    pub forced: u64,
+    /// Freiwillige Wechsel waehrend des Laufs.
+    pub coop: u64,
+    /// Lief der Planer sauber zu Ende (keine Verklemmung, nichts blockiert,
+    /// keine ueberschriebene Stapelwachzone)?
+    pub clean: bool,
+    /// Verbrauchte Zeitgebertick(s) je Thread in Aufnahmereihenfolge.
+    pub ticks: [u64; 2],
+}
+
+/// Laesst zwei verdraengbare Threads gegeneinander laufen und meldet, was
+/// dabei messbar war.
+///
+/// Bewusst allgemein gehalten: der Nachweis der unprivilegierten Ebene
+/// (`kcore::user`) braucht genau diesen Ablauf, soll aber nichts ueber die
+/// Innereien des Planers wissen muessen. Beide Threads sind verdraengbar und
+/// laufen mit gleicher Prioritaet.
+///
+/// Liefert `None`, wenn die Threads nicht angelegt werden konnten.
+pub fn run_two_preemptible(
+    a: extern "C" fn() -> !,
+    b: extern "C" fn() -> !,
+    stack_a: usize,
+    stack_b: usize,
+) -> Option<TwoRun> {
+    let mut s = CoopScheduler::new();
+    s.spawn_prio(a, stack_a, PRIO_MIN)?;
+    s.spawn_prio(b, stack_b, PRIO_MIN)?;
+    let f0 = crate::kcore::preempt::preemptive_switches();
+    let c0 = crate::kcore::preempt::cooperative_switches();
+    with_active(&mut s, |s| {
+        // Sicher: genau ein Lauf, aus dem Kontext von `kmain`.
+        unsafe { s.run() }
+    });
+    let mut ticks = [0u64; 2];
+    for (n, (_id, _prio, t)) in s.tick_shares().enumerate() {
+        if n < 2 {
+            ticks[n] = t;
+        }
+    }
+    Some(TwoRun {
+        forced: crate::kcore::preempt::preemptive_switches() - f0,
+        coop: crate::kcore::preempt::cooperative_switches() - c0,
+        clean: !s.deadlocked() && s.blocked() == 0 && s.stacks_intact(),
+        ticks,
+    })
+}
+
 // ------------------------------------------------------ Selbsttest Verdraengung
 
 /// So viele Zaehlschleifen laufen im Verdraengungstest gegeneinander.

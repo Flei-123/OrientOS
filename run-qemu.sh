@@ -15,6 +15,12 @@
 #   ./run-qemu.sh --test-ring3     unprivilegiertes Programm + Negativtest
 #   ./run-qemu.sh --test-elf       ELF-Lader aus dem Startdateisystem
 #   ./run-qemu.sh --test-handles   Handle-Negativtests aus Ring 3
+#   ./run-qemu.sh --cpu-basic      Rechnermodell OHNE SMEP/SMAP (Gegenprobe)
+#
+# Rechnermodell: standardmaessig `-cpu max`. Nur dieses Modell meldet per CPUID
+# die Schutzbits SMEP/SMAP — mit dem QEMU-Standardmodell (qemu64) waere die
+# CR4-Logik in arch/x86_64/user.rs in JEDEM Testlauf toter Code. Der
+# Ueberspringen-Pfad wird eigens mit --cpu-basic geprueft.
 set -uo pipefail
 cd "$(dirname "$0")"
 
@@ -24,6 +30,8 @@ UEFI=0
 NOPOSIX=0
 TIMEOUT=25
 MEM=512M
+# `max` = alles, was diese QEMU-Version in TCG anbietet, inklusive SMEP/SMAP.
+CPU=max
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -40,6 +48,7 @@ while [[ $# -gt 0 ]]; do
         --test-ring3) FEATURES=test-ring3; MODE=check; shift ;;
         --test-elf) FEATURES=test-elf; MODE=check; shift ;;
         --test-handles) FEATURES=test-handles; MODE=check; shift ;;
+        --cpu-basic) CPU=qemu64; shift ;;
         --no-posix) NOPOSIX=1; shift ;;
         --timeout) TIMEOUT="$2"; shift 2 ;;
         -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
@@ -69,6 +78,7 @@ fi
 
 QEMU=(qemu-system-x86_64
       -machine q35
+      -cpu "$CPU"
       -m "$MEM"
       -cdrom "$ISO"
       -boot d

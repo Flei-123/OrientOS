@@ -17,15 +17,22 @@ trägt ihn hier ein. Kein Eintrag ohne Datei und Zeile.
 
 **Stand:** Runde 3, Phase 1–3 (Boot-Kern, verdrängender Scheduler, Ring 3,
 ELF-Lader, Capabilities).
-Messwerte: 413 `unsafe`-Vorkommen in `kernel/src` (vorher 308), 16 `static mut`
-(vorher 13), 36 `addr_of!`/`&raw` (vorher 25), 2 nightly-Features (unverändert),
-1 `transmute` (unverändert), 3 Dateien mit `naked_asm!` (vorher 1).
+**Stand der Verweise:** Jeder Verweis hat die Form `` `datei.rs:Zeile` (`Anker`) ``
+und wird von `test.sh` (Schritt „Doku-Verweise") maschinell geprüft: der Anker
+muss im Umkreis von drei Zeilen um die angegebene Zeile wirklich im Quelltext
+stehen. Verrutschte Zeilennummern fallen damit sofort auf, statt jahrelang
+falsch dazustehen.
+
+Messwerte (gemessen am 13.08.2026, Befehle in `PREFLIGHT.md`): 437
+`unsafe`-Vorkommen in `kernel/src` (vorher 413), 16 `static mut` (unverändert),
+53 `addr_of!`/`&raw`, 2 nightly-Features (unverändert), 1 `transmute`
+(unverändert), 3 Dateien mit `naked_asm!` (unverändert).
 
 ---
 
 ## L-01 · `abi_x86_interrupt` — nightly für etwas Fundamentales
 
-* **Datei:** `kernel/src/main.rs:23`, benutzt in `kernel/src/arch/x86_64/interrupts.rs`
+* **Datei:** `kernel/src/main.rs:26` (`abi_x86_interrupt`), benutzt in `kernel/src/arch/x86_64/interrupts.rs`
 * **Problem:** Ausnahmehandler brauchen eine eigene Aufrufkonvention (die CPU
   legt einen anderen Rahmen ab, es endet mit `iretq`, bei manchen Vektoren liegt
   ein Fehlercode auf dem Stack). Rust kann das nur über ein **instabiles**
@@ -41,7 +48,7 @@ Messwerte: 413 `unsafe`-Vorkommen in `kernel/src` (vorher 308), 16 `static mut`
 
 ## L-02 · `alloc_error_handler` — nightly für eine Fehlermeldung
 
-* **Datei:** `kernel/src/main.rs:27`
+* **Datei:** `kernel/src/main.rs:30` (`alloc_error_handler`)
 * **Problem:** Wir wollen bei erschöpftem Heap eine **lesbare** Meldung mit
   Heap-Statistik statt eines nackten Panics. Das erfordert ein weiteres
   instabiles Feature.
@@ -53,7 +60,7 @@ Messwerte: 413 `unsafe`-Vorkommen in `kernel/src` (vorher 308), 16 `static mut`
 
 ## L-03 · `naked` + `naked_asm` für den Kontextwechsel
 
-* **Datei:** `kernel/src/arch/x86_64/context.rs:111`
+* **Datei:** `kernel/src/arch/x86_64/context.rs:100` (`fn switch`)
 * **Problem:** Ein Kontextwechsel darf **keinen** vom Compiler erzeugten Prolog
   und Epilog haben — er tauscht den Stack unter sich selbst aus. Rust braucht
   dafür `#[unsafe(naked)]` plus `naked_asm!` und verbietet in solchen Funktionen
@@ -69,9 +76,11 @@ Messwerte: 413 `unsafe`-Vorkommen in `kernel/src` (vorher 308), 16 `static mut`
 ## L-04 · `static mut` überall dort, wo Hardware die Adresse vorgibt
 
 * **Dateien:** 13 Stellen, u. a.
-  `arch/x86_64/idt.rs:50` (IDT), `arch/x86_64/gdt.rs:36` (GDT, TSS, IST-Stapel),
-  `boot/limine.rs:64` (Memory-Map-Puffer), `kcore/sched.rs:421` (aktiver Planer),
-  `kcore/print.rs:31` (Konsolen-Senke)
+  `kernel/src/arch/x86_64/idt.rs:50` (`static mut IDT`),
+  `kernel/src/arch/x86_64/gdt.rs:36` (`static mut DF_STACK`),
+  `kernel/src/boot/limine.rs:68` (`static mut REGIONS`),
+  `kernel/src/kcore/sched.rs:734` (`static mut ACTIVE`),
+  `kernel/src/kcore/print.rs:31` (`static mut SINK_OBJ`)
 * **Problem:** Diese Objekte haben **genau eine** Instanz, ihre Adresse wird der
   Hardware übergeben (`lidt`, `lgdt`, `ltr`), und sie werden aus
   Interrupt-Kontext gelesen. Rusts Eigentumsmodell hat dafür keine Kategorie:
@@ -133,7 +142,7 @@ Messwerte: 413 `unsafe`-Vorkommen in `kernel/src` (vorher 308), 16 `static mut`
 
 ## L-08 · `transmute` für einen Funktionszeiger auf Daten
 
-* **Datei:** `kernel/src/arch/x86_64/selftest.rs:71`
+* **Datei:** `kernel/src/arch/x86_64/selftest.rs:71` (`transmute`)
 * **Problem:** Der NX-Selbsttest muss absichtlich in einen Datenpuffer springen.
   Rust kennt keinen Weg, aus einer Adresse einen aufrufbaren Zeiger zu machen,
   außer `transmute` — dem stumpfsten Werkzeug der Sprache, das alles erlaubt.
@@ -174,8 +183,9 @@ Messwerte: 413 `unsafe`-Vorkommen in `kernel/src` (vorher 308), 16 `static mut`
 
 ## L-11 · Der volle Registersatz ist Handarbeit — und niemand prüft ihn
 
-* **Dateien:** `kernel/src/arch/x86_64/preempt.rs:158` (`irq0_entry`,
-  `naked_asm!`), Struktur `FullFrame` ab Zeile 47 derselben Datei
+* **Dateien:** `kernel/src/arch/x86_64/preempt.rs:244` (`fn irq0_entry`,
+  `naked_asm!`), Struktur `kernel/src/arch/x86_64/preempt.rs:90`
+  (`struct FullFrame`) derselben Datei
 * **Problem:** Für Präemption muss der Einsprung **alle 15** GPR retten (der
   kooperative Wechsel kommt mit den callee-saved aus). Der Assemblerteil pusht
   sie in einer Reihenfolge; die Rust-Struktur `FullFrame`, mit der der Verteiler
@@ -195,15 +205,19 @@ Messwerte: 413 `unsafe`-Vorkommen in `kernel/src` (vorher 308), 16 `static mut`
 
 ## L-12 · Systemaufruf-Einsprung: eine Konvention, die Rust nicht kennt
 
-* **Dateien:** `kernel/src/arch/x86_64/user.rs:453` (`syscall_entry`),
-  `:499`, `:521`, `:570` — vier weitere `naked_asm!`-Rümpfe
+* **Dateien:** `kernel/src/arch/x86_64/user.rs:773` (`fn syscall_entry`),
+  `kernel/src/arch/x86_64/user.rs:656` (`fn enter_ring3`),
+  `kernel/src/arch/x86_64/user.rs:702` (`fn resume_kernel`),
+  `kernel/src/arch/x86_64/user.rs:724` (`fn resume_kernel_after_fault`)
+  — vier weitere `naked_asm!`-Rümpfe
 * **Problem:** Bei `syscall` liefert die CPU keinen Stapelrahmen, sondern legt
   den Rücksprung in `rcx`, die Flags in `r11` und **behält den Stapel des
   Aufrufers** — der Kernel muss selbst umschalten, vorher das Basisregister
   tauschen und danach exakt in umgekehrter Reihenfolge zurück. Rust hat dafür
   keine Aufrufkonvention; `extern "C"` wäre schlicht falsch. Ergebnis: fünf
   nackte Funktionen in einer Datei, in denen der Compiler nichts prüfen kann,
-  und ein Per-CPU-Block als `static mut` (`user.rs:91`), weil „gehört diesem
+  und ein Per-CPU-Block als `static mut`
+  (`kernel/src/arch/x86_64/user.rs:117` (`static mut PERCPU`)), weil „gehört diesem
   Prozessorkern" keine Kategorie im Eigentumsmodell ist.
 * **Workaround:** alles in eine Datei, ausführlicher Ablaufkommentar im
   Modulkopf, Messwerte (CS, CPL, Stapel) aus einem **echten** Ausnahmerahmen
@@ -215,8 +229,9 @@ Messwerte: 413 `unsafe`-Vorkommen in `kernel/src` (vorher 308), 16 `static mut`
 
 ## L-13 · Ein Zeiger aus Ring 3 sieht aus wie jeder andere Zeiger
 
-* **Dateien:** `kernel/src/kcore/user.rs:57` (`is_user_addr`), `:196`
-  (Abweisung im Log), Pufferprüfung im Verteiler `kernel/src/abi/native.rs`
+* **Dateien:** `kernel/src/kcore/user.rs:66` (`fn is_user_addr`),
+  `kernel/src/kcore/user.rs:254` (`aus Ring 3 abgewiesen`, Meldung im Log),
+  Pufferprüfung im Verteiler `kernel/src/abi/native.rs`
 * **Problem:** Ein Systemaufruf bekommt Adresse und Länge als zwei `u64`. Im
   Typsystem ist nichts daran anders als an einer Kerneladresse — die Prüfung
   „liegt im eigenen Bereich, Länge läuft nicht über" ist reine Disziplin an
@@ -231,7 +246,7 @@ Messwerte: 413 `unsafe`-Vorkommen in `kernel/src` (vorher 308), 16 `static mut`
 
 ## L-14 · Bytes in Strukturen lesen: entweder `unsafe` oder von Hand
 
-* **Datei:** `kernel/src/kcore/elf.rs:133`–`143` (`u16/u32/u64`-Leser),
+* **Datei:** `kernel/src/kcore/elf.rs:148` (`fn rd16`), daneben `rd32`/`rd64`,
   ähnlich in `kernel/src/kcore/initramfs.rs`
 * **Problem:** Ein ELF-Kopf und ein Archiveintrag sind Bytefolgen fester Lage.
   Rust bietet dafür genau zwei Wege: `transmute`/Zeigerspiel (unsicher, und bei
@@ -250,7 +265,7 @@ Messwerte: 413 `unsafe`-Vorkommen in `kernel/src` (vorher 308), 16 `static mut`
 
 ## L-15 · Im Interrupt darf nicht allokiert werden — sagt nur der Kommentar
 
-* **Dateien:** `kernel/src/kcore/preempt.rs`, `kernel/src/kcore/sched.rs:557`
+* **Dateien:** `kernel/src/kcore/preempt.rs`, `kernel/src/kcore/sched.rs:734`
   (`static mut ACTIVE`)
 * **Problem:** Der Zeitgebereinsprung entscheidet über einen Threadwechsel. Er
   darf dabei weder den Heap anfassen (der Sperren nimmt) noch eine Sperre
@@ -307,3 +322,46 @@ Richtung ist inzwischen eindeutig.
   Betriebssystem.
 * Solange die Liste oben zehn Einträge hat und nicht hundert, ist die ehrliche
   Antwort: **Rust reicht.**
+
+## L-16 · Ein Ausnahmerahmen gehört zu einem Stapel — die Sprache weiß es nicht
+
+* **Dateien:** `kernel/src/arch/x86_64/user.rs:162` (`const TRAP_GAP`),
+  `kernel/src/arch/x86_64/preempt.rs:60` (`static USER_PREEMPTIONS`),
+  `kernel/src/kcore/user.rs:510` (`fn run_preemptible`)
+* **Problem:** Damit ein Programm in Ring 3 verdrängt und später **fortgesetzt**
+  werden kann, muss der Rahmen, den die CPU beim Privilegwechsel ablegt, auf dem
+  Kernelstapel **genau des Threads** liegen, der das Programm trägt. Liegt er auf
+  einem gemeinsamen Stapel, überschreibt ihn der nächste Wechsel — und das
+  Programm kehrt in einen Zustand zurück, den es nie hatte. Diese Bindung
+  „Rahmen ↔ Stapel ↔ Thread" ist im Typsystem nirgends sichtbar: `TSS.rsp0` ist
+  eine nackte Zahl, und ob sie gerade auf den richtigen Stapel zeigt, weiß nur
+  der Mensch. Ein Fehler hier äußert sich nicht als Absturz an der Fehlerstelle,
+  sondern als sporadisch falsches Register Millisekunden später.
+* **Workaround:** Der Stapel wird beim Eintritt in Ring 3 aus dem eigenen
+  Stapelzeiger abgeleitet (`TRAP_GAP` Abstand) und danach zurückgesetzt; ein
+  Schalter (`set_preemptible`) trennt die beiden Betriebsarten hart, und der
+  Nachweis läuft in jedem Boot mit (12 Unterbrechungen, Programm endet trotzdem
+  mit Code 0).
+* **Eigene Sprache:** Stapel sollten **Typen mit Kapazität und Besitzer** sein,
+  keine `u64`. „Diese Ausnahme legt ihren Rahmen auf Stapel S ab, S gehört
+  Thread T, T ist gerade eingelastet" ist eine Aussage, die eine Systemsprache
+  prüfen können sollte. Solange sie es nicht kann, ist Präemption in Ring 3
+  Handarbeit mit sehr scharfen Kanten.
+
+## L-17 · `swapgs`: globaler Zustand, den kein Typ beschreibt
+
+* **Dateien:** `kernel/src/arch/x86_64/user.rs:688` (`swapgs` im Einsprung),
+  `kernel/src/arch/x86_64/preempt.rs:244` (`fn irq0_entry`, bewusst **ohne**
+  `swapgs`)
+* **Problem:** Ob `gs:` gerade auf den Kernel- oder auf den Programmblock zeigt,
+  hängt davon ab, wie oft `swapgs` auf dem Weg hierher ausgeführt wurde. Das ist
+  versteckter globaler Zustand: dieselbe Rust-Funktion ist je nach Aufrufweg
+  korrekt oder nicht. Rust hat dafür keinen Begriff, und `unsafe` sagt nur
+  „hier passiert etwas Gefährliches", nicht „hier gilt Zustand X".
+* **Workaround:** Genau eine Datei fasst `swapgs` an, der Modulkopf beschreibt
+  jeden Pfad einzeln, und der Verdrängungspfad kommt bewusst ohne aus (er
+  benutzt `gs:` nicht).
+* **Eigene Sprache:** So etwas gehört als **Effekt/Zustandsindex** in die
+  Signatur: `fn dispatch(...) requires gs = kernel`. Der Compiler weist dann den
+  Aufruf aus einem Pfad ab, der den Zustand nicht hergestellt hat — statt dass
+  ein Mensch drei Aufrufwege im Kopf behält.

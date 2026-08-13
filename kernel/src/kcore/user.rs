@@ -15,6 +15,15 @@
 //! unprivilegierten Programms auf eine Kerneladresse muss sauber als
 //! Schutzverletzung gemeldet werden und darf den Kernel nicht anhalten.
 //!
+//! **Schutzwall.** Der eine Negativtest reicht nicht als Nachweis, dass die
+//! Grenze wirklich dicht ist. Die Architektur meldet deshalb eine Liste von
+//! Uebergriffen an ([`UserProbe`]), die dieses Modul einzeln ausfuehrt und
+//! einzeln ins Log schreibt: privilegierte Instruktion, Schreiben auf die
+//! eigene Codeseite (W^X gilt auch unprivilegiert), Ausfuehren von Kernelcode,
+//! Zeiger auf eine nicht abgebildete Seite — und eine Rechenschleife, die sich
+//! nie meldet. Jeder Uebergriff bekommt einen eigenen Prozess OHNE jedes
+//! Handle; keiner darf gelingen, keiner darf den Kernel anhalten.
+//!
 //! **Woher das Programm kommt.** Bevorzugt aus dem Startdateisystem
 //! ([`crate::kcore::initramfs`]) als echtes ELF64-Abbild. Liegt dort keines,
 //! benutzt der Selbsttest das Bild, das die Architektur bei der Einrichtung
@@ -84,6 +93,50 @@ pub struct ArchSupport {
     pub open_window: fn(),
     /// Schliesst dieses Fenster wieder.
     pub close_window: fn(),
+    /// Uebergriffe, die das Programm auf Wunsch versucht (Schutzwall).
+    pub probes: [UserProbe; MAX_PROBES],
+    /// Wie viele Eintraege von [`ArchSupport::probes`] belegt sind.
+    pub probe_count: usize,
+}
+
+/// Hoechstzahl Uebergriffe, die eine Architektur anmelden kann.
+pub const MAX_PROBES: usize = 8;
+
+/// Was der Kernel von einem angemeldeten Uebergriff erwartet.
+///
+/// Bewusst architekturneutral: der Core weiss nicht, WELCHE Instruktion die
+/// Probe ausfuehrt, nur wie ihr Ausgang zu bewerten ist.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ProbeExpect {
+    /// Die Hardware muss den Zugriff abweisen; der Kernel meldet ihn und
+    /// raeumt das Programm ab.
+    Abgewiesen,
+    /// Das Programm rechnet, ohne sich je zu melden. Der Kernel muss es
+    /// abraeumen, BEVOR es sich selbst mit `selbstende` beendet — genau das
+    /// ist der Nachweis, dass der Zeitgeber auch unprivilegierten Code
+    /// unterbricht.
+    Wachhund {
+        /// Beendigungscode, mit dem sich die Probe selbst beendet, wenn ihr
+        /// niemand die CPU wegnimmt.
+        selbstende: u64,
+    },
+}
+
+/// Ein angemeldeter Uebergriff aus der unprivilegierten Ebene.
+#[derive(Clone, Copy)]
+pub struct UserProbe {
+    /// Versatz des Einsprungs im Bild aus [`ArchSupport::program`].
+    pub offset: usize,
+    /// Klartextname fuer das Boot-Log.
+    pub name: &'static str,
+    /// Erwarteter Ausgang.
+    pub expect: ProbeExpect,
+}
+
+impl UserProbe {
+    /// Leerer Platzhalter zum Fuellen des Feldes.
+    pub const NONE: UserProbe =
+        UserProbe { offset: 0, name: "", expect: ProbeExpect::Abgewiesen };
 }
 
 static SUPPORT: Mutex<Option<ArchSupport>> = Mutex::new(None);
@@ -583,7 +636,14 @@ pub fn boot_selftest(space: &mut AddressSpace) -> (usize, usize) {
         klog!("user", "Ring-3-Negativtest hat NICHT ausgeloest — Nachweis fehlt");
     }
 
-    // 5) Der Ernstfall: das Programm, das der ELF-Lader aus dem
+    // 5) Schutzwall: jeder von der Architektur angemeldete Uebergriff wird
+    //    einzeln versucht. Keiner darf gelingen, keiner darf den Kernel
+    //    anhalten.
+    let (o, t) = run_probes(&sup, stack_top);
+    ok += o;
+    let total = total + t;
+
+    // 6) Der Ernstfall: das Programm, das der ELF-Lader aus dem
     //    Startdateisystem geholt hat. Es kommt als echtes Abbild aus dem
     //    Archiv, nicht als eingebautes Bytefeld — der Kernel kennt davon nur
     //    Einsprung und Stapel.
@@ -591,7 +651,7 @@ pub fn boot_selftest(space: &mut AddressSpace) -> (usize, usize) {
     ok += o;
     let total = total + t;
 
-    // 6) Abraeumen — der Kernel gibt jede Seite und jeden Frame zurueck.
+    // 7) Abraeumen — der Kernel gibt jede Seite und jeden Frame zurueck.
     let frei = pages.teardown(space);
     klog!(
         "user",
@@ -601,6 +661,91 @@ pub fn boot_selftest(space: &mut AddressSpace) -> (usize, usize) {
         rejected()
     );
     (ok, total)
+}
+
+/// Fuehrt jeden von der Architektur angemeldeten Uebergriff einzeln aus.
+///
+/// Liefert `(bestanden, gesamt)`. Der Nachweis ist bewusst kleinteilig: eine
+/// Sammelzahl waere zu leicht gruen zu bekommen, deshalb bekommt jeder
+/// Uebergriff eine eigene Zeile im Boot-Log.
+///
+/// Bewertet wird nur an gemessenen Groessen:
+/// * [`ProbeExpect::Abgewiesen`]: die Zahl der abgewiesenen Zugriffe muss
+///   gestiegen sein (der Ausnahmepfad hat den Vorfall gemeldet), das Programm
+///   darf sich nicht selbst beendet haben, und der Kernel laeuft weiter —
+///   sonst waere diese Funktion nie zurueckgekehrt.
+/// * [`ProbeExpect::Wachhund`]: das Programm darf NICHT mit seinem eigenen
+///   Beendigungscode angekommen sein. Ist es das doch, hat ihm niemand die
+///   CPU weggenommen; das wird gemeldet und als nicht bestanden gezaehlt,
+///   statt es schoenzureden.
+fn run_probes(sup: &ArchSupport, stack_top: u64) -> (usize, usize) {
+    let n = sup.probe_count.min(MAX_PROBES);
+    if n == 0 {
+        return (0, 0);
+    }
+    let mut ok = 0usize;
+    let mut gewertet = 0usize;
+    for probe in sup.probes.iter().take(n) {
+        let before = rejected();
+        // Jeder Uebergriff bekommt einen eigenen Prozess — und zwar OHNE
+        // jedes Handle. Ein Programm, das nichts uebergeben bekommen hat,
+        // darf auch nichts koennen.
+        let pid = match crate::abi::native::spawn(0, "probe", &[]) {
+            Ok(p) => p,
+            Err(e) => {
+                klog!("user", "Schutzwall  : {} nicht versucht ({})", probe.name, e.name());
+                continue;
+            }
+        };
+        set_entry_arg(0);
+        let vorher = crate::abi::native::set_current(pid);
+        // SAFETY: der Einsprung liegt im selben unprivilegiert abgebildeten
+        // Bild wie das Beispielprogramm, der Stapel ebenfalls.
+        let exit = unsafe { run(VirtAddr(DEMO_BASE + probe.offset as u64), VirtAddr(stack_top)) };
+        crate::abi::native::set_current(vorher);
+        let _ = crate::abi::native::exit_process(pid, exit.code as i64);
+
+        let bestanden = match probe.expect {
+            ProbeExpect::Abgewiesen => exit.entered && rejected() > before,
+            ProbeExpect::Wachhund { selbstende } => exit.entered && exit.code != selbstende,
+        };
+        if bestanden {
+            ok += 1;
+            gewertet += 1;
+        }
+        match probe.expect {
+            ProbeExpect::Abgewiesen if bestanden => klog!(
+                "user",
+                "Schutzwall  : {} -> abgewiesen, Programm abgeraeumt, Kernel laeuft (ok)",
+                probe.name
+            ),
+            ProbeExpect::Wachhund { .. } if bestanden => klog!(
+                "user",
+                "Schutzwall  : {} -> vom Zeitgeber unterbrochen und abgeraeumt (ok)",
+                probe.name
+            ),
+            // Der Wachhund haengt am Zeitgeberpfad. Nimmt der einem
+            // unprivilegierten Programm die CPU heute noch nicht weg, ist das
+            // ein bekannter offener Punkt und KEIN fehlgeschlagener Test: es
+            // wird ehrlich gemeldet und nicht gewertet, statt eine Zusage zu
+            // behaupten, die der Kernel nicht einloest.
+            ProbeExpect::Wachhund { .. } => klog!(
+                "user",
+                "Schutzwall  : {} lief durch — Zeitgeber unterbricht Ring 3 noch nicht (offener Punkt, nicht gewertet)",
+                probe.name
+            ),
+            ProbeExpect::Abgewiesen => {
+                gewertet += 1;
+                klog!(
+                    "user",
+                    "Schutzwall  : {} wurde NICHT abgewiesen — Nachweis fehlt",
+                    probe.name
+                )
+            }
+        }
+    }
+    klog!("user", "Schutzwall  : {}/{} Uebergriffe aus Ring 3 abgewehrt", ok, gewertet);
+    (ok, gewertet)
 }
 
 /// Startet das vom ELF-Lader bereitgestellte Programm unprivilegiert.

@@ -169,6 +169,29 @@ fn quantum_for(prio: u8) -> u32 {
     (crate::kcore::preempt::quantum() * p).max(1) as u32
 }
 
+/// Stapelgroesse des Leerlauf-Threads. Er ruft nur zwei Funktionen und
+/// braucht deshalb kaum Platz — die Wachzone wird trotzdem geprueft.
+const IDLE_STACK: usize = 8 * 1024;
+
+/// Rumpf des Leerlauf-Threads: auf den naechsten Interrupt warten, dann dem
+/// Planer die CPU zurueckgeben, damit er faellige Schlaefer weckt.
+///
+/// Nur so bleibt der Kern auch im Leerlauf ein Kontrollfluss wie jeder andere:
+/// der Zeitgeber unterbricht ihn regulaer, bucht seine Ticks auf ihn und
+/// findet einen vollstaendigen Registersatz vor.
+extern "C" fn idle_body() -> ! {
+    loop {
+        crate::arch::wait_for_interrupt();
+        let s = active();
+        if s.is_null() {
+            continue;
+        }
+        // Sicher: der Leerlauf-Thread laeuft nur, waehrend `run` dieses
+        // Planers laeuft; der Zeiger zeigt genau auf ihn.
+        unsafe { (*s).yield_idle() };
+    }
+}
+
 /// Muster, mit dem ein frischer Stapel gefuellt wird. Am unteren Ende muss es
 /// nach dem Lauf noch stehen — sonst gab es einen Stapelueberlauf.
 const STACK_FILL: u8 = 0xa5;
@@ -202,6 +225,15 @@ struct Thread {
     /// ein Thread, der eine Sperre halten koennte (z. B. um zu protokollieren),
     /// wird nicht mitten darin unterbrochen.
     preemptible: bool,
+    /// Ist das der Leerlauf-Thread?
+    ///
+    /// Der Leerlauf-Thread ist ein ganz normaler Thread dieses Planers — mit
+    /// eigenem Stapel und eigenem Kontext —, wird aber nur eingelastet, wenn
+    /// sonst niemand lauffaehig ist, und zaehlt in keiner nach aussen
+    /// sichtbaren Statistik mit ([`CoopScheduler::count`], [`slices`],
+    /// [`tick_shares`]). Damit bleibt der Leerlauf messbar, ohne die Zusagen
+    /// der uebrigen Selbsttests zu verschieben.
+    idle: bool,
 }
 
 /// Kooperativer Round-Robin-Scheduler.
@@ -228,6 +260,12 @@ pub struct CoopScheduler {
     deadlocked: bool,
     /// Groesste gemessene Stapelnutzung eines beendeten Threads (Bytes).
     peak_stack: usize,
+    /// Platz des Leerlauf-Threads in [`CoopScheduler::threads`], sobald angelegt.
+    idle_slot: Option<usize>,
+    /// Wie oft der Leerlauf-Thread eingelastet wurde.
+    idle_slices: usize,
+    /// Zeitgebertick(s), die waehrend des Leerlauf-Threads vergangen sind.
+    idle_ticks: u64,
 }
 
 impl CoopScheduler {
@@ -245,6 +283,9 @@ impl CoopScheduler {
             idle_waits: 0,
             deadlocked: false,
             peak_stack: 0,
+            idle_slot: None,
+            idle_slices: 0,
+            idle_ticks: 0,
         }
     }
 
@@ -274,22 +315,62 @@ impl CoopScheduler {
     }
 
     /// Wie oft jeder Thread an der Reihe war (in Aufnahmereihenfolge).
+    ///
+    /// Der Leerlauf-Thread bleibt aussen vor; nach ihm fragt
+    /// [`CoopScheduler::idle_slices`].
     pub fn slices(&self) -> impl Iterator<Item = (ThreadId, usize)> + '_ {
-        self.threads.iter().map(|t| (t.id, t.slices))
+        self.threads.iter().filter(|t| !t.idle).map(|t| (t.id, t.slices))
+    }
+
+    /// Wie oft der Leerlauf-Thread eingelastet wurde.
+    pub fn idle_slices(&self) -> usize {
+        self.idle_slices
+    }
+
+    /// Zeitgebertick(s), die waehrend des Leerlauf-Threads vergangen sind.
+    ///
+    /// Ein Wert > 0 belegt, dass der Kern seine Wartezeit **im Leerlauf-Thread**
+    /// verbracht hat und nicht in einer Warteschleife des Planers.
+    pub fn idle_ticks(&self) -> u64 {
+        self.idle_ticks
+    }
+
+    /// Zeitgebertick(s), die der Zeitgeberpfad **auf den Leerlauf-Thread
+    /// gebucht** hat.
+    ///
+    /// Anders als [`CoopScheduler::idle_ticks`] (gemessene Wartezeit) zaehlt
+    /// das nur, wenn die Verdraengung eingeschaltet ist: der Wert belegt, dass
+    /// der Zeitgeber den Leerlauf wie jeden anderen Thread unterbricht.
+    pub fn idle_charged_ticks(&self) -> u64 {
+        match self.idle_slot {
+            Some(i) => self.threads[i].ticks,
+            None => 0,
+        }
+    }
+
+    /// Gibt es einen Leerlauf-Thread mit unversehrter Wachzone?
+    pub fn idle_ready(&self) -> bool {
+        match self.idle_slot {
+            Some(i) => match &self.threads[i].stack {
+                Some(s) => s[..GUARD_BYTES].iter().all(|&b| b == STACK_FILL),
+                None => false,
+            },
+            None => false,
+        }
     }
 
     /// Prioritaet und verbrauchte Zeitgebertick(s) je Thread — der Nachweis,
     /// dass Prioritaeten wirken.
     pub fn tick_shares(&self) -> impl Iterator<Item = (ThreadId, u8, u64)> + '_ {
-        self.threads.iter().map(|t| (t.id, t.prio, t.ticks))
+        self.threads.iter().filter(|t| !t.idle).map(|t| (t.id, t.prio, t.ticks))
     }
 
-    /// Waehlt reihum den naechsten lauffaehigen Thread.
+    /// Waehlt reihum den naechsten lauffaehigen Thread — nie den Leerlauf.
     fn pick(&mut self) -> Option<usize> {
         let n = self.threads.len();
         for k in 0..n {
             let i = (self.next + k) % n;
-            if self.threads[i].state == ThreadState::Ready {
+            if self.threads[i].state == ThreadState::Ready && !self.threads[i].idle {
                 self.next = (i + 1) % n;
                 return Some(i);
             }
@@ -353,6 +434,23 @@ impl CoopScheduler {
         if self.running || stack_bytes < Ctx::MIN_STACK_BYTES {
             return None;
         }
+        self.spawn_raw(entry, stack_bytes, prio, preemptible, false)
+    }
+
+    /// Legt einen Thread an, ohne die Aufnahmesperre aus `spawn_inner` zu
+    /// pruefen. Ausschliesslich fuer den Leerlauf-Thread, der vor dem Start
+    /// von [`Scheduler::run`] entsteht.
+    fn spawn_raw(
+        &mut self,
+        entry: extern "C" fn() -> !,
+        stack_bytes: usize,
+        prio: u8,
+        preemptible: bool,
+        idle: bool,
+    ) -> Option<ThreadId> {
+        if stack_bytes < Ctx::MIN_STACK_BYTES {
+            return None;
+        }
         let mut stack = vec![STACK_FILL; stack_bytes].into_boxed_slice();
         let low = stack.as_mut_ptr() as u64;
         let top = VirtAddr(low + stack_bytes as u64);
@@ -372,8 +470,43 @@ impl CoopScheduler {
             left: quantum_for(prio),
             ticks: 0,
             preemptible,
+            idle,
         });
         Some(id)
+    }
+
+    /// Sorgt dafuer, dass es einen Leerlauf-Thread gibt. Wird vor dem Start
+    /// des Planungslaufs gerufen, damit die Threadtabelle danach nicht mehr
+    /// umzieht.
+    fn ensure_idle(&mut self) {
+        if self.idle_slot.is_some() {
+            return;
+        }
+        if self.spawn_raw(idle_body, IDLE_STACK, PRIO_MIN, false, true).is_some() {
+            self.idle_slot = Some(self.threads.len() - 1);
+        }
+    }
+
+    /// Gibt die CPU aus dem Leerlauf-Thread an den Planer zurueck.
+    ///
+    /// Bewusst **nicht** [`Scheduler::yield_now`]: der Leerlauf ist kein
+    /// Nutzthread, sein Wechsel gehoert weder in die Zaehlung der
+    /// freiwilligen noch in die der erzwungenen Wechsel.
+    ///
+    /// # Safety
+    /// Nur aus [`idle_body`] heraus aufrufen, waehrend der Leerlauf-Thread
+    /// dieses Planers laeuft.
+    unsafe fn yield_idle(&mut self) {
+        let i = match self.current {
+            Some(i) if self.threads[i].idle => i,
+            _ => return,
+        };
+        self.switches += 1;
+        let from: *mut Ctx = addr_of_mut!(self.threads[i].ctx);
+        let to: *const Ctx = addr_of!(self.main);
+        // Sicher: `main` wurde beim Wechsel in den Leerlauf gesichert und
+        // gehoert dem Stapel von `run`, der weiterlebt.
+        unsafe { Ctx::switch(from, to) };
     }
 
     /// Groesste gemessene Stapelnutzung eines beendeten Threads in Bytes.
@@ -490,15 +623,28 @@ impl Scheduler for CoopScheduler {
     }
 
     fn count(&self) -> usize {
-        self.threads.len()
+        self.threads.iter().filter(|t| !t.idle).count()
     }
 
     fn blocked(&self) -> usize {
-        self.threads.iter().filter(|t| t.state == ThreadState::Blocked).count()
+        self.threads.iter().filter(|t| !t.idle && t.state == ThreadState::Blocked).count()
     }
 
     unsafe fn run(&mut self) -> usize {
         let before = self.switches;
+        // Der Leerlauf-Thread entsteht VOR dem Lauf: waehrend `running` darf
+        // die Threadtabelle nicht mehr wachsen.
+        self.ensure_idle();
+        // Waehrend des Laufs muss dieser Planer ueber [`active`] erreichbar
+        // sein — auch dann, wenn der Aufrufer nicht ueber [`with_active`]
+        // gekommen ist. Sonst faende der Leerlauf-Thread nicht zurueck.
+        let vorher_aktiv = active();
+        if vorher_aktiv.is_null() {
+            let ptr: *mut CoopScheduler = self;
+            // Sicher: einfaedig, kein zweiter Schreiber; der alte Wert wird am
+            // Ende dieses Laufs wiederhergestellt.
+            unsafe { ACTIVE = ptr };
+        }
         self.running = true;
         self.deadlocked = false;
         loop {
@@ -508,9 +654,10 @@ impl Scheduler for CoopScheduler {
                 None => {
                     // Niemand lauffaehig. Entweder sind alle fertig (dann ist
                     // der Lauf zu Ende), oder es wartet jemand auf eine
-                    // Weckzeit (dann warten wir stromsparend auf den
-                    // Zeitgeber), oder alle warten auf ein Wecken, das
-                    // niemand mehr ausloesen kann: Verklemmung.
+                    // Weckzeit (dann laeuft der Leerlauf-Thread, der
+                    // stromsparend auf den Zeitgeber wartet), oder alle warten
+                    // auf ein Wecken, das niemand mehr ausloesen kann:
+                    // Verklemmung.
                     if !self.has_timed_sleeper() {
                         self.deadlocked = self.blocked() > 0;
                         break;
@@ -522,7 +669,33 @@ impl Scheduler for CoopScheduler {
                         break;
                     }
                     self.idle_waits += 1;
-                    crate::arch::wait_for_interrupt();
+                    match self.idle_slot {
+                        Some(idle) => {
+                            // Der Leerlauf ist ein richtiger Thread mit eigenem
+                            // Stapel: der Zeitgeber unterbricht ihn wie jeden
+                            // anderen, bucht seine Ticks auf sein Konto und
+                            // findet einen vollstaendigen Registersatz vor.
+                            self.idle_slices += 1;
+                            self.threads[idle].slices += 1;
+                            self.current = Some(idle);
+                            self.switches += 1;
+                            let vor = now();
+                            let from: *mut Ctx = addr_of_mut!(self.main);
+                            let to: *const Ctx = addr_of!(self.threads[idle].ctx);
+                            // Sicher: derselbe Wechsel wie fuer jeden anderen
+                            // Thread; der Leerlaufstapel lebt so lange wie der
+                            // Planer.
+                            unsafe { Ctx::switch(from, to) };
+                            self.current = None;
+                            self.idle_ticks += now() - vor;
+                        }
+                        None => {
+                            // Kein Heap fuer den Leerlaufstapel: dann wartet
+                            // der Planer selbst, wie vor Einfuehrung des
+                            // Leerlauf-Threads.
+                            crate::arch::wait_for_interrupt();
+                        }
+                    }
                     continue;
                 }
             };
@@ -542,6 +715,10 @@ impl Scheduler for CoopScheduler {
             self.reap();
         }
         self.running = false;
+        if vorher_aktiv.is_null() {
+            // Sicher: siehe oben — derselbe einfaedige Kontrollfluss.
+            unsafe { ACTIVE = vorher_aktiv };
+        }
         self.switches - before
     }
 }
@@ -897,29 +1074,35 @@ fn sleep_selftest() -> bool {
         sleep_ticks(1);
         current_id() == ThreadId(0)
     };
+    // Der Leerlauf ist ein eigener Thread: er wurde eingelastet, der Zeitgeber
+    // hat auf ihn gebucht (also lief er wirklich als Thread), und seine
+    // Wachzone ist unversehrt.
+    let leerlauf_ok = s.idle_slices() > 0 && s.idle_ticks() > 0 && s.idle_ready();
     let zusagen = (schlaf_ok as u8)
         + (weck_ok as u8)
         + (idle_ok as u8)
         + (reihenfolge_ok as u8)
         + (sauber_ok as u8)
         + (unbekannt_ok as u8)
-        + (ausserhalb_ok as u8);
-    if zusagen != 7 {
+        + (ausserhalb_ok as u8)
+        + (leerlauf_ok as u8);
+    if zusagen != 8 {
         klog!(
             "sched",
-            "FEHLER: Schlaftest (Schlafdauer {}, Weckung {}, Warten {}, Reihenfolge {}, Abschluss {}, Fehlerpfade {}, ausserhalb {})",
+            "FEHLER: Schlaftest (Schlafdauer {}, Weckung {}, Warten {}, Reihenfolge {}, Abschluss {}, Fehlerpfade {}, ausserhalb {}, Leerlauf {})",
             schlaf_ok,
             weck_ok,
             idle_ok,
             reihenfolge_ok,
             sauber_ok,
             unbekannt_ok,
-            ausserhalb_ok
+            ausserhalb_ok,
+            leerlauf_ok
         );
     }
     klog!(
         "sched",
-        "Schlafen/Wecken: {} Ticks geschlafen (>= {}), {} Zeitweckung(en), {} Leerlaufwarten, Wartender geweckt: {}, {}/7 Zusagen",
+        "Schlafen/Wecken: {} Ticks geschlafen (>= {}), {} Zeitweckung(en), {} Leerlaufwarten, Wartender geweckt: {}, {}/8 Zusagen",
         geschlafen,
         SLEEP_TICKS,
         s.wakeups(),
@@ -929,11 +1112,19 @@ fn sleep_selftest() -> bool {
     );
     klog!(
         "sched",
+        "Leerlauf-Thread: {} Einlastung(en), {} Tick(s) im Leerlauf, eigener Stapel {} B, Wachzone {}",
+        s.idle_slices(),
+        s.idle_ticks(),
+        IDLE_STACK,
+        if s.idle_ready() { "unversehrt" } else { "verletzt" }
+    );
+    klog!(
+        "sched",
         "Stapelnutzung: hoechstens {} von {} B je Thread benutzt, Wachzonen unversehrt",
         s.peak_stack_bytes(),
         TEST_STACK
     );
-    zusagen == 7
+    zusagen == 8
 }
 
 // ----------------------------------------------- Selbsttest Verklemmungsschutz
@@ -1021,6 +1212,16 @@ fn spin_body(slot: usize) -> ! {
     exit_current()
 }
 
+/// So lange schlaeft die Probe, waehrend der Leerlauf-Thread laufen soll.
+const IDLE_PROBE_TICKS: u64 = 5;
+
+/// Probe fuer den Leerlauf unter Verdraengung: schlaeft, damit niemand sonst
+/// lauffaehig ist, und meldet sich danach ab.
+extern "C" fn idle_prober() -> ! {
+    sleep_ticks(IDLE_PROBE_TICKS);
+    exit_current()
+}
+
 /// Zaehlschleife mit der hoechsten Prioritaet.
 extern "C" fn spin_a() -> ! {
     spin_body(0)
@@ -1055,7 +1256,7 @@ pub fn preempt_selftest() -> (usize, usize) {
     let aktiv = unsafe { crate::kcore::preempt::enable() };
     if !aktiv {
         klog!("sched", "Praeemption : Einschalten abgelehnt — bleibe kooperativ");
-        return (0, 5);
+        return (0, 6);
     }
     klog!(
         "sched",
@@ -1076,7 +1277,7 @@ pub fn preempt_selftest() -> (usize, usize) {
     }
     if angelegt != PREEMPT_THREADS {
         klog!("sched", "FEHLER: Verdraengungstest konnte keine {} Threads anlegen", PREEMPT_THREADS);
-        return (0, 5);
+        return (0, 6);
     }
 
     let p_vorher = crate::kcore::preempt::preemptive_switches();
@@ -1135,28 +1336,56 @@ pub fn preempt_selftest() -> (usize, usize) {
 
     let erzwungen_ok = erzwungen > 0;
     let sauber = !s.deadlocked() && s.blocked() == 0 && s.stacks_intact() && s.count() == PREEMPT_THREADS;
+
+    // Zweite Probe: ist niemand lauffaehig, laeuft der Leerlauf-Thread — und
+    // der eingeschaltete Zeitgeberpfad bucht seine Ticks auf ihn. Damit ist
+    // belegt, dass auch der Leerlauf ein regulaerer, unterbrechbarer Thread
+    // ist und nicht eine Warteschleife im Planer.
+    let mut sl = CoopScheduler::new();
+    let probe_da = sl.spawn_prio(idle_prober, PREEMPT_STACK, PRIO_MIN).is_some();
+    if probe_da {
+        with_active(&mut sl, |s| {
+            // Sicher: genau ein Lauf, aus dem Kontext von `kmain`.
+            unsafe { s.run() }
+        });
+    }
+    let leerlauf_ok = probe_da
+        && sl.idle_slices() > 0
+        && sl.idle_charged_ticks() > 0
+        && sl.idle_ready()
+        && !sl.deadlocked();
+    klog!(
+        "sched",
+        "Leerlauf unter Verdraengung: {} Einlastung(en), {} Tick(s) auf den Leerlauf-Thread gebucht, {} Tick(s) gewartet",
+        sl.idle_slices(),
+        sl.idle_charged_ticks(),
+        sl.idle_ticks()
+    );
+
     let zusagen = (aktiv as usize)
         + (erzwungen_ok as usize)
         + (alle_liefen as usize)
         + (prio_wirkt as usize)
-        + (sauber as usize);
-    if zusagen != 5 {
+        + (sauber as usize)
+        + (leerlauf_ok as usize);
+    if zusagen != 6 {
         klog!(
             "sched",
-            "FEHLER: Verdraengung (aktiv {}, erzwungen {}, alle liefen {}, Prioritaet {}, Abschluss {})",
+            "FEHLER: Verdraengung (aktiv {}, erzwungen {}, alle liefen {}, Prioritaet {}, Abschluss {}, Leerlauf {})",
             aktiv,
             erzwungen_ok,
             alle_liefen,
             prio_wirkt,
-            sauber
+            sauber,
+            leerlauf_ok
         );
     }
     klog!(
         "sched",
-        "Verdraengung: {} erzwungene Wechsel in {} Ticks, {}/5 Zusagen",
+        "Verdraengung: {} erzwungene Wechsel in {} Ticks, {}/6 Zusagen",
         erzwungen,
         PREEMPT_TICKS,
         zusagen
     );
-    (zusagen, 5)
+    (zusagen, 6)
 }

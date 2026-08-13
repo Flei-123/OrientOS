@@ -40,8 +40,16 @@ Legende: **✔ fertig** · **▶ als Nächstes** · **○ geplant**
 * ✔ **Zeitscheiben und Prioritäten** hinter demselben `Scheduler`-Trait
   (`spawn_prio`, `charge_tick`, `preempt_current`); Tickverteilung 30 : 20 : 10
   bei Prioritäten 3 : 2 : 1, im Log gemessen
-* ▶ Idle-Thread statt `wait_for_interrupt` im Scheduler; Verdrängung auch für
-  Ring-3-Programme (heute wird ein Tick in Ring 3 nur gezählt)
+* ✔ **Leerlauf-Thread statt `wait_for_interrupt`**: eigener Thread mit eigenem
+  Stapel (8 KiB, Wachzone), wird von `pick()` nie gewählt, sondern nur
+  eingelastet, wenn sonst niemand lauffähig ist; fällt ohne Heap sauber auf
+  `wait_for_interrupt` zurück. Im Boot-Log: `Leerlauf-Thread: 3 Einlastung(en),
+  3 Tick(s) im Leerlauf, eigener Stapel 8192 B, Wachzone unversehrt` sowie
+  `Leerlauf unter Verdraengung: 5 Einlastung(en), 5 Tick(s) …`
+* ▶ Verdrängung auch für Ring-3-Programme — heute wird ein Tick, der ein
+  unprivilegiertes Programm trifft, nur gezählt; eine reine Rechenschleife in
+  Ring 3 läuft bis zum Ende durch. Im Boot-Log ehrlich als nicht gewerteter
+  offener Punkt vermerkt (`Rechenschleife ohne Systemaufruf lief durch`)
 * ○ APIC statt PIC: LAPIC-Timer, IOAPIC-Umleitungen, TSC-Deadline
 * ○ Monotone Uhr in Nanosekunden (`ClockRead`), Kalibrierung gegen HPET/PIT
 
@@ -57,7 +65,7 @@ Legende: **✔ fertig** · **▶ als Nächstes** · **○ geplant**
 * ✔ SMEP/SMAP werden gesetzt, **wenn** CPUID sie meldet, sonst sauber
   übersprungen und im Log vermerkt (QEMU-Standard-CPU meldet sie nicht)
 * ✔ ELF-Lader für statisch gebundene Binaries samt Rückrollen bei Fehlern;
-  11 ELF- und 7 Archiv-Negativfälle im Boot-Log
+  14 ELF- und 8 Archiv-Negativfälle im Boot-Log
 * ✔ Startdateisystem als Limine-Modul, eigenes Format `IRFS0001`
   (Begründung gegen cpio/tar in `kcore/initramfs.rs` und ARCHITECTURE.md § 5c)
 * ✔ Erstes unprivilegiertes Programm (`userland/hello.asm`) läuft **wirklich**
@@ -67,14 +75,23 @@ Legende: **✔ fertig** · **▶ als Nächstes** · **○ geplant**
   prozesseigener Würfelwert), Objekttafel mit Verweiszähler,
   `HandleWrite/Read/Close/Duplicate/Inspect`, `ChannelCreate/Send/Recv`,
   `MemoryCreate`, `ProcessExit`, `spawn`/`spawn_with` **statt `fork`**;
-  15 Negativfälle im Boot-Log
+  Negativfälle im Boot-Log: 3 Handle- + 12 Capability-Fälle (Selbsttestgruppe
+  „Handles" insgesamt 27/27)
 * ▶ **Adressraum je Prozess** — heute liegen die unprivilegierten Seiten im
   Kerneladressraum (mit Benutzerbit); zwei unprivilegierte Prozesse sind
   voneinander noch nicht isoliert. Das ist der nächste echte Brocken
 * ▶ Ein `init`, das nach dem Boot **die Kontrolle behält**, statt als
   Selbsttest zu enden
-* ○ `MemoryMap/Unmap`, `Port*`, `ThreadCreate/Sleep`, `ProcessSpawn` als
-  Syscall (heute `NotSupported`; Prozesserzeugung nur kernelseitig)
+* ✔ **`Port*` als Ereignisweg statt Signalen** (`PortCreate/Bind/Wait`):
+  Bindung verlangt `MANAGE` am Port **und** `WAIT` am Objekt; Ereignisse aus
+  Kanal-Senden, Kanalende und Prozessende. Im Boot-Log `Portprobe
+  (Signals-Ersatz): 7/7` und ein Port-Negativtest mit drei Fällen
+* ✔ **`ThreadSleep`** an `kcore::sched::sleep_ticks` angebunden
+* ✔ **Handle-Übergabe per Kanal**: alles vorab geprüft, Duplikate abgewiesen,
+  ohne Platz bleibt die Nachricht liegen (kein Handle geht verloren) —
+  `Uebergabeprobe` und `Uebergabe-Negativtest` im Boot-Log
+* ○ `MemoryMap/Unmap`, `ThreadCreate`, `ProcessSpawn` als Syscall (heute
+  `NotSupported`; Prozesserzeugung weiterhin nur kernelseitig)
 * ○ POSIX-Schicht: `open`/`close` auf echte Handles — braucht das VFS aus Phase 4
 
 ## Phase 4 — Dateisysteme ○
@@ -220,8 +237,8 @@ abtrennbar. Wer erst beim Portieren anfängt zu abstrahieren, portiert nicht.
 Erledigt ist inzwischen der Sprung vom Boot-Kern zum System mit echtem
 unprivilegiertem Code: **Verdrängung** (30 erzwungene Wechsel ohne `yield`,
 Prioritäten messbar), **Ring 3** (`CPL=3`, Systemaufruf, Negativtest auf eine
-Kerneladresse), **ELF64 aus einem Startdateisystem** (11 + 7 Negativfälle) und
-die **capability-basierte ABI** (Handle-Tabelle je Prozess, 15 Negativfälle).
+Kerneladresse), **ELF64 aus einem Startdateisystem** (14 ELF- + 8 Archiv-Negativfälle) und
+die **capability-basierte ABI** (Handle-Tabelle je Prozess, 3 + 12 Negativfälle).
 Alles im Boot-Log belegt, `./test.sh` läuft mit 19 Schritten grün.
 
 Ehrlich offen geblieben — und deshalb als Nächstes dran:
@@ -236,4 +253,5 @@ Ehrlich offen geblieben — und deshalb als Nächstes dran:
 3. **Ein `init`, das bleibt.** Bisher endet der unprivilegierte Teil als
    Selbsttest im Bootweg; danach läuft `kmain` weiter. Ein Prozess, der die
    Kontrolle behält, braucht Punkt 1 und einen Weg, Handles nachzureichen.
-4. **Idle-Thread** statt Warteschleife, dann APIC statt PIC.
+4. **APIC statt PIC** (LAPIC-Timer, IOAPIC): der Leerlauf-Thread steht
+   inzwischen, die Warteschleife ist damit erledigt.

@@ -27,6 +27,20 @@ handles_check() {
         'Schreiben ohne Recht -> RightsDenied' \
         'Aufruf [a-z_]+ aus unprivilegiertem Prozess [0-9]+ ".*" abgewiesen: BadHandle' \
         'abgewiesen \(davon [1-9][0-9]* aus unprivilegierten Prozessen\)' \
+        'Portprobe \(Signals-Ersatz\): ([0-9]+)/\1 ' \
+        'Bindung eingerichtet ok' \
+        'Ereignis zugestellt ok' \
+        'Ende der Gegenseite ok' \
+        'Port-Negativtest: binden ohne MANAGE abgewiesen ok' \
+        'beobachten ohne WAIT abgewiesen ok' \
+        'warten auf Nicht-Port abgewiesen ok' \
+        'Uebergabeprobe: Handle per Kanal umgezogen ok' \
+        'beim Sender ungueltig ok' \
+        'ohne Platz keine Zustellung ok' \
+        'Uebergabe-Negativtest: ohne TRANSFER-Recht abgewiesen ok' \
+        'dasselbe Handle doppelt abgewiesen ok' \
+        'Uebersetzer: write\(fd [0-9]+\) -> [0-9]+ B ueber Handle' \
+        'fork\(2\) -> -38 \(erwartet -38\)' \
         ; do
         if grep -qE "$muster" "$log"; then
             echo "  [ ok ] $muster"
@@ -42,6 +56,14 @@ handles_check() {
         rc=1
     else
         echo "  [ ok ] kein fork in Core und nativer ABI"
+    fi
+    # Keine Signals: asynchrone Ereignisse laufen ausschliesslich ueber Ports,
+    # also ueber ein Handle mit Rechten statt ueber einen erzwungenen Sprung.
+    if grep -rqE '\bfn (sys_)?(kill|sigaction|signal)\b' kernel/src libs/karst-abi-native/src; then
+        echo "  [FEHL] Signal-Mechanismus in Core oder nativer ABI gefunden"
+        rc=1
+    else
+        echo "  [ ok ] keine Signals — Ereignisse nur ueber Ports (handle- und rechtebasiert)"
     fi
     # Erklaerende Kommentare und die Verbotsliste im Test der ABI zaehlen nicht —
     # gesucht wird echter Code, der errno-Semantik einfuehrt.

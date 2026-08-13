@@ -113,6 +113,8 @@ pub enum ArchiveError {
     EntryOutOfRange,
     /// Ein Name ist leer oder nicht abschliessend genullt.
     BadName,
+    /// Zwei Eintraege tragen denselben Namen.
+    DuplicateName,
 }
 
 impl ArchiveError {
@@ -126,6 +128,7 @@ impl ArchiveError {
             ArchiveError::BadCount => "unplausible Eintragszahl",
             ArchiveError::EntryOutOfRange => "Eintrag zeigt aus dem Archiv heraus",
             ArchiveError::BadName => "unbrauchbarer Name",
+            ArchiveError::DuplicateName => "zwei Eintraege mit demselben Namen",
         }
     }
 }
@@ -182,6 +185,16 @@ pub fn open(bytes: &[u8]) -> Result<Archive<'_>, ArchiveError> {
         let end = off.checked_add(len).ok_or(ArchiveError::EntryOutOfRange)?;
         if off < data_start || end > bytes.len() {
             return Err(ArchiveError::EntryOutOfRange);
+        }
+        // Doppelte Namen sind kein Schoenheitsfehler: `find` wuerde
+        // stillschweigend einen der beiden Eintraege waehlen, und welcher das
+        // ist, entschiede der Packer. Wer ein Programm laedt, soll genau
+        // wissen, welche Bytes er bekommt — also wird das Archiv abgewiesen.
+        for j in 0..i {
+            let other = HEADER_LEN + j * ENTRY_LEN;
+            if bytes[other..other + NAME_LEN] == *name {
+                return Err(ArchiveError::DuplicateName);
+            }
         }
     }
     Ok(Archive { bytes, count })
@@ -332,6 +345,21 @@ pub fn selftest() -> (usize, usize) {
     let mut bad = good;
     bad[HEADER_LEN] = 0;
     check("leerer Name", Err(ArchiveError::BadName), &bad);
+
+    // Zwei Eintraege, ein Name: mehrdeutig, also unbrauchbar.
+    const TOTAL2: usize = HEADER_LEN + 2 * ENTRY_LEN + 4;
+    let mut zwei = [0u8; TOTAL2];
+    zwei[..8].copy_from_slice(MAGIC);
+    zwei[8..12].copy_from_slice(&2u32.to_le_bytes());
+    zwei[12..16].copy_from_slice(&(TOTAL2 as u32).to_le_bytes());
+    for i in 0..2 {
+        let base = HEADER_LEN + i * ENTRY_LEN;
+        zwei[base] = b'a';
+        zwei[base + NAME_LEN..base + NAME_LEN + 8]
+            .copy_from_slice(&((HEADER_LEN + 2 * ENTRY_LEN) as u64).to_le_bytes());
+        zwei[base + NAME_LEN + 8..base + NAME_LEN + 16].copy_from_slice(&4u64.to_le_bytes());
+    }
+    check("zweimal derselbe Name", Err(ArchiveError::DuplicateName), &zwei);
 
     klog!("init", "Archiv-Negativtest: {}/{} Faelle wie erwartet abgewiesen", ok, total);
     (ok, total)

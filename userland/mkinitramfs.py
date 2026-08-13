@@ -53,6 +53,11 @@ def main(argv):
         if not raw or len(raw) >= NAME_LEN or b"/" in raw:
             print(f"unbrauchbarer Name: {name}", file=sys.stderr)
             return 2
+        # Doppelte Namen weist auch der Kernel ab (mehrdeutig): dann lieber
+        # hier beim Bauen scheitern als spaeter beim Booten.
+        if any(raw == vorher for vorher, _ in items):
+            print(f"Name doppelt vergeben: {name}", file=sys.stderr)
+            return 2
         with open(path, "rb") as f:
             items.append((raw, f.read()))
 

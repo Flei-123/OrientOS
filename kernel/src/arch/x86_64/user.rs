@@ -13,10 +13,34 @@
 //! * der Einsprung nach Ring 3 (`iretq`), der Ruecksprung aus einem
 //!   Systemaufruf (`sysretq`) und der Notausstieg, wenn das Programm eine
 //!   Ausnahme ausloest,
+//! * der **Schutzwall**: fuenf weitere Einsprungpunkte im selben Bild, die je
+//!   einen Ausbruchsversuch aus Ring 3 unternehmen (privilegierte Instruktion,
+//!   Schreiben auf die eigene Codeseite, Sprung in den Kernelbereich, Zeiger
+//!   ins Leere, Rechenschleife ohne Systemaufruf). Der Core kennt davon nur
+//!   Versatz, Klartextname und erwarteten Ausgang
+//!   ([`crate::kcore::user::UserProbe`]),
 //! * das Beispielprogramm als reines Maschinenbild — Maschinencode ist
 //!   Architektursache und darf deshalb in keiner core-Datei liegen. Der Core
 //!   bekommt ihn ueber [`crate::kcore::user::ArchSupport`] als Bytes plus
 //!   zwei Einsprungversaetzen und weiss nicht, was darin steht.
+//!
+//! **Nachweis der Schutzbits.** Das voreingestellte QEMU-Rechnermodell meldet
+//! SMEP/SMAP per CPUID NICHT; der Kernel ueberspringt sie dann und vermerkt
+//! das im Boot-Log ("Ausfuehrsperre nein (uebersprungen)"). Dass der Pfad
+//! trotzdem stimmt, laesst sich mit einem Rechnermodell nachpruefen, das die
+//! Bits meldet:
+//!
+//! ```text
+//! qemu-system-x86_64 -machine q35 -cpu max -m 512M -cdrom build/karstos.iso \
+//!     -boot d -no-reboot -display none -serial file:build/smaptest.log
+//! ==> [..] CPU-Schutz  : Schnellaufruf ja, Ausfuehrsperre ja,
+//!                        Zugriffssperre ja, Per-CPU-Basis ja
+//! ==> [..] Selbsttestbilanz: 148/148 bestanden
+//! ```
+//!
+//! Mit gesetztem CR4.SMAP laufen alle Systemaufrufe, die unprivilegierten
+//! Speicher anfassen, weiterhin durch — das Fenster (`stac`/`clac`) sitzt also
+//! an den richtigen Stellen.
 //!
 //! **Ablauf eines Ausflugs nach Ring 3**
 //!
@@ -36,7 +60,7 @@ use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use super::{cpu, gdt, msr};
 use crate::kcore::arch_iface::{CpuFeatures, UserExit};
 use crate::kcore::mem::VirtAddr;
-use crate::kcore::user::{ArchSupport, SyscallOutcome};
+use crate::kcore::user::{ArchSupport, ProbeExpect, SyscallOutcome, UserProbe, MAX_PROBES};
 
 // ---------------------------------------------------------------- Selektoren
 
@@ -124,7 +148,7 @@ static SMAP_ON: AtomicBool = AtomicBool::new(false);
 /// Hoechstzahl Zeitgeber-Ticks, die ein Programm laufen darf, bevor der
 /// Kernel es abraeumt. Ohne diese Grenze wuerde eine Endlosschleife im
 /// unprivilegierten Programm den ganzen Startvorgang aufhalten.
-const USER_TICK_LIMIT: u64 = 200;
+const USER_TICK_LIMIT: u64 = 10;
 
 // --------------------------------------------------- Beispielprogramm (Ring 3)
 
@@ -182,6 +206,57 @@ __user_demo_fault:
     mov rax, [rax]                        /* muss #PF ausloesen                */
 8:  jmp 8b
 
+    /* --------------------------------------------------------- Schutzwall
+       Vier weitere Uebergriffe, jeder in einem eigenen Einsprung. Keiner
+       davon darf gelingen, keiner darf den Kernel anhalten. Sie decken die
+       vier Wege ab, auf denen ein unprivilegiertes Programm ausbrechen
+       koennte: privilegierte Instruktion, Schreiben auf die eigene
+       Codeseite (W^X), Ausfuehren von Kernelcode und ein Zeiger ins Leere. */
+
+    .balign 16
+    .globl __user_demo_priv
+__user_demo_priv:
+    cli                                   /* privilegiert -> #GP bei CPL 3     */
+7:  jmp 7b
+
+    .balign 16
+    .globl __user_demo_wcode
+__user_demo_wcode:
+    lea rax, [rip + __user_demo_start]
+    mov byte ptr [rax], 0x90              /* eigene RX-Seite beschreiben       */
+6:  jmp 6b
+
+    .balign 16
+    .globl __user_demo_kjump
+__user_demo_kjump:
+    movabs rax, 0xffffffff80000000
+    jmp rax                               /* Instruktionsabruf im Kernel       */
+
+    .balign 16
+    .globl __user_demo_hole
+__user_demo_hole:
+    movabs rax, 0x0000000000600000
+    mov rax, [rax]                        /* nicht abgebildet -> #PF           */
+5:  jmp 5b
+
+    /* Wachhund-Probe: rechnet lange vor sich hin, ohne je einen
+       Systemaufruf abzusetzen. Der Zeitgeber muss dem Programm die CPU
+       wegnehmen und der Kernel es abraeumen, BEVOR die Schleife durch ist.
+       Laeuft sie doch durch, beendet sich das Programm mit einem eigenen
+       Code — dann ist der Wachhund nachweislich nicht angesprungen und der
+       Kernel meldet das ehrlich, statt haengen zu bleiben. */
+    .balign 16
+    .globl __user_demo_spin
+__user_demo_spin:
+    movabs rcx, 30000000
+4:  dec rcx
+    jnz 4b
+    mov eax, 18                           /* 18 = process_exit                 */
+    xor edi, edi                          /* eigener Prozess                   */
+    mov esi, 7                            /* 7 = "Wachhund hat geschlafen"     */
+    syscall
+3:  jmp 3b
+
     .balign 8
 __user_demo_msg:
     .ascii "Gruesse aus Ring 3"
@@ -197,8 +272,18 @@ unsafe extern "C" {
     static __user_demo_main: u8;
     static __user_demo_fault: u8;
     static __user_demo_trampoline: u8;
+    static __user_demo_priv: u8;
+    static __user_demo_wcode: u8;
+    static __user_demo_kjump: u8;
+    static __user_demo_hole: u8;
+    static __user_demo_spin: u8;
     static __user_demo_end: u8;
 }
+
+/// Beendigungscode, mit dem sich die Wachhund-Probe selbst beendet, wenn ihr
+/// niemand die CPU wegnimmt. Sieht der Core diesen Code, hat der Wachhund
+/// nicht ausgeloest.
+const SPIN_SELF_EXIT: u64 = 7;
 
 /// Das Beispielprogramm als Bytes plus seine drei Einsprungversaetze.
 fn demo_image() -> (&'static [u8], usize, usize, usize) {
@@ -211,6 +296,42 @@ fn demo_image() -> (&'static [u8], usize, usize, usize) {
     let tramp = &raw const __user_demo_trampoline as usize;
     let bytes = unsafe { core::slice::from_raw_parts(start as *const u8, end - start) };
     (bytes, main - start, fault - start, tramp - start)
+}
+
+/// Die Uebergriffe, die das Bild anbietet, samt erwartetem Ausgang.
+///
+/// Die Namen sind Klartext fuer das Boot-Log; welche Instruktion dahinter
+/// steckt, bleibt in dieser Datei.
+fn demo_probes() -> ([UserProbe; MAX_PROBES], usize) {
+    let start = &raw const __user_demo_start as usize;
+    let off = |sym: *const u8| sym as usize - start;
+    let mut p = [UserProbe::NONE; MAX_PROBES];
+    p[0] = UserProbe {
+        offset: off(&raw const __user_demo_priv),
+        name: "privilegierte Instruktion",
+        expect: ProbeExpect::Abgewiesen,
+    };
+    p[1] = UserProbe {
+        offset: off(&raw const __user_demo_wcode),
+        name: "Schreiben auf die eigene Codeseite",
+        expect: ProbeExpect::Abgewiesen,
+    };
+    p[2] = UserProbe {
+        offset: off(&raw const __user_demo_kjump),
+        name: "Sprung in den Kernelbereich",
+        expect: ProbeExpect::Abgewiesen,
+    };
+    p[3] = UserProbe {
+        offset: off(&raw const __user_demo_hole),
+        name: "Zeiger auf eine nicht abgebildete Seite",
+        expect: ProbeExpect::Abgewiesen,
+    };
+    p[4] = UserProbe {
+        offset: off(&raw const __user_demo_spin),
+        name: "Rechenschleife ohne Systemaufruf",
+        expect: ProbeExpect::Wachhund { selbstende: SPIN_SELF_EXIT },
+    };
+    (p, 5)
 }
 
 // ------------------------------------------------------------------ Merkmale
@@ -284,6 +405,7 @@ pub unsafe fn init() -> bool {
     // Dem Core sagen, womit er arbeiten kann. Der Core kennt nur Bytes und
     // zwei Versaetze — kein Maschinendetail wandert nach oben.
     let (bytes, main_off, fault_off, tramp_off) = demo_image();
+    let (probes, probe_count) = demo_probes();
     crate::kcore::user::register_arch_support(ArchSupport {
         program: bytes,
         entry_offset: main_off,
@@ -291,6 +413,8 @@ pub unsafe fn init() -> bool {
         trampoline_offset: tramp_off,
         open_window: open_user_window,
         close_window: close_user_window,
+        probes,
+        probe_count,
     });
     true
 }

@@ -4,7 +4,7 @@
 
 Kein Linux-Fork, kein übernommener Fremdcode. Der Kernel bootet auf BIOS **und**
 UEFI, baut seine eigenen Seitentabellen, hat einen funktionierenden Heap, prüft
-sich beim Start mit 126 eingebauten Zusagen selbst, **verdrängt** Kernel-Threads
+sich beim Start mit 148 eingebauten Zusagen selbst, **verdrängt** Kernel-Threads
 per Zeitgeber, lädt ein statisch gebundenes ELF64 aus einem Startdateisystem und
 führt es **wirklich in Ring 3** aus — jeder Zugriff dort läuft über Handles mit
 Rechten, nicht über Umgebungsautorität.
@@ -54,7 +54,7 @@ sudo apt install qemu-system-x86 xorriso mtools ovmf nasm python3
 | `./run-qemu.sh --test-handles` | Handle-Negativtests: falscher Index, alte Generation, fehlendes Recht |
 | `./test.sh` | alles zusammen, 19 Schritte |
 | `./rename.sh <kernel> <os>` | benennt Kernel und OS im ganzen Baum um (siehe [RENAME.md](RENAME.md)) |
-| `cargo test --target x86_64-unknown-linux-gnu -p karst-mem -p karst-abi-native -p karst-abi-posix` | **141 Host-Tests** der hardwarefreien Logik |
+| `cargo test --target x86_64-unknown-linux-gnu -p karst-mem -p karst-abi-native -p karst-abi-posix` | **146 Host-Tests** der hardwarefreien Logik |
 
 ---
 
@@ -72,64 +72,111 @@ um ein bis zwei Einheiten; alles andere ist reproduzierbar:
 [karst] boot       Konfiguration: Bauart release, POSIX ja, Fehler-Selbsttest keine (normaler Boot)
 [karst] boot       CPU         : QEMU Virtual CPU version 2.5+
 [karst] boot       Bootloader  : Limine 9.6.7
+[karst] boot       Stapel      : 64 KiB angefordert, gewaehrt
 [karst] mm         HHDM-Fenster: virt = phys + 0xffff800000000000
-[karst] mm         Kernelabbild: phys 0x000000001fc30000 -> virt 0xffffffff80000000
-[karst] mm           .text  0xffffffff80000000..0xffffffff80020000  (128 KiB, R+X)
-[karst] mm           .rodata0xffffffff80020000..0xffffffff80027000  (28 KiB, R)
-[karst] mm           .data  0xffffffff80027000..0xffffffff8003d000  (88 KiB, R+W, NX)
-[karst] mm           gesamt 244 KiB geladenes Abbild (61 Seiten a 4096 B)
+[karst] mm         Kernelabbild: phys 0x000000001fbd8000 -> virt 0xffffffff80000000
+[karst] mm           .text  0xffffffff80000000..0xffffffff80027000  (156 KiB, R+X)
+[karst] mm           .rodata0xffffffff80027000..0xffffffff8002f000  (32 KiB, R)
+[karst] mm           .data  0xffffffff8002f000..0xffffffff80045000  (88 KiB, R+W, NX)
+[karst] mm           gesamt 276 KiB geladenes Abbild (69 Seiten a 4096 B)
 [karst] video      Framebuffer : 1280x800 @ 32 bpp -> Textkonsole 160x50
 [karst] cpu        GDT + TSS geladen, Datensegmente flach
 [karst] cpu        IDT: 256 Tore, Ausnahmen 0..21 belegt
-[karst] cpu        schwerste Ausnahme laeuft auf eigenem Notfallstapel (0xffffffff8002db90)
+[karst] cpu        schwerste Ausnahme laeuft auf eigenem Notfallstapel (0xffffffff80035cd0)
 [karst] cpu        NX aktiv, CR0.WP aktiv
 [karst] irq        8259A-PIC (umgeleitet auf 0x20) initialisiert, alle Leitungen maskiert
-[karst] trap       #BP Breakpoint bei RIP=0xffffffff8000d25d — setze fort
+[karst] trap       #BP Breakpoint bei RIP=0xffffffff8000eab1 — setze fort
+[karst] cpu        Selbsttest: #BP ausgeloest und sauber fortgesetzt
 [karst] mm         Memory-Map  : 21 Regionen, 77 Frames unter 1 MiB gesperrt, 0 Frames wegen Ueberschneidung nachreserviert
-[karst] mm         Frames      : 131039 verwaltet, 129846 frei (507 MiB)
+[karst] mm         Speicher    : 12 GiB gesamt, davon 507 MiB nutzbar
+[karst] mm         Frames      : 131039 verwaltet, 129757 frei (506 MiB)
+[karst] mm         Frame-Bitmap: 16 KiB bei phys 0x000000100000
+[karst] mm         Vor Umschaltung geprueft: 5/5 Pflichtbereiche im neuen Adressraum erreichbar
+[karst] mm         Abbild nachgeprueft: 69 Seiten virt->phys korrekt (.text RX, .rodata R, .data RW), HHDM-Raender ok
 [karst] mm         Eigener Adressraum aktiv (CR3 = 0x000000104000)
-[karst] mm         Selbsttest MapError: 23/23 Fehlerfaelle nachweisbar ausgeloest
-[karst] mm         Selbsttest Frames: 26/26 Zusagen erfuellt, 129827 frei
+[karst] mm           HHDM   : 3 GiB als 2026 grosse Seiten
+[karst] mm           Abbild : 69 Seiten mit getrennten Rechten
+[karst] mm           Stapel : 0 Seiten vom Bootloader uebernommen
+[karst] mm         Selbsttest Paging: map 0xffffff0010000000 -> 0x00000010d000, schreiben/lesen ok, translate ok, unmap ok
+[karst] mm         Selbsttest MapError: 23/23 Fehlerfaelle nachweisbar ausgeloest (Misaligned 10, AlreadyMapped 3, NotMapped 4, OutOfFrames 4, ParentHugePage 2)
+[karst] mm         Selbsttest Frames: 26/26 Zusagen erfuellt, 129738 frei
 [karst] heap       Kernel-Heap : 1024 KiB bei virt 0xffffff0000000000 (eigener Free-List-Allocator)
+[karst] heap       Testallokation: Box@0xffffff0000000010 = 0xdeadbeef
 [karst] heap       Testallokation: Vec mit 1024 Elementen, Summe 357389824, String "Karstos lebt"
+[karst] heap       belegt 8272 B von 1048576 B
+[karst] heap       nach Freigabe: belegt 0 B von 1048576 B
+[karst] heap         Heap-Wachstum: 2166784 B abgebildet (vorher 1048576 B), 1 Erweiterung(en), 5 abgelehnt, Grenze 16777216 B, Spielraum 14610432 B
 [karst] heap       Selbsttest Heap: 13/13 Zusagen erfuellt, 0 B belegt, 1 Loecher
 [karst] abi        karst-native: Version=1, Handles=1, altes Handle -> BadHandle
+[karst] abi        Ausgabe eines Aufrufers ueber Handle: "POSIX-Uebersetzung auf ein Handle"
+[karst] posix      Uebersetzer: write(fd 0) -> 33 B ueber Handle, close(2), danach write -> -9 (erwartet -9), fork(2) -> -38 (erwartet -38)
 [karst] abi        posix-Schicht aktiv: read(2) auf unbekannten Fd -> -9 (erwartet -9 = -EBADF)
 [karst] irq        Zeitgeber laeuft mit 100 Hz, Interrupts frei (IF gesetzt)
 [karst] sched      Threadwechsel: 16 Wechsel, zurueck in kmain (2 Threads a 16 KiB Stapel, Spur 121212, 5/5 Zusagen)
-[karst] sched      Schlafen/Wecken: 4 Ticks geschlafen (>= 3), 1 Zeitweckung(en), 3 Leerlaufwarten, 7/7 Zusagen
-[karst] sched      Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck, 1 Thread(s) blockiert, 3/3 Zusagen
+[karst] sched      Thread W (Kennung 1): blockiert bis zum Wecken
+[karst] sched      Thread S (Kennung 2): schlaeft 3 Ticks
+[karst] sched      Thread S: nach 3 Ticks aufgewacht
+[karst] sched      Thread S: weckt Thread W (Kennung 1)
+[karst] sched      Thread W: geweckt, laeuft weiter
+[karst] sched      Schlafen/Wecken: 3 Ticks geschlafen (>= 3), 1 Zeitweckung(en), 3 Leerlaufwarten, Wartender geweckt: ja, 8/8 Zusagen
+[karst] sched      Leerlauf-Thread: 3 Einlastung(en), 3 Tick(s) im Leerlauf, eigener Stapel 8192 B, Wachzone unversehrt
+[karst] sched      Stapelnutzung: hoechstens 576 von 16384 B je Thread benutzt, Wachzonen unversehrt
+[karst] sched      Thread V (Kennung 1): blockiert ohne Wecker
+[karst] sched      Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck, 1 Thread(s) blockiert, Meldung gesetzt, 3/3 Zusagen
 [karst] sched      Praeemption : aktiv, Zeitscheibe 1 Tick(s) je Prioritaetsstufe, voller Registersatz im Zeitgebereinsprung
 [karst] sched      praeemptive Wechsel: 30, kooperative Wechsel: 3 (nur die 3 Abmeldungen)
 [karst] sched      ohne yield: 30 Wechsel zwischen 3 Threads (reine Zaehlschleifen, kein einziges yield)
-[karst] sched      Thread 1: Prio 3, 30 Ticks, 36589059 Schleifendurchlaeufe
-[karst] sched      Thread 2: Prio 2, 20 Ticks, 25333236 Schleifendurchlaeufe
-[karst] sched      Thread 3: Prio 1, 10 Ticks, 12940059 Schleifendurchlaeufe
+[karst] sched      Thread 1: Prio 3, 30 Ticks, 35445486 Schleifendurchlaeufe
+[karst] sched      Thread 2: Prio 2, 20 Ticks, 23124222 Schleifendurchlaeufe
+[karst] sched      Thread 3: Prio 1, 10 Ticks, 12574376 Schleifendurchlaeufe
 [karst] sched      Prioritaet wirkt: Thread 1 (Prio 3) 30 Ticks > Thread 2 (Prio 2) 20 Ticks > Thread 3 (Prio 1) 10 Ticks
+[karst] sched      Leerlauf unter Verdraengung: 5 Einlastung(en), 5 Tick(s) auf den Leerlauf-Thread gebucht, 5 Tick(s) gewartet
+[karst] sched      Verdraengung: 30 erzwungene Wechsel in 60 Ticks, 6/6 Zusagen
 [karst] init       Initramfs   : 3 Eintraege, 2448 B
 [karst] init         Eintrag 0: hello          1064 B
-[karst] elf        ELF-Negativtest: 11/11 Faelle wie erwartet abgewiesen
-[karst] init       Archiv-Negativtest: 7/7 Faelle wie erwartet abgewiesen
+[karst] elf        ELF-Negativtest: 14/14 Faelle wie erwartet abgewiesen
+[karst] init       Archiv-Negativtest: 8/8 Faelle wie erwartet abgewiesen
+[karst] elf          Abbild geladen und abgeraeumt -> 6 Seiten abgebildet, 6 zurueckgegeben, 6 Zwischentabelle(n) bleiben, Einsprung nicht mehr abgebildet (ok)
 [karst] elf        ELF-Lader   : hello, 2 Segmente geladen, Einsprung 0x0000000000401000
 [karst] elf          Segment 0: 0x401000 1 KiB RX (73 B aus der Datei, 0 B genullt)
 [karst] elf          Segment 1: 0x402000 1 KiB RW (37 B aus der Datei, 19 B genullt)
 [karst] elf          Stapel: 0x00007ffffffff000 abwaerts, 4 Seiten, insgesamt 6 Seiten abgebildet
-[karst] elf        ELF-Ladetest: 4/4 Faelle wie erwartet
+[karst] elf          nachgeprueft: Einsprungseite und Stapelseite abgebildet, Code stimmt mit der Datei ueberein
+[karst] elf          kaputt.elf aus dem Archiv    -> Segment ausserhalb des unprivilegierten Bereichs (ok)
+[karst] elf          liesmich.txt als Programm    -> falsche Kennung am Dateianfang (ok)
+[karst] elf          Abbild zu gross              -> Abbild belegt zu viele Seiten, 256 Datenseiten zurueckgegeben, 2 Zwischentabelle(n) bleiben (ok)
+[karst] elf        ELF-Ladetest: 5/5 Faelle wie erwartet
+[karst] user       Systemaufrufpfad: eingerichtet
 [karst] user       CPU-Schutz  : Schnellaufruf ja, Ausfuehrsperre nein (uebersprungen), Zugriffssperre nein (uebersprungen), Per-CPU-Basis ja
-[karst] user       Prozess     : pid 1 unprivilegiert, 1 Handle uebergeben (Ausgabe, nur Schreibrecht)
+[karst] user       Abbildung   : Programm 0x0000000000800000 (240 B, RX), Stapel 0x00007fffffefc000..0x00007ffffff00000 (RW, NX), 5 Seiten
+[karst] user       Prozess     : pid 1 unprivilegiert, 1 Handle uebergeben (Ausgabe, nur Schreibrecht), 1 Handle(s) in der Tafel
 [karst] trap       #BP aus Ring 3: CS=0x0023 (CPL=3), RSP=0x00007ffffff00000, RIP=0x0000000000800004 — setze fort
 [karst] abi        Ausgabe eines Aufrufers ueber Handle: "Gruesse aus Ring 3"
+[karst] user       Zeiger 0xffffffff80000000 (+8 B) aus Ring 3 abgewiesen: nicht im eigenen Bereich
 [karst] user       Ring 3      : CS=0x0023 (RPL=3), CPL=3, Stapel=0x00007ffffff00000, 4 Systemaufruf(e), Ende 0
+[karst] user       Abmeldung   : pid 1 beendet mit Code 0, danach 0 Handle(s) in seiner Tafel
 [karst] user       Ring-3-Zugriff auf Kerneladresse 0xffffffff80000000: sauber abgewiesen (Schutzverletzung, Userspace)
 [karst] trap       #PF aus Ring 3: CS=0x0023 (CPL=3), RSP=0x00007ffffff00000, RIP=0x000000000080006a, Lesezugriff, Schutzverletzung
+[karst] user       Ring-3-Zugriff auf Kerneladresse 0xffffffff80000000: sauber abgewiesen (Schutzverletzung, Userspace)
+[karst] user       Schutzwall  : 4/4 Uebergriffe aus Ring 3 abgewehrt
+[karst] trap       #BP aus Ring 3: CS=0x0023 (CPL=3), RSP=0x00007ffffffff000, RIP=0x0000000000800052 — setze fort
 [karst] abi        Ausgabe eines Aufrufers ueber Handle: "hallo aus der unprivilegierten Ebene."
-[karst] user       Aus dem Archiv: Einsprung 0x0000000000401000, CS=0x0023 (CPL=3), Stapel=0x00007ffffffff000, 3 Systemaufruf(e), pid 2 abgemeldet
+[karst] user       Aus dem Archiv: Einsprung 0x0000000000401000, CS=0x0023 (CPL=3), Stapel=0x00007ffffffff000, 3 Systemaufruf(e), pid 7 abgemeldet
+[karst] user       Abgeraeumt  : 5 Seiten zurueckgegeben, 55 B aus Ring 3 ausgegeben, 6 Zugriff(e) abgewiesen
+[karst] abi        Aufruf handle_write aus unprivilegiertem Prozess 8 "gast" abgewiesen: BadHandle
 [karst] abi        Handle-Negativtest: 3/3 abgewiesen (ungueltiger Index ok, veraltete Generation ok, fehlendes Recht ok)
-[karst] abi        Capability-Negativtest: 12/12 abgewiesen — fremdes Handle ok, ohne Uebergabe kein Zugriff ok, keine Rechteausweitung ok, ...
-[karst] abi        Prozessprobe: spawn ohne fork, Kind "dienst" mit 1 explizit uebergebenen Handle(n); Kanal: 22 B gesendet, 22 B empfangen
-[karst] boot       Selbsttestbilanz: 126/126 bestanden (#BP 1/1, Paging 3/3, MapError 36/36, Frames 26/26,
-                   Heap 13/13, Praeemption 5/5, ELF 22/22, Ring3 5/5, Handles 15/15)
-[karst] boot       Startbilanz : 129281 Frames frei (1758 belegt), Heap 2688 / 2166784 B belegt, 587 Ticks
+[karst] abi        Capability-Negativtest: 12/12 abgewiesen — fremdes Handle ok, ohne Uebergabe kein Zugriff ok, keine Rechteausweitung ok, Duplizieren ohne Recht ok, Uebergabe ohne Recht ok
+[karst] abi        Capability-Negativtest: unbekannte Aufrufnummer ok, Generation geraten (0 Treffer bei 4096 Versuchen), Benutzung nach Schliessen ok, Handle nach Prozessende ok
+[karst] abi        Prozessprobe: spawn ohne fork, Kind "dienst" mit 1 explizit uebergebenen Handle(n); Kanal: 22 B gesendet, 22 B empfangen ("hallo aus dem Erzeuger"), Schreiben ohne Recht -> RightsDenied
+[karst] abi        Portprobe (Signals-Ersatz): 7/7 — Bindung eingerichtet ok, Ereignis zugestellt ok, Frist 0 blockiert nicht ok, Ende der Gegenseite ok
+[karst] abi        Port-Negativtest: binden ohne MANAGE abgewiesen ok, beobachten ohne WAIT abgewiesen ok, warten auf Nicht-Port abgewiesen ok
+[karst] abi        Ausgabe eines Aufrufers ueber Handle: "handle unterwegs"
+[karst] abi        Uebergabeprobe: Handle per Kanal umgezogen ok (Sender 0x7f6c280a00000019 -> Empfaenger 0x3616a2bc00000002), beim Sender ungueltig ok, ohne Platz keine Zustellung ok
+[karst] abi        Uebergabe-Negativtest: ohne TRANSFER-Recht abgewiesen ok, dasselbe Handle doppelt abgewiesen ok
+[karst] abi        Prozesse    : 13 in der Tafel, 12 per spawn erzeugt, 46 Aufrufe, 17 abgewiesen (davon 3 aus unprivilegierten Prozessen), 26 Objekte
+[karst] abi        Prozesse    : 13, davon beendet 10, Speicherobjekte 0 B; Namen: 0:systemkern, 1:ring3, 2:probe, 3:probe, 4:probe, 5:probe, 6:probe, 7:hello, 8:gast, 9:nackt, 10:kurzlebig, 11:dienst, 12:empfaenger
+[karst] boot       Selbsttestbilanz: 148/148 bestanden (#BP 1/1, Paging 3/3, MapError 36/36, Frames 26/26, Heap 13/13, Praeemption 6/6, ELF 27/27, Ring3 9/9, Handles 27/27)
+[karst] boot       Startbilanz : 129192 Frames frei (1847 belegt), Heap 5728 / 2166784 B belegt, 615 Ticks
 [karst] boot       Startvorgang abgeschlossen. karst laeuft.
 ```
 
@@ -153,7 +200,7 @@ $ ./run-qemu.sh --test-doublefault
 [karst] test       loese absichtlich einen Double Fault aus ...
 =============== CPU-AUSNAHME ===============
 Ausnahme : #DF Double Fault
-IST-Stapel: 0xffffffff8001ea20 (eigener Stack, deshalb lebt der Kernel noch)
+IST-Stapel: 0xffffffff80035cd0 (eigener Stack, deshalb lebt der Kernel noch)
 Kein Weiterlaufen moeglich — CPU wird angehalten.
 ```
 
@@ -164,14 +211,16 @@ Adresse  : 0xffffff4000000000 (CR2)
 Ursache  : Seite nicht praesent, Schreibzugriff, ausgeloest im Kernel
 =============== KERNEL PANIC ===============
 Backtrace (Frame-Pointer, Adressen via addr2line aufloesbar):
-  #0  ip=0xffffffff8000610c
-  #1  ip=0xffffffff80000f20
+  #0  ip=0xffffffff8002387c
+  #1  ip=0xffffffff8000aa6d
+  #2  ip=0xffffff4000000000
+Backtrace: 3 Frame(s) aufgeloest
 ```
 
 Backtrace-Adressen auflösen:
 
 ```sh
-llvm-addr2line -e target/x86_64-karst-none/release/karst -f -C 0xffffffff8000610c
+llvm-addr2line -e target/x86_64-karst-none/release/karst -f -C 0xffffffff8002387c
 # oder in build/karst.map nachschlagen
 ```
 
@@ -223,13 +272,13 @@ Alle Zahlen sind gemessen, nicht geschätzt — die Befehle stehen daneben.
 
 | | | gemessen mit |
 |---|---|---|
-| Rust-Zeilen (`kernel/` + `libs/`) | 15 479 | `find kernel/src libs -name '*.rs' -exec cat {} + \| wc -l` |
+| Rust-Zeilen (`kernel/` + `libs/`) | 16 925 | `find kernel/src libs -name '*.rs' -exec cat {} + \| wc -l` |
 | Externe Crates | **2** (`limine`, `spin`; `bitflags` transitiv) | `Cargo.lock` |
-| Geladene Kernelgröße | **242,0 KiB** (`.text` 127,1 + `.rodata` 27,4 + `.data` 6,3 + `.bss` 80,7 + Requests 0,4) | `size -A target/x86_64-karst-none/release/karst` |
+| Geladene Kernelgröße | **271,7 KiB** (`.text` 152,9 + `.rodata` 31,1 + `.data` 6,6 + `.bss` 80,7 + Requests 0,4); auf Seiten gerundet 276 KiB = 69 Seiten | `size -A target/x86_64-karst-none/release/karst` |
 | Startdateisystem | **2448 B**, 3 Einträge (`hello`, `kaputt.elf`, `liesmich.txt`) | `stat -c%s build/initramfs.img` |
-| Host-Tests | **141**, alle grün (75 + 45 + 21) | `cargo test --target x86_64-unknown-linux-gnu -p ...` |
+| Host-Tests | **146**, alle grün (75 `karst-mem` + 50 `karst-abi-native` + 21 `karst-abi-posix`) | `cargo test --target x86_64-unknown-linux-gnu -p ...` |
 | Prüfmerkmale je QEMU-Boot | **38** | `run-qemu.sh --check` |
-| Selbsttest-Zusagen im Kernel | **126** | Boot-Log, Zeile „Selbsttestbilanz" |
+| Selbsttest-Zusagen im Kernel | **148** | Boot-Log, Zeile „Selbsttestbilanz" |
 | Schritte in `./test.sh` | **19** (davon 14 echte QEMU-Boots) | `./test.sh` |
 | Compilerwarnungen | **0** (erzwungen in `test.sh` Schritt 15) | `build/cargo-build.log` |
 | Nightly-Features | 4, einzeln begründet | ARCHITECTURE.md § 9 |

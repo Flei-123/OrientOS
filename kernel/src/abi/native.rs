@@ -22,7 +22,8 @@ use alloc::vec::Vec;
 
 use karst_abi_native::table::HandleTable;
 use karst_abi_native::{
-    encode, syscall::ABI_VERSION, Error, Handle, HandleEntry, ObjectKind, Result, Rights, Syscall,
+    encode, port::Packet, port::Signals, syscall::ABI_VERSION, Error, Handle, HandleEntry,
+    ObjectKind, Result, Rights, Syscall, PACKET_BYTES,
 };
 
 use crate::kcore::arch_iface::TimerOps;
@@ -35,6 +36,12 @@ const MAX_MESSAGE: usize = 4096;
 const MAX_MESSAGE_HANDLES: usize = 4;
 /// Groesste Nachrichtenzahl je Kanalende.
 const MAX_QUEUE: usize = 16;
+/// Groesste Zahl gebundener Objekte je Port.
+const MAX_BINDINGS: usize = 16;
+/// Groesste Zahl wartender Ereignisse je Port. Laeuft der Port ueber, gehen
+/// keine Ereignisse verloren, sondern das aelteste bleibt stehen und das neue
+/// wird abgewiesen — ein Ereignissturm darf keinen Speicher fressen.
+const MAX_PACKETS: usize = 32;
 
 // ---------------------------------------------------------------- Objekttafel
 
@@ -51,6 +58,20 @@ enum ObjectData {
     Process { pid: u32 },
     /// Speicherobjekt fester Groesse.
     Memory { len: u64 },
+    /// Wartepunkt fuer Ereignisse — der Ersatz fuer Signals. `binds` sind die
+    /// vom Besitzer selbst eingetragenen Beobachtungen, `queue` die noch nicht
+    /// abgeholten Pakete.
+    Port { binds: Vec<Binding>, queue: VecDeque<Packet> },
+}
+
+/// Eine Beobachtung: "melde mir `mask` von Objekt `object` unter `key`".
+/// Der Schluessel gehoert dem Wartenden; der Kernel gibt nie eine Objektnummer
+/// nach draussen.
+struct Binding {
+    object: u64,
+    key: u64,
+    mask: Signals,
+    kind: ObjectKind,
 }
 
 /// Eine Nachricht auf einem Kanal: Bytes plus explizit uebergebene Handles.
@@ -194,8 +215,47 @@ impl Native {
             o.refs -= 1;
         }
         if o.refs == 0 {
-            // Kanalende weg: die Gegenseite erfaehrt das beim naechsten Senden.
+            // Kanalende weg: die Gegenseite erfaehrt das ueber ihren Port und
+            // spaetestens beim naechsten Senden.
+            let peer = match o.data {
+                ObjectData::Channel { peer, .. } => Some(peer),
+                _ => None,
+            };
             *o = Object::free();
+            // Objektnummern werden wiederverwendet. Alle Beobachtungen auf
+            // diese Nummer muessen deshalb verschwinden — sonst wuerde ein
+            // altes Binding spaeter Ereignisse eines FREMDEN Objekts melden.
+            self.unbind_all(obj);
+            if let Some(peer) = peer {
+                self.notify_ports(peer, Signals::PEER_CLOSED);
+            }
+        }
+    }
+
+    /// Entfernt alle Beobachtungen auf eine Objektnummer aus allen Ports.
+    fn unbind_all(&mut self, obj: u64) {
+        for o in self.objects.iter_mut() {
+            if let ObjectData::Port { binds, .. } = &mut o.data {
+                binds.retain(|b| b.object != obj);
+            }
+        }
+    }
+
+    /// Meldet ein Ereignis eines Objekts an alle Ports, die es beobachten.
+    /// Ein Port bekommt nur, was sein Besitzer selbst gebunden hat — es gibt
+    /// keinen Weg, jemandem ungefragt ein Ereignis zuzustellen.
+    fn notify_ports(&mut self, obj: u64, sig: Signals) {
+        for o in self.objects.iter_mut() {
+            let ObjectData::Port { binds, queue } = &mut o.data else { continue };
+            for b in binds.iter() {
+                if b.object != obj || !b.mask.contains(sig) {
+                    continue;
+                }
+                if queue.len() >= MAX_PACKETS {
+                    break;
+                }
+                queue.push_back(Packet::new(b.key, sig, b.kind));
+            }
         }
     }
 
@@ -296,6 +356,17 @@ pub fn exit_process(pid: u32, code: i64) -> Result<()> {
     if n.current == pid {
         n.current = 0;
     }
+    // Wer ein Prozessobjekt an einem Port beobachtet, erfaehrt das Ende.
+    let prozessobjekte: Vec<u64> = n
+        .objects
+        .iter()
+        .enumerate()
+        .filter(|(_, o)| matches!(o.data, ObjectData::Process { pid: p } if p == pid))
+        .map(|(i, _)| i as u64)
+        .collect();
+    for obj in prozessobjekte {
+        n.notify_ports(obj, Signals::PROCESS_EXIT);
+    }
     Ok(())
 }
 
@@ -321,7 +392,12 @@ pub fn channel_create(pid: u32) -> Result<(Handle, Handle)> {
             *peer = b;
         }
     }
-    let rights = Rights::READ | Rights::WRITE | Rights::TRANSFER | Rights::DUPLICATE | Rights::INSPECT;
+    let rights = Rights::READ
+        | Rights::WRITE
+        | Rights::TRANSFER
+        | Rights::DUPLICATE
+        | Rights::INSPECT
+        | Rights::WAIT;
     let ha = n.grant(pid, a, rights)?;
     let hb = n.grant(pid, b, rights)?;
     Ok((ha, hb))
@@ -387,8 +463,7 @@ fn perform(pid: u32, sc: Syscall, args: [u64; 6], from_user: bool) -> Result<u64
             crate::kcore::sched::yield_now();
             Ok(0)
         }
-        Syscall::ClockRead => Ok(<crate::arch::Timer as TimerOps>::ticks()
-            .saturating_mul(1_000_000_000 / <crate::arch::Timer as TimerOps>::hz() as u64)),
+        Syscall::ClockRead => Ok(now_ns()),
         Syscall::HandleClose => {
             let mut n = lock();
             n.close(pid, Handle(args[0]))?;
@@ -467,6 +542,26 @@ fn perform(pid: u32, sc: Syscall, args: [u64; 6], from_user: bool) -> Result<u64
                     let msg = queue.pop_front().ok_or(Error::WouldBlock)?;
                     let len = msg.bytes.len().min(args[2] as usize);
                     drop(n);
+                    // Mitgeschickte Handles brauchen Platz im Ausgabefeld des
+                    // Empfaengers. Passt es nicht, bleibt die Nachricht liegen —
+                    // ein Handle darf nie ankommen, ohne dass der Empfaenger
+                    // seinen Wert erfaehrt.
+                    let platz = if msg.handles.is_empty() {
+                        Ok(())
+                    } else if msg.handles.len() > args[4] as usize {
+                        Err(Error::InvalidArgs)
+                    } else {
+                        check_range(args[3], (msg.handles.len() * 8) as u64, from_user)
+                    };
+                    if let Err(e) = platz {
+                        let mut n = lock();
+                        if let Some(o) = n.objects.get_mut(obj as usize) {
+                            if let ObjectData::Channel { queue, .. } = &mut o.data {
+                                queue.push_front(msg);
+                            }
+                        }
+                        return Err(e);
+                    }
                     if let Err(e) = write_buffer(args[1], &msg.bytes[..len], from_user) {
                         // Zielpuffer untauglich: die Nachricht bleibt erhalten,
                         // statt beim Fehlversuch verloren zu gehen.
@@ -478,10 +573,21 @@ fn perform(pid: u32, sc: Syscall, args: [u64; 6], from_user: bool) -> Result<u64
                         }
                         return Err(e);
                     }
-                    // Mitgeschickte Handles gehen in die Tabelle des Empfaengers.
-                    let mut n = lock();
-                    for e in msg.handles {
-                        let _ = n.proc_mut(pid)?.handles.adopt(e);
+                    // Mitgeschickte Handles gehen in die Tabelle des
+                    // Empfaengers — mit NEUEN Werten. Die Werte des Senders
+                    // gelten dort nicht und sind bei ihm bereits ungueltig.
+                    let mut neue = Vec::new();
+                    {
+                        let mut n = lock();
+                        for e in msg.handles {
+                            match n.proc_mut(pid)?.handles.adopt(e) {
+                                Ok(h) => neue.push(h),
+                                Err(_) => n.release(e.object),
+                            }
+                        }
+                    }
+                    for (i, h) in neue.iter().enumerate() {
+                        write_word(args[3] + (i as u64) * 8, h.0, from_user)?;
                     }
                     Ok(len as u64)
                 }
@@ -513,11 +619,29 @@ fn perform(pid: u32, sc: Syscall, args: [u64; 6], from_user: bool) -> Result<u64
             if count > MAX_MESSAGE_HANDLES {
                 return Err(Error::InvalidArgs);
             }
-            let mut mitgegeben = Vec::new();
+            // Erst ALLE genannten Handles einlesen und pruefen, dann erst
+            // wegnehmen: ein Fehler in der Mitte darf keinen Handle
+            // verschwinden lassen, ohne dass die Nachricht ankommt.
+            let mut genannt = Vec::new();
             for i in 0..count {
                 let raw = read_word(args[3] + (i as u64) * 8, from_user)?;
+                let n = lock();
+                n.procs
+                    .get(pid as usize)
+                    .ok_or(Error::NotFound)?
+                    .handles
+                    .get_with(Handle(raw), Rights::TRANSFER)?;
+                if genannt.contains(&Handle(raw)) {
+                    // Zweimal dasselbe Handle in einer Nachricht: der zweite
+                    // Griff wuerde ins Leere gehen. Lieber gleich abweisen.
+                    return Err(Error::InvalidArgs);
+                }
+                genannt.push(Handle(raw));
+            }
+            let mut mitgegeben = Vec::new();
+            for h in genannt {
                 let mut n = lock();
-                let e = n.proc_mut(pid)?.handles.take_for_transfer(Handle(raw), Rights::ALL)?;
+                let e = n.proc_mut(pid)?.handles.take_for_transfer(h, Rights::ALL)?;
                 mitgegeben.push(e);
             }
             let mut n = lock();
@@ -565,20 +689,139 @@ fn perform(pid: u32, sc: Syscall, args: [u64; 6], from_user: bool) -> Result<u64
             exit_process(ziel, args[1] as i64)?;
             Ok(0)
         }
+        Syscall::PortCreate => {
+            let mut n = lock();
+            let obj = n.new_object(
+                ObjectKind::Port,
+                ObjectData::Port { binds: Vec::new(), queue: VecDeque::new() },
+            );
+            let h = n.grant(
+                pid,
+                obj,
+                Rights::READ
+                    | Rights::WAIT
+                    | Rights::MANAGE
+                    | Rights::TRANSFER
+                    | Rights::DUPLICATE
+                    | Rights::INSPECT,
+            )?;
+            Ok(h.0)
+        }
+        Syscall::PortBind => {
+            // `(port, objekt, key, signale)`. Zwei Rechte muessen zusammen
+            // kommen: MANAGE am Port (ich darf ihn einrichten) und WAIT am
+            // Objekt (ich darf dessen Ereignisse ueberhaupt sehen).
+            let maske = Signals(args[3] as u32).restrict(Signals::ALL);
+            if maske.is_empty() {
+                return Err(Error::InvalidArgs);
+            }
+            let mut n = lock();
+            let port = {
+                let e = n
+                    .procs
+                    .get(pid as usize)
+                    .ok_or(Error::NotFound)?
+                    .handles
+                    .get_with(Handle(args[0]), Rights::MANAGE)?;
+                if e.kind != ObjectKind::Port {
+                    return Err(Error::WrongType);
+                }
+                e.object
+            };
+            let (ziel, art) = {
+                let e = n
+                    .procs
+                    .get(pid as usize)
+                    .ok_or(Error::NotFound)?
+                    .handles
+                    .get_with(Handle(args[1]), Rights::WAIT)?;
+                (e.object, e.kind)
+            };
+            let bereit = matches!(
+                n.objects.get(ziel as usize).map(|o| &o.data),
+                Some(ObjectData::Channel { queue, .. }) if !queue.is_empty()
+            );
+            let o = n.objects.get_mut(port as usize).ok_or(Error::NotFound)?;
+            let ObjectData::Port { binds, queue } = &mut o.data else {
+                return Err(Error::WrongType);
+            };
+            if binds.len() >= MAX_BINDINGS {
+                return Err(Error::Exhausted);
+            }
+            binds.push(Binding { object: ziel, key: args[2], mask: maske, kind: art });
+            // Was schon anliegt, geht beim Binden nicht verloren.
+            if bereit && maske.contains(Signals::READABLE) && queue.len() < MAX_PACKETS {
+                queue.push_back(Packet::new(args[2], Signals::READABLE, art));
+            }
+            Ok(0)
+        }
+        Syscall::PortWait => {
+            // `(port, paketpuffer, frist_ns)`. Wartet, bis ein Ereignis
+            // vorliegt oder die Frist abgelaufen ist. `frist_ns == 0` fragt
+            // nur nach, ohne zu warten.
+            let port = {
+                let n = lock();
+                let e = n
+                    .procs
+                    .get(pid as usize)
+                    .ok_or(Error::NotFound)?
+                    .handles
+                    .get_with(Handle(args[0]), Rights::WAIT)?;
+                if e.kind != ObjectKind::Port {
+                    return Err(Error::WrongType);
+                }
+                e.object
+            };
+            check_range(args[1], PACKET_BYTES as u64, from_user)?;
+            loop {
+                let paket = {
+                    let mut n = lock();
+                    let o = n.objects.get_mut(port as usize).ok_or(Error::Closed)?;
+                    match &mut o.data {
+                        ObjectData::Port { queue, .. } => queue.pop_front(),
+                        _ => return Err(Error::Closed),
+                    }
+                };
+                if let Some(p) = paket {
+                    write_buffer(args[1], &p.to_bytes(), from_user)?;
+                    return Ok(1);
+                }
+                if now_ns() >= args[2] {
+                    return Err(Error::WouldBlock);
+                }
+                // Warten heisst hier: die CPU abgeben. Der Zeitgeber bringt
+                // uns zurueck, die Frist wird oben geprueft.
+                crate::kcore::sched::yield_now();
+            }
+        }
+        Syscall::ThreadSleep => {
+            // `(frist_ns)` — absolute Frist. Eine Frist in der Vergangenheit
+            // ist kein Fehler, sondern schlicht sofort vorbei.
+            let jetzt = now_ns();
+            if args[0] <= jetzt {
+                return Ok(0);
+            }
+            let hz = <crate::arch::Timer as TimerOps>::hz() as u64;
+            let ticks = ((args[0] - jetzt).saturating_mul(hz) / 1_000_000_000).max(1);
+            crate::kcore::sched::sleep_ticks(ticks);
+            Ok(0)
+        }
         // Diese Aufrufe brauchen Teile, die dieser Stand noch nicht hat
-        // (Adressraumobjekte, Namensraumdienst, Ereignisports, Threads aus
-        // Ring 3). Sie melden das sauber — siehe ROADMAP.md.
+        // (Adressraumobjekte, Namensraumdienst, Threads aus Ring 3).
+        // Sie melden das sauber — siehe ROADMAP.md.
         Syscall::MemoryMap
         | Syscall::MemoryUnmap
         | Syscall::NamespaceOpen
         | Syscall::NamespaceCreate
-        | Syscall::PortCreate
-        | Syscall::PortWait
-        | Syscall::PortBind
         | Syscall::ProcessSpawn
-        | Syscall::ThreadCreate
-        | Syscall::ThreadSleep => Err(Error::NotSupported),
+        | Syscall::ThreadCreate => Err(Error::NotSupported),
     }
+}
+
+/// Zeit seit dem Start in Nanosekunden — die einzige Zeitquelle der ABI.
+fn now_ns() -> u64 {
+    <crate::arch::Timer as TimerOps>::ticks()
+        .saturating_mul(1_000_000_000 / <crate::arch::Timer as TimerOps>::hz() as u64)
 }
 
 fn push_message(n: &mut Native, obj: u64, msg: Message) -> Result<()> {
@@ -589,6 +832,9 @@ fn push_message(n: &mut Native, obj: u64, msg: Message) -> Result<()> {
                 return Err(Error::WouldBlock);
             }
             queue.push_back(msg);
+            // Wer dieses Kanalende an einem Port beobachtet, erfaehrt jetzt,
+            // dass etwas zu lesen ist.
+            n.notify_ports(obj, Signals::READABLE);
             Ok(())
         }
         _ => Err(Error::Closed),
@@ -878,8 +1124,258 @@ pub fn capability_selftest() -> (usize, usize) {
         ergebnis(case12)
     );
     let demo = spawn_demo();
+    let ports = port_selftest();
+    let uebergabe_test = transfer_selftest();
     report();
-    (ok + demo.0, faelle.len() + demo.1)
+    (
+        ok + demo.0 + ports.0 + uebergabe_test.0,
+        faelle.len() + demo.1 + ports.1 + uebergabe_test.1,
+    )
+}
+
+/// Probe der Ereignisports — des Ersatzes fuer Signals.
+///
+/// Positiv: binden, senden, warten; Frist 0 blockiert nicht; das Ende der
+/// Gegenseite und das Ende eines Prozesses kommen als Paket an.
+/// Negativ: ohne `MANAGE` am Port und ohne `WAIT` am Objekt gibt es keine
+/// Bindung, und auf einem Nicht-Port wird gar nicht erst gewartet.
+///
+/// Liefert `(bestanden, gesamt)`.
+pub fn port_selftest() -> (usize, usize) {
+    let root = current();
+    let mut paket = [0u8; PACKET_BYTES];
+    let port = dispatch_kernel(Syscall::PortCreate as u64, [0; 6]);
+    if port < 0 {
+        klog!("abi", "Portprobe: FEHLER, Port konnte nicht angelegt werden");
+        return (0, 7);
+    }
+    let port = Handle(port as u64);
+
+    // 1. Leerer Port mit Frist 0: nachfragen, nicht warten.
+    let leer = dispatch_kernel(
+        Syscall::PortWait as u64,
+        [port.0, paket.as_mut_ptr() as u64, 0, 0, 0, 0],
+    ) == Error::WouldBlock.as_raw();
+
+    // 2. Kanalende binden, senden, Paket abholen.
+    let (a, b) = match channel_create(root) {
+        Ok(p) => p,
+        Err(_) => return (leer as usize, 7),
+    };
+    let gebunden = dispatch_kernel(
+        Syscall::PortBind as u64,
+        [port.0, b.0, 0x4b45_5931, Signals::READABLE.bits() as u64, 0, 0],
+    ) == 0;
+    let text = b"port";
+    let _ = dispatch_kernel(
+        Syscall::ChannelSend as u64,
+        [a.0, text.as_ptr() as u64, text.len() as u64, 0, 0, 0],
+    );
+    let geholt = dispatch_kernel(
+        Syscall::PortWait as u64,
+        [port.0, paket.as_mut_ptr() as u64, now_ns() + 50_000_000, 0, 0, 0],
+    );
+    let lesbar = Packet::from_bytes(&paket);
+    let case_lesen = geholt == 1
+        && matches!(lesbar, Some(p)
+            if p.key == 0x4b45_5931 && p.signals == Signals::READABLE && p.kind == ObjectKind::Channel);
+
+    // 3. Negativ: binden ohne MANAGE am Port.
+    let schwach = dispatch_kernel(
+        Syscall::HandleDuplicate as u64,
+        [port.0, (Rights::WAIT | Rights::READ).bits() as u64, 0, 0, 0, 0],
+    );
+    let case_ohne_manage = schwach >= 0
+        && dispatch_kernel(
+            Syscall::PortBind as u64,
+            [schwach as u64, b.0, 1, Signals::ALL.bits() as u64, 0, 0],
+        ) == Error::RightsDenied.as_raw();
+
+    // 4. Negativ: Objekt ohne WAIT-Recht laesst sich nicht beobachten.
+    let stumm = grant_console(root, Rights::WRITE).unwrap_or(Handle(0));
+    let case_ohne_wait = dispatch_kernel(
+        Syscall::PortBind as u64,
+        [port.0, stumm.0, 2, Signals::ALL.bits() as u64, 0, 0],
+    ) == Error::RightsDenied.as_raw();
+
+    // 5. Negativ: auf etwas warten, das kein Port ist.
+    let case_kein_port = dispatch_kernel(
+        Syscall::PortWait as u64,
+        [b.0, paket.as_mut_ptr() as u64, 0, 0, 0, 0],
+    ) == Error::WrongType.as_raw();
+
+    // 6. Das Ende der Gegenseite kommt als Ereignis an.
+    let _ = dispatch_kernel(
+        Syscall::PortBind as u64,
+        [port.0, b.0, 0x4b45_5932, Signals::PEER_CLOSED.bits() as u64, 0, 0],
+    );
+    let _ = dispatch_kernel(Syscall::HandleClose as u64, [a.0, 0, 0, 0, 0, 0]);
+    // Das zuerst gemeldete READABLE-Paket wegraeumen, dann das gesuchte holen.
+    let mut case_peer = false;
+    for _ in 0..4 {
+        if dispatch_kernel(
+            Syscall::PortWait as u64,
+            [port.0, paket.as_mut_ptr() as u64, 0, 0, 0, 0],
+        ) != 1
+        {
+            break;
+        }
+        if matches!(Packet::from_bytes(&paket), Some(p)
+            if p.key == 0x4b45_5932 && p.signals == Signals::PEER_CLOSED)
+        {
+            case_peer = true;
+            break;
+        }
+    }
+
+    let faelle = [
+        ("Frist 0 blockiert nicht", leer),
+        ("Bindung eingerichtet", gebunden),
+        ("Ereignis zugestellt", case_lesen),
+        ("binden ohne MANAGE abgewiesen", case_ohne_manage),
+        ("beobachten ohne WAIT abgewiesen", case_ohne_wait),
+        ("warten auf Nicht-Port abgewiesen", case_kein_port),
+    ];
+    let ok = faelle.iter().filter(|(_, b)| *b).count() + case_peer as usize;
+    klog!(
+        "abi",
+        "Portprobe (Signals-Ersatz): {}/{} — {} {}, {} {}, {} {}, Ende der Gegenseite {}",
+        ok,
+        faelle.len() + 1,
+        faelle[1].0,
+        ergebnis(gebunden),
+        faelle[2].0,
+        ergebnis(case_lesen),
+        faelle[0].0,
+        ergebnis(leer),
+        ergebnis(case_peer)
+    );
+    klog!(
+        "abi",
+        "Port-Negativtest: {} {}, {} {}, {} {}",
+        faelle[3].0,
+        ergebnis(case_ohne_manage),
+        faelle[4].0,
+        ergebnis(case_ohne_wait),
+        faelle[5].0,
+        ergebnis(case_kein_port)
+    );
+    let _ = dispatch_kernel(Syscall::HandleClose as u64, [port.0, 0, 0, 0, 0, 0]);
+    (ok, faelle.len() + 1)
+}
+
+/// Probe der Handle-Uebergabe ueber einen Kanal: Weitergeben ist ein UMZUG,
+/// keine Kopie — der Sender verliert das Handle, der Empfaenger bekommt einen
+/// eigenen, neuen Wert. Ohne `TRANSFER` geht gar nichts.
+///
+/// Liefert `(bestanden, gesamt)`.
+pub fn transfer_selftest() -> (usize, usize) {
+    let root = current();
+    let Ok((eltern, kind_ende)) = channel_create(root) else {
+        klog!("abi", "Uebergabeprobe: FEHLER, Kanal fehlt");
+        return (0, 5);
+    };
+    let Ok(kind) = spawn_with(root, "empfaenger", false, &[(kind_ende, Rights::READ)]) else {
+        klog!("abi", "Uebergabeprobe: FEHLER, spawn abgewiesen");
+        return (0, 5);
+    };
+    let empfangsende = kind_handle(kind).unwrap_or(Handle(0));
+
+    // Ein Ausgabehandle, das der Erzeuger weitergibt.
+    let gabe = grant_console(root, Rights::WRITE | Rights::TRANSFER).unwrap_or(Handle(0));
+    let liste = [gabe.0];
+    let text = b"handle unterwegs";
+    let gesendet = dispatch_kernel(
+        Syscall::ChannelSend as u64,
+        [
+            eltern.0,
+            text.as_ptr() as u64,
+            text.len() as u64,
+            liste.as_ptr() as u64,
+            1,
+            0,
+        ],
+    );
+    // 1. Beim Sender ist das Handle nach dem Umzug weg.
+    let case_weg = gesendet == text.len() as i64
+        && dispatch_kernel(Syscall::HandleWrite as u64, [gabe.0, 0, 0, 0, 0, 0])
+            == Error::BadHandle.as_raw();
+
+    // 2. Negativ: zu wenig Platz fuer die mitgeschickten Handles — die
+    //    Nachricht bleibt liegen, statt dass ein Handle verschwindet.
+    let mut puffer = [0u8; 32];
+    let mut aus = [0u64; 2];
+    let vorher = set_current(kind);
+    let ohne_platz = dispatch_kernel(
+        Syscall::ChannelRecv as u64,
+        [empfangsende.0, puffer.as_mut_ptr() as u64, puffer.len() as u64, 0, 0, 0],
+    ) == Error::InvalidArgs.as_raw();
+    // 3. Mit Platz kommt alles an — und das neue Handle traegt einen ANDEREN
+    //    Wert als beim Sender.
+    let gelesen = dispatch_kernel(
+        Syscall::ChannelRecv as u64,
+        [
+            empfangsende.0,
+            puffer.as_mut_ptr() as u64,
+            puffer.len() as u64,
+            aus.as_mut_ptr() as u64,
+            aus.len() as u64,
+            0,
+        ],
+    );
+    let neu = Handle(aus[0]);
+    let benutzbar = dispatch_kernel(
+        Syscall::HandleWrite as u64,
+        [neu.0, text.as_ptr() as u64, text.len() as u64, 0, 0, 0],
+    );
+    set_current(vorher);
+    let case_umzug = gelesen == text.len() as i64
+        && neu.is_valid()
+        && neu != gabe
+        && benutzbar == text.len() as i64;
+
+    // 4. Negativ: ein Handle ohne TRANSFER-Recht laesst sich nicht mitgeben,
+    //    und es bleibt danach beim Sender gueltig.
+    let fest = grant_console(root, Rights::WRITE).unwrap_or(Handle(0));
+    let liste2 = [fest.0];
+    let verweigert = dispatch_kernel(
+        Syscall::ChannelSend as u64,
+        [eltern.0, text.as_ptr() as u64, 4, liste2.as_ptr() as u64, 1, 0],
+    ) == Error::RightsDenied.as_raw();
+    let case_ohne_transfer =
+        verweigert && dispatch_kernel(Syscall::HandleWrite as u64, [fest.0, 0, 0, 0, 0, 0]) == 0;
+
+    // 5. Negativ: dasselbe Handle zweimal in einer Nachricht.
+    let doppelt = grant_console(root, Rights::WRITE | Rights::TRANSFER).unwrap_or(Handle(0));
+    let liste3 = [doppelt.0, doppelt.0];
+    let case_doppelt = dispatch_kernel(
+        Syscall::ChannelSend as u64,
+        [eltern.0, text.as_ptr() as u64, 4, liste3.as_ptr() as u64, 2, 0],
+    ) == Error::InvalidArgs.as_raw()
+        && dispatch_kernel(Syscall::HandleWrite as u64, [doppelt.0, 0, 0, 0, 0, 0]) == 0;
+
+    let ok = case_weg as usize
+        + case_umzug as usize
+        + case_ohne_transfer as usize
+        + case_doppelt as usize
+        + ohne_platz as usize;
+    klog!(
+        "abi",
+        "Uebergabeprobe: Handle per Kanal umgezogen {} (Sender {:#x} -> Empfaenger {:#x}), beim Sender ungueltig {}, ohne Platz keine Zustellung {}",
+        ergebnis(case_umzug),
+        gabe.0,
+        neu.0,
+        ergebnis(case_weg),
+        ergebnis(ohne_platz)
+    );
+    klog!(
+        "abi",
+        "Uebergabe-Negativtest: ohne TRANSFER-Recht abgewiesen {}, dasselbe Handle doppelt abgewiesen {}",
+        ergebnis(case_ohne_transfer),
+        ergebnis(case_doppelt)
+    );
+    let _ = exit_process(kind, 0);
+    (ok, 5)
 }
 
 /// Nachschlagen eines Handles mit Rechteprobe — ohne Nebenwirkung.

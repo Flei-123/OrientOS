@@ -45,6 +45,22 @@ ASCII-Oktalzahlen erreichbar. Das Format hier ist eine Tabelle fester Breite;
 der Kernel prueft jede Grenze mit `checked`-Arithmetik gegen die tatsaechliche
 Bereichslaenge, bevor er ein einziges Byte liest.
 
+## Was der Lader von einem Programm verlangt
+
+* ELF64, little-endian, `ET_EXEC`, Maschine x86-64, **statisch gebunden**:
+  ein `PT_INTERP`-Kopf fuehrt zu `dynamisch gebunden, verlangt einen Binder` —
+  der Kern bindet nicht.
+* Jedes `PT_LOAD`: `p_filesz <= p_memsz`, `p_align` entweder 0/1 oder eine
+  Zweierpotenz mit `p_vaddr ≡ p_offset (mod p_align)`, ganz im unprivilegierten
+  Adressbereich, keine Ueberlappung mit einem anderen Segment, nie zugleich
+  beschreibbar und ausfuehrbar (W^X).
+* Die Einsprungadresse muss in einem ausfuehrbaren Segment liegen.
+
+Abgeraeumt wird ueber `kcore::elf::unload`: dieselbe Pruefung liefert dieselben
+Seitenbereiche, jede Seite geht an den Frame-Allocator zurueck (Segmente, auf
+Wunsch mitsamt unprivilegiertem Stapel). Der Boot-Log weist das mit einem
+Lade-/Abraeumdurchgang samt Frame-Zaehlung nach.
+
 ## Aufrufkonvention von `hello`
 
 Nummer in `rax`, Argumente in `rdi, rsi, rdx, r10, r8, r9`, Ergebnis in `rax`

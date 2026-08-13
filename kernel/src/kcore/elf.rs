@@ -42,6 +42,11 @@ pub enum ElfError {
     SegmentOverlap,
     /// Segmentangaben sind in sich unstimmig (z. B. Dateilaenge > Speicherlaenge).
     SegmentInsane,
+    /// Ausrichtungsangabe des Segments ist keine Zweierpotenz oder Datei- und
+    /// Speicherlage passen modulo dieser Ausrichtung nicht zueinander.
+    BadAlign,
+    /// Das Abbild verlangt einen Binder (`PT_INTERP`) — der Kern bindet nicht.
+    NeedsInterpreter,
     /// Einsprungadresse liegt in keinem geladenen Segment.
     BadEntry,
     /// Mehr Segmente, als der Lader annimmt.
@@ -63,6 +68,8 @@ impl ElfError {
             ElfError::SegmentOutOfRange => "Segment ausserhalb des unprivilegierten Bereichs",
             ElfError::SegmentOverlap => "Segmente ueberlappen sich",
             ElfError::SegmentInsane => "unstimmige Segmentangaben",
+            ElfError::BadAlign => "unstimmige Ausrichtungsangabe",
+            ElfError::NeedsInterpreter => "dynamisch gebunden, verlangt einen Binder",
             ElfError::BadEntry => "Einsprungadresse in keinem Segment",
             ElfError::TooManySegments => "zu viele Segmente",
         }
@@ -125,6 +132,10 @@ const EI_NIDENT: usize = 16;
 const EHDR_LEN: usize = 64;
 const PHDR_LEN: usize = 56;
 const PT_LOAD: u32 = 1;
+/// Verweis auf einen Binder. Kommt nur in dynamisch gebundenen Abbildern vor;
+/// dieser Kern bindet nicht und weist solche Abbilder ab, statt sie halb zu
+/// laden und beim ersten Sprung ins Leere laufen zu lassen.
+const PT_INTERP: u32 = 3;
 const ET_EXEC: u16 = 2;
 /// Maschinenkennung der aktiven Architektur (x86_64 = 62).
 const EM_EXPECTED: u16 = 62;
@@ -184,7 +195,11 @@ pub fn parse(bytes: &[u8]) -> Result<Image, ElfError> {
     let mut img = Image { entry, segments: [Segment::default(); MAX_SEGMENTS], count: 0 };
     for i in 0..phnum {
         let p = start + i * PHDR_LEN;
-        if rd32(bytes, p) != PT_LOAD {
+        let ptype = rd32(bytes, p);
+        if ptype == PT_INTERP {
+            return Err(ElfError::NeedsInterpreter);
+        }
+        if ptype != PT_LOAD {
             continue;
         }
         if img.count == MAX_SEGMENTS {
@@ -195,8 +210,19 @@ pub fn parse(bytes: &[u8]) -> Result<Image, ElfError> {
         let vaddr = rd64(bytes, p + 16);
         let filesz = rd64(bytes, p + 32);
         let memsz = rd64(bytes, p + 40);
+        let align = rd64(bytes, p + 48);
         if filesz > memsz || memsz == 0 {
             return Err(ElfError::SegmentInsane);
+        }
+        // Ausrichtung: entweder ohne Bedingung (0 oder 1) oder eine
+        // Zweierpotenz, und dann muessen Datei- und Speicherlage modulo dieser
+        // Zahl uebereinstimmen. Stimmt das nicht, kann der Lader den Inhalt
+        // gar nicht seitenweise an die richtige Stelle kopieren — so ein
+        // Abbild ist in sich falsch, nicht bloss unbequem.
+        if align > 1 {
+            if !align.is_power_of_two() || vaddr % align != off % align {
+                return Err(ElfError::BadAlign);
+            }
         }
         let fend = off.checked_add(filesz).ok_or(ElfError::SegmentOutOfFile)?;
         if fend > bytes.len() as u64 {
@@ -440,6 +466,67 @@ pub unsafe fn load(space: &mut AddressSpace, bytes: &[u8]) -> Result<Loaded, Loa
     })
 }
 
+/// Wie weit ein geladenes Abbild wieder abgeraeumt wird.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Unload {
+    /// Nur die Programmsegmente. Der unprivilegierte Stapel bleibt stehen —
+    /// das ist der Fall, wenn ein weiteres Abbild in denselben Adressraum
+    /// nachgeladen wird und den Stapel weiterbenutzt.
+    SegmentsOnly,
+    /// Segmente **und** unprivilegierter Stapel. Danach ist der
+    /// unprivilegierte Teil des Adressraums wieder leer.
+    WithStack,
+}
+
+/// Nimmt ein geladenes Abbild wieder aus `space` heraus und gibt jeden Frame
+/// an den Allocator zurueck.
+///
+/// Gerechnet wird aus der Datei, nicht aus einem mitgefuehrten Merkzettel:
+/// dieselbe Pruefung wie beim Laden liefert dieselben Seitenbereiche. Seiten,
+/// die gar nicht (mehr) abgebildet sind, werden uebergangen — das Abraeumen
+/// darf nie selbst zum Fehlerfall werden.
+///
+/// Liefert die Anzahl zurueckgegebener Seiten.
+///
+/// # Safety
+/// `space` muss gueltig sein; in den freigegebenen Seiten darf niemand mehr
+/// arbeiten (das Programm ist beendet).
+pub unsafe fn unload(
+    space: &mut AddressSpace,
+    bytes: &[u8],
+    scope: Unload,
+) -> Result<usize, LoadError> {
+    let img = parse(bytes).map_err(LoadError::Format)?;
+    let page = PAGE_SIZE as u64;
+    let mut freed = 0usize;
+    let mut guard = crate::mm::frame::lock();
+    let fa = guard.as_mut().ok_or(LoadError::NoAllocator)?;
+    for seg in img.segments() {
+        let start = seg.vaddr & !(page - 1);
+        let end = (seg.vaddr + seg.mem_len + page - 1) & !(page - 1);
+        let mut v = start;
+        while v < end {
+            if let Ok(p) = unsafe { space.unmap(VirtAddr(v)) } {
+                crate::kcore::mem::FrameAllocator::free_frame(fa, p);
+                freed += 1;
+            }
+            v += page;
+        }
+    }
+    if scope == Unload::WithStack {
+        let mut i = 0;
+        while i < USER_STACK_PAGES {
+            let v = USER_STACK_TOP - (i + 1) * page;
+            if let Ok(p) = unsafe { space.unmap(VirtAddr(v)) } {
+                crate::kcore::mem::FrameAllocator::free_frame(fa, p);
+                freed += 1;
+            }
+            i += 1;
+        }
+    }
+    Ok(freed)
+}
+
 /// Einsprung und Stapel des zuletzt geladenen Programms — 0, solange keines
 /// geladen wurde.
 static PROGRAM_ENTRY: AtomicU64 = AtomicU64::new(0);
@@ -628,6 +715,23 @@ pub fn selftest() -> (usize, usize) {
     check("Dateilaenge > Speicherlaenge", Err(ElfError::SegmentInsane), parse(&bad[..len]));
 
     let mut bad = buf;
+    bad[EHDR_LEN + 48..EHDR_LEN + 56].copy_from_slice(&3u64.to_le_bytes());
+    check("Ausrichtung krumm", Err(ElfError::BadAlign), parse(&bad[..len]));
+
+    let mut bad = buf;
+    bad[EHDR_LEN + 48..EHDR_LEN + 56].copy_from_slice(&0x200u64.to_le_bytes());
+    bad[EHDR_LEN + 8..EHDR_LEN + 16].copy_from_slice(&8u64.to_le_bytes());
+    check("Datei-/Speicherlage unpassend", Err(ElfError::BadAlign), parse(&bad[..len]));
+
+    // Zwei Programmkoepfe: der zweite verlangt einen Binder. Ein solches
+    // Abbild darf gar nicht erst geladen werden — der Kern bindet nicht.
+    let mut bad = buf;
+    bad[56..58].copy_from_slice(&2u16.to_le_bytes());
+    let p2 = EHDR_LEN + PHDR_LEN;
+    bad[p2..p2 + 4].copy_from_slice(&PT_INTERP.to_le_bytes());
+    check("dynamisch gebunden", Err(ElfError::NeedsInterpreter), parse(&bad[..len]));
+
+    let mut bad = buf;
     bad[24..32].copy_from_slice(&0u64.to_le_bytes());
     check("Einsprung ausserhalb", Err(ElfError::BadEntry), parse(&bad[..len]));
 
@@ -666,6 +770,53 @@ fn load_selftest() -> (usize, usize) {
     let mut space = unsafe { AddressSpace::current() };
     let mut ok = 0usize;
     let mut total = 0usize;
+
+    // 0) Laden und wieder Abraeumen. Zuerst, weil der unprivilegierte Bereich
+    //    danach wieder leer sein muss, bevor das echte Programm einzieht:
+    //    ein Abbild wird vollstaendig abgebildet, sofort wieder entfernt, und
+    //    gemessen wird an den freien Frames, dass wirklich JEDE Seite
+    //    zurueckkommt — Segmente wie Stapel. Ohne diesen Weg haette jedes
+    //    beendete Programm Speicher liegen lassen.
+    total += 1;
+    let mut probe = [0u8; 256];
+    let plen = build_probe(&mut probe);
+    probe[24..32].copy_from_slice(&0x0080_0000u64.to_le_bytes()); // Einsprung
+    probe[EHDR_LEN + 16..EHDR_LEN + 24].copy_from_slice(&0x0080_0000u64.to_le_bytes());
+    probe[EHDR_LEN + 40..EHDR_LEN + 48]
+        .copy_from_slice(&(2 * PAGE_SIZE as u64).to_le_bytes()); // 2 Seiten
+    let before = crate::mm::frame::free_frames();
+    let round = match unsafe { load(&mut space, &probe[..plen]) } {
+        Ok(l) => {
+            let mapped = l.pages;
+            match unsafe { unload(&mut space, &probe[..plen], Unload::WithStack) } {
+                Ok(freed) => {
+                    let after = crate::mm::frame::free_frames();
+                    // Alles Angelegte muss zurueck sein; was liegen bleibt,
+                    // sind hoechstens die Zwischentabellen des Abstiegs (bis
+                    // zu drei Ebenen je beruehrter Region — Programm und
+                    // Stapel liegen weit auseinander, also zwei Regionen).
+                    // Die gehoeren dem Adressraum, nicht dem Abbild.
+                    let einbehalten = before.saturating_sub(after);
+                    let entry_gone = space.translate(l.entry).is_none();
+                    (freed == mapped && einbehalten <= 6 && entry_gone, mapped, freed, einbehalten)
+                }
+                Err(_) => (false, mapped, 0, 0),
+            }
+        }
+        Err(_) => (false, 0, 0, 0),
+    };
+    if round.0 {
+        ok += 1;
+    }
+    klog!(
+        "elf",
+        "  {:<28} -> {} Seiten abgebildet, {} zurueckgegeben, {} Zwischentabelle(n) bleiben, Einsprung nicht mehr abgebildet {}",
+        "Abbild geladen und abgeraeumt",
+        round.1,
+        round.2,
+        round.3,
+        if round.0 { "(ok)" } else { "(FEHLER)" }
+    );
 
     // 1) Das echte Programm laden und nachpruefen.
     if let Some(bytes) = archive.find("hello") {

@@ -12,7 +12,11 @@ elf_check() {
         'Eintrag [0-9]+: hello ' \
         'Eintrag [0-9]+: kaputt.elf ' \
         'Archiv-Negativtest: ([0-9]+)/\1 Faelle wie erwartet abgewiesen' \
+        'zweimal derselbe Name +-> zwei Eintraege mit demselben Namen \(ok\)' \
         'ELF-Negativtest: ([0-9]+)/\1 Faelle wie erwartet abgewiesen' \
+        'dynamisch gebunden +-> dynamisch gebunden, verlangt einen Binder \(ok\)' \
+        'Ausrichtung krumm +-> unstimmige Ausrichtungsangabe \(ok\)' \
+        'Abbild geladen und abgeraeumt +-> [0-9]+ Seiten abgebildet, [0-9]+ zurueckgegeben, [0-9]+ Zwischentabelle\(n\) bleiben, Einsprung nicht mehr abgebildet \(ok\)' \
         'ELF-Lader   : hello, [0-9]+ Segmente geladen, Einsprung 0x[0-9a-f]+' \
         'Segment 0: 0x[0-9a-f]+ [0-9]+ KiB RX ' \
         'Segment 1: 0x[0-9a-f]+ [0-9]+ KiB RW ' \

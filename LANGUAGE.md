@@ -299,7 +299,7 @@ Richtung ist inzwischen eindeutig.
   mehr, als C je geboten hat.
 * Der Borrow-Checker hat in `libs/karst-mem` (Bitmap, Heap, Regionen) und in
   `libs/karst-abi-native` (Handle-Tabelle) real Fehler verhindert — dort liegt
-  die Logik, dort ist er wertvoll, dort laufen 141 Host-Tests. Die
+  die Logik, dort ist er wertvoll, dort laufen 146 Host-Tests. Die
   Capability-Regeln dieser Runde waren auf dem Host fertig getestet, **bevor**
   der Kernel sie zum ersten Mal ausgeführt hat.
 * Eine eigene Sprache heißt: Compiler, Optimierer, Debugger-Formate, Formatierer,

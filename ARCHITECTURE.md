@@ -427,12 +427,12 @@ Geladene Größe des Kernels (Release, gemessen mit
 
 | Sektion | Größe |
 |---|---|
-| `.text` | 127,1 KiB |
-| `.rodata` | 27,4 KiB |
+| `.text` | 152,9 KiB |
+| `.rodata` | 31,1 KiB |
 | `.limine_requests` | 0,4 KiB |
-| `.data` | 6,3 KiB |
+| `.data` | 6,6 KiB |
 | `.bss` | 80,7 KiB |
-| **Summe im Speicher** | **242,0 KiB** |
+| **Summe im Speicher** | **271,7 KiB** (auf Seiten gerundet 276 KiB = 69 Seiten) |
 
 Der größte Einzelposten in `.bss` sind die drei IST-Stapel zu je 20 KiB. Die
 ELF-Datei auf der Platte ist deutlich größer, weil Debug-Informationen für

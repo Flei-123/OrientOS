@@ -39,7 +39,21 @@ handles_check() {
         'ohne Platz keine Zustellung ok' \
         'Uebergabe-Negativtest: ohne TRANSFER-Recht abgewiesen ok' \
         'dasselbe Handle doppelt abgewiesen ok' \
+        'Namensraumprobe: ([0-9]+)/\1 ' \
+        'Name aufgeloest und benutzt ok' \
+        'Unterknoten ok' \
+        'Namensraum-Negativtest: Pfadtrenner abgewiesen ok' \
+        'unbekannter Name abgewiesen ok' \
+        'keine Rechteausweitung beim Aufloesen ok' \
+        'Einhaengen ohne CREATE abgewiesen ok' \
+        'Einhaengen ohne DUPLICATE abgewiesen ok' \
+        'kein Knoten abgewiesen ok' \
+        'Name doppelt abgewiesen ok' \
+        'Name zu lang abgewiesen ok' \
+        'ohne Knotenhandle kein Name ok' \
         'Uebersetzer: write\(fd [0-9]+\) -> [0-9]+ B ueber Handle' \
+        'Uebersetzer: open\(2\) auf Namensraumknoten -> fd [0-9]+, write -> [1-9][0-9]* B' \
+        'unbekannter Name -> -2 \(erwartet -2\)' \
         'fork\(2\) -> -38 \(erwartet -38\)' \
         ; do
         if grep -qE "$muster" "$log"; then

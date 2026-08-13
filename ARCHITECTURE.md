@@ -297,8 +297,10 @@ weiter.
 ### 5c. Startdateisystem und ELF64-Lader (Phase 3)
 
 `limine.conf` reicht `build/initramfs.img` als Bootloader-Modul herein.
-Das Archivformat ist **eigenbau** (`IRFS0001`): 16-Byte-Kopf, danach eine
-Tabelle fester Breite (Name 32 B, Offset, Länge). Begründung gegen cpio/tar
+Das Archivformat ist **eigenbau** (`IRFS0002`): 16-Byte-Kopf, danach eine
+Tabelle fester Breite (56 B je Eintrag: Name 32 B, Offset, Länge, CRC32 der
+Daten, 4 B reserviert). Die Prüfsumme wird beim Öffnen **nach** der
+Bereichsprüfung und **vor** jedem Datenzugriff geprüft. Begründung gegen cpio/tar
 steht im Modulkopf von `kcore/initramfs.rs`: beide transportieren POSIX-Metadaten
 (Modus, uid/gid, Pfade), die dieser Kern nicht kennt und sofort wegwerfen
 müsste — Code, der nur Angriffsfläche ist; außerdem sind beide stromorientiert,
@@ -510,9 +512,10 @@ Ehrliche Liste, damit niemand mehr erwartet, als der Code hält:
 * kein Rückgewinnen des Bootloader-Speichers (bleibt reserviert)
 * kein APIC, kein ACPI-Parser, keine PCI-Aufzählung
 * von den 23 Syscall-Nummern sind gebaut: `Version`, `ThreadYield`,
-  `ClockRead`, `HandleClose/Duplicate/Inspect/Write/Read`,
-  `ChannelCreate/Send/Recv`, `MemoryCreate`, `ProcessExit`. `MemoryMap/Unmap`,
-  `Namespace*`, `Port*`, `ProcessSpawn`, `ThreadCreate/Sleep` melden
-  `NotSupported` (Prozesserzeugung geht bislang nur kernelseitig über `spawn`)
+  `ThreadSleep`, `ClockRead`, `HandleClose/Duplicate/Inspect/Write/Read`,
+  `ChannelCreate/Send/Recv`, `MemoryCreate`, `ProcessExit`,
+  `NamespaceCreate/Open`, `PortCreate/Bind/Wait`. Nur noch
+  `MemoryMap/Unmap`, `ProcessSpawn` und `ThreadCreate` melden `NotSupported`
+  (Prozesserzeugung geht bislang nur kernelseitig über `spawn`/`spawn_with`)
 
 Der Weg dahin steht in [ROADMAP.md](ROADMAP.md).

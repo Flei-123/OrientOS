@@ -4,7 +4,7 @@ Ziel: ein eigenständiges, langfristig linuxfähiges Betriebssystem — kein For
 kein übernommener Code. Zeithorizont: Jahre. Reihenfolge ist nach Abhängigkeit
 sortiert, nicht nach Attraktivität.
 
-Legende: **✔ fertig** · **▶ als Nächstes** · **○ geplant**
+Legende: **✔ fertig** · **◐ teilweise** · **▶ als Nächstes** · **○ geplant**
 
 ---
 
@@ -46,10 +46,13 @@ Legende: **✔ fertig** · **▶ als Nächstes** · **○ geplant**
   `wait_for_interrupt` zurück. Im Boot-Log: `Leerlauf-Thread: 3 Einlastung(en),
   3 Tick(s) im Leerlauf, eigener Stapel 8192 B, Wachzone unversehrt` sowie
   `Leerlauf unter Verdraengung: 5 Einlastung(en), 5 Tick(s) …`
-* ▶ Verdrängung auch für Ring-3-Programme — heute wird ein Tick, der ein
-  unprivilegiertes Programm trifft, nur gezählt; eine reine Rechenschleife in
-  Ring 3 läuft bis zum Ende durch. Im Boot-Log ehrlich als nicht gewerteter
-  offener Punkt vermerkt (`Rechenschleife ohne Systemaufruf lief durch`)
+* ✔ Verdrängung auch für Ring-3-Programme — ein Tick aus CPL 3 wird gezählt und
+  gegen ein Zeitbudget gebucht (`arch/x86_64/preempt.rs` → `kcore::user`).
+  Läuft das Budget ab, wird das Programm abgeräumt, statt die Rechenschleife
+  durchlaufen zu lassen. Im Boot-Log: `Zeitbudget von Ring 3 erschoepft
+  (RIP=…) — Programm wird abgeraeumt` und `Schutzwall: Rechenschleife ohne
+  Systemaufruf -> vom Zeitgeber unterbrochen und abgeraeumt (ok)`;
+  damit 5/5 statt 4/4 abgewehrten Übergriffen
 * ○ APIC statt PIC: LAPIC-Timer, IOAPIC-Umleitungen, TSC-Deadline
 * ○ Monotone Uhr in Nanosekunden (`ClockRead`), Kalibrierung gegen HPET/PIT
 
@@ -76,7 +79,8 @@ Legende: **✔ fertig** · **▶ als Nächstes** · **○ geplant**
   `HandleWrite/Read/Close/Duplicate/Inspect`, `ChannelCreate/Send/Recv`,
   `MemoryCreate`, `ProcessExit`, `spawn`/`spawn_with` **statt `fork`**;
   Negativfälle im Boot-Log: 3 Handle- + 12 Capability-Fälle (Selbsttestgruppe
-  „Handles" insgesamt 27/27)
+  „Handles" insgesamt 38/38, inklusive der Port-, Übergabe- und
+  Namensraum-Negativfälle)
 * ▶ **Adressraum je Prozess** — heute liegen die unprivilegierten Seiten im
   Kerneladressraum (mit Benutzerbit); zwei unprivilegierte Prozesse sind
   voneinander noch nicht isoliert. Das ist der nächste echte Brocken
@@ -90,9 +94,21 @@ Legende: **✔ fertig** · **▶ als Nächstes** · **○ geplant**
 * ✔ **Handle-Übergabe per Kanal**: alles vorab geprüft, Duplikate abgewiesen,
   ohne Platz bleibt die Nachricht liegen (kein Handle geht verloren) —
   `Uebergabeprobe` und `Uebergabe-Negativtest` im Boot-Log
+* ✔ **`NamespaceCreate`/`NamespaceOpen`** gebaut: Namensknoten sind selbst
+  Objekte hinter einem Handle — es gibt **keinen prozessglobalen Wurzelpfad**.
+  Einhängen verlangt `CREATE` am Knoten und `DUPLICATE` an der Quelle; beim
+  Auflösen können Rechte nur schrumpfen. Namensregeln in
+  `libs/karst-abi-native/src/name.rs` (`NAME_MAX=32`, kein `/`, `\`, `.`,
+  `..`, keine Steuerzeichen), host-getestet über alle 256 Bytes.
+  Im Boot-Log: `Namensraumprobe: 11/11` und neun Negativfälle
+* ✔ **Archivprüfsummen**: `IRFS0002` führt CRC32 je Eintrag, geprüft **vor**
+  jedem Datenzugriff — ein verfälschtes Byte wird abgewiesen
 * ○ `MemoryMap/Unmap`, `ThreadCreate`, `ProcessSpawn` als Syscall (heute
   `NotSupported`; Prozesserzeugung weiterhin nur kernelseitig)
-* ○ POSIX-Schicht: `open`/`close` auf echte Handles — braucht das VFS aus Phase 4
+* ◐ POSIX-Schicht: `open`/`close` übersetzen bereits auf echte Handles, aber nur
+  gegen einen **übergebenen Namensraumknoten** (`open(2)` liefert einen Fd,
+  unbekannter Name `-ENOENT`) — ein durchgängiger Pfadbaum braucht das VFS aus
+  Phase 4
 
 ## Phase 4 — Dateisysteme ○
 
@@ -237,8 +253,9 @@ abtrennbar. Wer erst beim Portieren anfängt zu abstrahieren, portiert nicht.
 Erledigt ist inzwischen der Sprung vom Boot-Kern zum System mit echtem
 unprivilegiertem Code: **Verdrängung** (30 erzwungene Wechsel ohne `yield`,
 Prioritäten messbar), **Ring 3** (`CPL=3`, Systemaufruf, Negativtest auf eine
-Kerneladresse), **ELF64 aus einem Startdateisystem** (14 ELF- + 8 Archiv-Negativfälle) und
-die **capability-basierte ABI** (Handle-Tabelle je Prozess, 3 + 12 Negativfälle).
+Kerneladresse), **ELF64 aus einem Startdateisystem** (16 ELF- + 10 Archiv-Negativfälle) und
+die **capability-basierte ABI** (Handle-Tabelle je Prozess, 3 + 12 Negativfälle,
+dazu Port-, Übergabe- und Namensraum-Negativfälle).
 Alles im Boot-Log belegt, `./test.sh` läuft mit 19 Schritten grün.
 
 Ehrlich offen geblieben — und deshalb als Nächstes dran:
@@ -247,9 +264,11 @@ Ehrlich offen geblieben — und deshalb als Nächstes dran:
    Kerneladressraum auf Seiten mit Benutzerbit. Solange das so ist, sind zwei
    unprivilegierte Prozesse nicht voneinander isoliert. Das ist die wichtigste
    offene Lücke dieser Phase und wird nicht schöngeredet.
-2. **Verdrängung in Ring 3.** Ein Tick, der ein unprivilegiertes Programm
-   trifft, wird bisher nur gezählt. Für einen Wechsel muss der Zeitgeberpfad
-   den User-Rahmen mitsichern und den Kernelstapel des Ziels nachziehen.
+2. **Echter Wechsel zwischen zwei Ring-3-Programmen.** Ein Tick aus CPL 3 wird
+   inzwischen gegen ein Zeitbudget gebucht und beendet ein Programm, das zu
+   lange rechnet (Wachhund greift, im Boot-Log belegt). Was noch fehlt, ist der
+   *Wechsel* statt des Abbruchs: dafür muss der Zeitgeberpfad den User-Rahmen
+   mitsichern und den Kernelstapel des Ziels nachziehen. Braucht Punkt 1.
 3. **Ein `init`, das bleibt.** Bisher endet der unprivilegierte Teil als
    Selbsttest im Bootweg; danach läuft `kmain` weiter. Ein Prozess, der die
    Kontrolle behält, braucht Punkt 1 und einen Weg, Handles nachzureichen.

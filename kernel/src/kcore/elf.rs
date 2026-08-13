@@ -40,6 +40,10 @@ pub enum ElfError {
     SegmentOutOfRange,
     /// Zwei Segmente ueberlappen sich.
     SegmentOverlap,
+    /// Zwei Segmente teilen sich eine Seite. Sie haetten dann zwangslaeufig
+    /// dieselben Rechte — genau das, was die Trennung in Segmente verhindern
+    /// soll.
+    SegmentsSharePage,
     /// Segmentangaben sind in sich unstimmig (z. B. Dateilaenge > Speicherlaenge).
     SegmentInsane,
     /// Ausrichtungsangabe des Segments ist keine Zweierpotenz oder Datei- und
@@ -67,6 +71,7 @@ impl ElfError {
             ElfError::SegmentOutOfFile => "Segment ausserhalb der Datei",
             ElfError::SegmentOutOfRange => "Segment ausserhalb des unprivilegierten Bereichs",
             ElfError::SegmentOverlap => "Segmente ueberlappen sich",
+            ElfError::SegmentsSharePage => "zwei Segmente laegen in derselben Seite",
             ElfError::SegmentInsane => "unstimmige Segmentangaben",
             ElfError::BadAlign => "unstimmige Ausrichtungsangabe",
             ElfError::NeedsInterpreter => "dynamisch gebunden, verlangt einen Binder",
@@ -241,10 +246,24 @@ pub fn parse(bytes: &[u8]) -> Result<Image, ElfError> {
             write: flags & 2 != 0,
             exec: flags & 1 != 0,
         };
+        let page = PAGE_SIZE as u64;
         for prev in img.segments().iter() {
             let pend = prev.vaddr + prev.mem_len;
             if vaddr < pend && prev.vaddr < vend {
                 return Err(ElfError::SegmentOverlap);
+            }
+            // Rechte gelten je Seite, nicht je Segment. Lagen zwei Segmente in
+            // derselben Seite, muesste der Lader ihre Rechte verodern und
+            // wuerde z. B. aus RX+RW ein RWX machen — W^X waere still
+            // ausgehebelt. Solche Abbilder werden abgewiesen, und zwar HIER,
+            // bevor die erste Seite angelegt ist; sonst faellt es erst beim
+            // Abbilden als "schon abgebildet" auf.
+            let prev_lo = prev.vaddr & !(page - 1);
+            let prev_hi = (pend + page - 1) & !(page - 1);
+            let lo = vaddr & !(page - 1);
+            let hi = (vend + page - 1) & !(page - 1);
+            if lo < prev_hi && prev_lo < hi {
+                return Err(ElfError::SegmentsSharePage);
             }
         }
         img.segments[img.count] = seg;
@@ -734,6 +753,34 @@ pub fn selftest() -> (usize, usize) {
     let mut bad = buf;
     bad[24..32].copy_from_slice(&0u64.to_le_bytes());
     check("Einsprung ausserhalb", Err(ElfError::BadEntry), parse(&bad[..len]));
+
+    // Zwei Segmente, die sich ueberlappen bzw. dieselbe Seite belegen. Beide
+    // Faelle brauchen einen zweiten Programmkopf; er wird aus dem ersten
+    // kopiert und dann verschoben.
+    let mut zwei = buf;
+    zwei[56..58].copy_from_slice(&2u16.to_le_bytes());
+    let p2 = EHDR_LEN + PHDR_LEN;
+    let (kopf, rest) = zwei.split_at_mut(p2);
+    rest[..PHDR_LEN].copy_from_slice(&kopf[EHDR_LEN..EHDR_LEN + PHDR_LEN]);
+    let ueber = {
+        let mut b = zwei;
+        // gleiche Zieladresse wie Segment 0 -> echte Ueberlappung
+        b[p2 + 4..p2 + 8].copy_from_slice(&6u32.to_le_bytes()); // R+W
+        b
+    };
+    check("Segmente ueberlappen", Err(ElfError::SegmentOverlap), parse(&ueber[..len]));
+
+    let mut teil = zwei;
+    // Segment 0 auf 256 B verkuerzen, damit der Rest seiner Seite frei ist ...
+    teil[EHDR_LEN + 40..EHDR_LEN + 48].copy_from_slice(&0x100u64.to_le_bytes());
+    // ... und Segment 1 mit anderen Rechten in genau diese Seite legen:
+    // 0x401800 ueberlappt Segment 0 nicht, teilt sich aber dessen Seite.
+    teil[p2 + 4..p2 + 8].copy_from_slice(&6u32.to_le_bytes()); // R+W
+    teil[p2 + 8..p2 + 16].copy_from_slice(&0x30u64.to_le_bytes()); // Dateibeginn
+    teil[p2 + 16..p2 + 24].copy_from_slice(&0x0040_1800u64.to_le_bytes()); // vaddr
+    teil[p2 + 32..p2 + 40].copy_from_slice(&16u64.to_le_bytes()); // Dateilaenge
+    teil[p2 + 40..p2 + 48].copy_from_slice(&16u64.to_le_bytes()); // Speicherlaenge
+    check("Segmente in einer Seite", Err(ElfError::SegmentsSharePage), parse(&teil[..len]));
 
     crate::klog!("elf", "ELF-Negativtest: {}/{} Faelle wie erwartet abgewiesen", ok, total);
 

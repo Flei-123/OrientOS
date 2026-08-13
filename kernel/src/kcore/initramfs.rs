@@ -19,16 +19,24 @@
 //!   `u64`. Alle Grenzen werden mit `checked`-Arithmetik gegen die
 //!   tatsaechliche Archivlaenge geprueft, bevor irgendetwas gelesen wird.
 //!
+//! * Jeder Eintrag traegt eine CRC32-Pruefsumme ueber seine Daten. Das Archiv
+//!   kommt ueber Firmware, Bootmedium und Bootloader zum Kernel; ein einzelnes
+//!   gekipptes Byte im Programmtext faellt sonst erst als unerklaerlicher
+//!   Absturz im unprivilegierten Programm auf. Geprueft wird, BEVOR ein Abbild
+//!   angefasst wird.
+//!
 //! ## Aufbau (alles little-endian)
 //!
 //! ```text
-//! 0x00  8 B   Kennung "IRFS0001"
+//! 0x00  8 B   Kennung "IRFS0002"
 //! 0x08  u32   Anzahl Eintraege
 //! 0x0c  u32   Gesamtlaenge des Archivs in Bytes
-//! 0x10  Tabelle, Anzahl * 48 B:
+//! 0x10  Tabelle, Anzahl * 56 B:
 //!         +0x00  32 B  Name, mit Nullbytes aufgefuellt (kein '/', ASCII)
 //!         +0x20  u64   Offset der Daten ab Archivanfang
 //!         +0x28  u64   Laenge der Daten
+//!         +0x30  u32   CRC32 (IEEE, reflektiert) ueber die Daten
+//!         +0x34  u32   reserviert, 0
 //! danach: die Daten, jeweils auf 16 B ausgerichtet.
 //! ```
 //!
@@ -41,11 +49,11 @@ use crate::kcore::mem::VirtAddr;
 use crate::klog;
 
 /// Kennung am Archivanfang.
-const MAGIC: &[u8; 8] = b"IRFS0001";
+const MAGIC: &[u8; 8] = b"IRFS0002";
 /// Laenge des Archivkopfs.
 const HEADER_LEN: usize = 16;
 /// Laenge eines Tabelleneintrags.
-const ENTRY_LEN: usize = 48;
+const ENTRY_LEN: usize = 56;
 /// Laenge des Namensfelds eines Eintrags.
 const NAME_LEN: usize = 32;
 /// Obergrenze fuer die Eintragszahl — schuetzt vor einem Kopf, der Millionen
@@ -115,6 +123,8 @@ pub enum ArchiveError {
     BadName,
     /// Zwei Eintraege tragen denselben Namen.
     DuplicateName,
+    /// Die Pruefsumme eines Eintrags passt nicht zu seinen Daten.
+    BadChecksum,
 }
 
 impl ArchiveError {
@@ -129,6 +139,7 @@ impl ArchiveError {
             ArchiveError::EntryOutOfRange => "Eintrag zeigt aus dem Archiv heraus",
             ArchiveError::BadName => "unbrauchbarer Name",
             ArchiveError::DuplicateName => "zwei Eintraege mit demselben Namen",
+            ArchiveError::BadChecksum => "Pruefsumme passt nicht zu den Daten",
         }
     }
 }
@@ -148,6 +159,25 @@ fn rd64(b: &[u8], off: usize) -> u64 {
     let mut v = [0u8; 8];
     v.copy_from_slice(&b[off..off + 8]);
     u64::from_le_bytes(v)
+}
+
+/// CRC32 (IEEE 802.3, reflektiert, Startwert `0xffff_ffff`, Endverknuepfung
+/// `0xffff_ffff`) — dieselbe Summe, die `zlib.crc32` im Packer liefert.
+///
+/// Bewusst ohne Tabelle: 1 KiB Konstanten fuer ein paar Kilobyte Archiv beim
+/// Start waeren teurer als die Bitschleife, und der Code bleibt nachlesbar.
+fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = 0xffff_ffffu32;
+    for &b in bytes {
+        crc ^= b as u32;
+        let mut i = 0;
+        while i < 8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xedb8_8320 & mask);
+            i += 1;
+        }
+    }
+    !crc
 }
 
 /// Prueft einen Bereich vollstaendig durch, bevor irgendein Eintrag gelesen
@@ -185,6 +215,13 @@ pub fn open(bytes: &[u8]) -> Result<Archive<'_>, ArchiveError> {
         let end = off.checked_add(len).ok_or(ArchiveError::EntryOutOfRange)?;
         if off < data_start || end > bytes.len() {
             return Err(ArchiveError::EntryOutOfRange);
+        }
+        // Erst jetzt, nach der Bereichspruefung, darf ueberhaupt gelesen
+        // werden: die Pruefsumme laeuft ueber genau die Bytes, die auch
+        // [`Archive::entry`] spaeter herausgibt.
+        let want = rd32(bytes, base + NAME_LEN + 16);
+        if crc32(&bytes[off..end]) != want {
+            return Err(ArchiveError::BadChecksum);
         }
         // Doppelte Namen sind kein Schoenheitsfehler: `find` wuerde
         // stillschweigend einen der beiden Eintraege waehlen, und welcher das
@@ -293,6 +330,12 @@ pub fn selftest() -> (usize, usize) {
         .copy_from_slice(&((HEADER_LEN + ENTRY_LEN) as u64).to_le_bytes());
     good[HEADER_LEN + NAME_LEN + 8..HEADER_LEN + NAME_LEN + 16]
         .copy_from_slice(&4u64.to_le_bytes());
+    // Die vier Datenbytes sind hier bewusst Nullen; die Pruefsumme wird
+    // gerechnet und nicht hingeschrieben, damit der Test dieselbe Funktion
+    // benutzt wie der Ernstfall.
+    let sum = crc32(&good[HEADER_LEN + ENTRY_LEN..TOTAL]);
+    good[HEADER_LEN + NAME_LEN + 16..HEADER_LEN + NAME_LEN + 20]
+        .copy_from_slice(&sum.to_le_bytes());
 
     let mut ok = 0usize;
     let mut total = 0usize;
@@ -346,6 +389,20 @@ pub fn selftest() -> (usize, usize) {
     bad[HEADER_LEN] = 0;
     check("leerer Name", Err(ArchiveError::BadName), &bad);
 
+    // Ein einzelnes gekipptes Datenbyte: der Kopf ist tadellos, nur der Inhalt
+    // stimmt nicht mehr mit seiner Pruefsumme ueberein.
+    let mut bad = good;
+    bad[HEADER_LEN + ENTRY_LEN] ^= 0x40;
+    check("verfaelschte Daten", Err(ArchiveError::BadChecksum), &bad);
+
+    // Und die Gegenprobe: derselbe veraenderte Inhalt MIT passender Summe muss
+    // durchkommen — die Pruefung darf nicht einfach alles ablehnen.
+    let mut fixed = bad;
+    let sum2 = crc32(&fixed[HEADER_LEN + ENTRY_LEN..TOTAL]);
+    fixed[HEADER_LEN + NAME_LEN + 16..HEADER_LEN + NAME_LEN + 20]
+        .copy_from_slice(&sum2.to_le_bytes());
+    check("Daten mit passender Summe", Ok(1), &fixed);
+
     // Zwei Eintraege, ein Name: mehrdeutig, also unbrauchbar.
     const TOTAL2: usize = HEADER_LEN + 2 * ENTRY_LEN + 4;
     let mut zwei = [0u8; TOTAL2];
@@ -358,6 +415,11 @@ pub fn selftest() -> (usize, usize) {
         zwei[base + NAME_LEN..base + NAME_LEN + 8]
             .copy_from_slice(&((HEADER_LEN + 2 * ENTRY_LEN) as u64).to_le_bytes());
         zwei[base + NAME_LEN + 8..base + NAME_LEN + 16].copy_from_slice(&4u64.to_le_bytes());
+    }
+    let sum3 = crc32(&zwei[HEADER_LEN + 2 * ENTRY_LEN..TOTAL2]);
+    for i in 0..2 {
+        let base = HEADER_LEN + i * ENTRY_LEN;
+        zwei[base + NAME_LEN + 16..base + NAME_LEN + 20].copy_from_slice(&sum3.to_le_bytes());
     }
     check("zweimal derselbe Name", Err(ArchiveError::DuplicateName), &zwei);
 

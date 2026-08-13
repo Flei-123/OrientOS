@@ -54,7 +54,7 @@ fn panic(info: &PanicInfo) -> ! {
 /// Wir bauen den Kernel mit `-C force-frame-pointers=yes` (siehe `build.sh`),
 /// dadurch bildet RBP eine verkettete Liste `[rbp] = voriger rbp`,
 /// `[rbp+8] = Ruecksprungadresse`. Die Adressen sind gegen die Sektionsadressen
-/// aus `build/karst.map` bzw. via `llvm-addr2line` aufloesbar — siehe README,
+/// aus der Symbolkarte `build/*.map` bzw. via `llvm-addr2line` aufloesbar — siehe README,
 /// Abschnitt "Backtrace lesen".
 pub fn backtrace() -> usize {
     crate::serial_println!("Backtrace (Frame-Pointer, Adressen via addr2line aufloesbar):");

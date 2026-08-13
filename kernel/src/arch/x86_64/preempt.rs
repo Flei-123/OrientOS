@@ -30,16 +30,43 @@
 //!    weitere Ticks aus, solange der verdraengte Thread schlaeft.
 //! 2. Gewechselt wird nur, wenn privilegierter Code unterbrochen wurde
 //!    (RPL des gesicherten Codesegments == 0). Ein Tick, der ein
-//!    unprivilegiertes Programm trifft, wird nur gezaehlt; dessen Umschaltung
-//!    gehoert in `user.rs`.
+//!    unprivilegiertes Programm trifft, wird gezaehlt und dem Wachhund
+//!    vorgelegt (`user::note_user_tick`): ein Programm, das sein Zeitbudget
+//!    ueberzieht, wird abgeraeumt, damit eine Rechenschleife in Ring 3 den
+//!    Kernel nicht anhaelt. Ein Wechsel MIT spaeterer Fortsetzung des
+//!    unprivilegierten Programms ist noch nicht moeglich (der Rahmen liegt
+//!    auf dem gemeinsamen Eintrittsstapel) und in ROADMAP.md offen gefuehrt.
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use super::{cpu, idt, interrupts, pic};
 use crate::kcore::arch_iface::InterruptCtlOps;
 
 /// Laeuft der verdraengende Einsprung gerade in der IDT?
 static ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Ticks, die ein unprivilegiertes Programm getroffen haben.
+static USER_TICKS: AtomicU64 = AtomicU64::new(0);
+
+/// Wie oft der Wachhund aus diesem Pfad ein Programm abgeraeumt hat.
+static USER_ABORTS: AtomicU64 = AtomicU64::new(0);
+
+/// Ende-Code, den ein vom Wachhund abgeraeumtes Programm bekommt.
+///
+/// Derselbe Wert wie im nicht verdraengenden Zeitgeberhandler
+/// ([`interrupts::timer_irq`]) — der Core soll den Grund nicht daran
+/// unterscheiden muessen, welcher Zeitgeberpfad gerade eingetragen ist.
+const USER_TIMEOUT_CODE: u64 = 2;
+
+/// Zeitgebertick(s), die bisher unprivilegierten Code unterbrochen haben.
+pub fn user_ticks() -> u64 {
+    USER_TICKS.load(Ordering::Relaxed)
+}
+
+/// Wie oft der Wachhund ein unprivilegiertes Programm abgeraeumt hat.
+pub fn user_aborts() -> u64 {
+    USER_ABORTS.load(Ordering::Relaxed)
+}
 
 /// Der volle Registersatz, wie [`irq0_entry`] ihn auf den Stapel legt.
 ///
@@ -138,8 +165,39 @@ unsafe extern "C" fn irq0_dispatch(frame: *mut FullFrame) {
     unsafe { pic::Pic8259::eoi(0) };
     let faellig = crate::kcore::preempt::on_tick();
     // Sicher: `frame` zeigt auf den Registersatz auf dem eigenen Stapel.
-    let cs = unsafe { (*frame).cs };
-    if faellig && cs & 3 == 0 {
+    let (cs, rip, rsp) = unsafe { ((*frame).cs, (*frame).rip, (*frame).rsp) };
+    if cs & 3 == 3 {
+        // Der Tick hat ein unprivilegiertes Programm getroffen. Umschalten auf
+        // einen anderen Thread kann dieser Pfad noch nicht (der Rahmen liegt
+        // auf dem gemeinsamen Eintrittsstapel, siehe ROADMAP), aber der
+        // Wachhund muss auch hier laufen: sonst haelt eine Rechenschleife in
+        // Ring 3 den ganzen Startvorgang an, sobald die Verdraengung
+        // eingeschaltet ist.
+        USER_TICKS.fetch_add(1, Ordering::Relaxed);
+        if super::user::note_user_tick() {
+            USER_ABORTS.fetch_add(1, Ordering::Relaxed);
+            super::user::note_user_frame(cs, rsp);
+            crate::klog!(
+                "trap",
+                "Zeitbudget von Ring 3 erschoepft (RIP={:#018x}) — Programm wird abgeraeumt",
+                rip
+            );
+            // Der Ruecksprung verlaesst diesen Interrupt ohne `iretq`; das
+            // Interruptbit aus dem gesicherten Rahmen wird deshalb nicht
+            // wiederhergestellt. Damit der Kernel danach weiter Ticks bekommt,
+            // wird es hier von Hand gesetzt — vorher ist der Interrupt bereits
+            // quittiert, und der Wachhund meldet sich fuer dasselbe Programm
+            // kein zweites Mal (`note_user_tick` prueft `in_user`).
+            cpu::sti();
+            // SAFETY: wie im nicht verdraengenden Zeitgeberhandler
+            // (`interrupts::timer_irq`): der Rahmen stammt aus Ring 3, der
+            // Interrupt ist quittiert, und `abort_user` kehrt in den Kernel
+            // zurueck, der das Programm gestartet hat.
+            unsafe { super::user::abort_user(USER_TIMEOUT_CODE) }
+        }
+        return;
+    }
+    if faellig {
         crate::kcore::preempt::switch_now();
     }
 }

@@ -42,6 +42,10 @@ const MAX_BINDINGS: usize = 16;
 /// keine Ereignisse verloren, sondern das aelteste bleibt stehen und das neue
 /// wird abgewiesen — ein Ereignissturm darf keinen Speicher fressen.
 const MAX_PACKETS: usize = 32;
+/// Groesste Zahl Eintraege in EINEM Namensraumknoten. Ein Knoten ist ein
+/// Verzeichnis-Aequivalent, kein Dateisystem: wer mehr braucht, haengt einen
+/// weiteren Knoten ein.
+const MAX_NS_ENTRIES: usize = 32;
 
 // ---------------------------------------------------------------- Objekttafel
 
@@ -62,6 +66,21 @@ enum ObjectData {
     /// vom Besitzer selbst eingetragenen Beobachtungen, `queue` die noch nicht
     /// abgeholten Pakete.
     Port { binds: Vec<Binding>, queue: VecDeque<Packet> },
+    /// Namensraumknoten: eine Liste benannter Eintraege. Es gibt keinen
+    /// Wurzelknoten und keine Pfade — ein Name gilt nur in GENAU DIESEM
+    /// Knoten, und den muss der Aufrufer als Handle vorzeigen.
+    Namespace { entries: Vec<NsEntry> },
+}
+
+/// Ein benannter Eintrag in einem Namensraumknoten. `rights` sind die
+/// HOECHSTRECHTE, die dieser Eintrag herausgeben darf — sie stammen aus dem
+/// Handle, mit dem der Eintrag angelegt wurde, und koennen beim Aufloesen nur
+/// weiter verkleinert werden.
+struct NsEntry {
+    name: Vec<u8>,
+    object: u64,
+    kind: ObjectKind,
+    rights: Rights,
 }
 
 /// Eine Beobachtung: "melde mir `mask` von Objekt `object` unter `key`".
@@ -209,18 +228,33 @@ impl Native {
     }
 
     /// Gibt einen Verweis frei; beim letzten Verweis verschwindet das Objekt.
+    ///
+    /// Ein Namensraumknoten haelt selbst einen Verweis auf jedes eingehaengte
+    /// Objekt. Faellt der Knoten weg, fallen diese Verweise mit — das kann eine
+    /// Kette ausloesen (Knoten in Knoten). Die Kette wird mit einer Arbeitsliste
+    /// abgearbeitet und nicht rekursiv: die Tiefe bestimmt sonst der Aufrufer.
     fn release(&mut self, obj: u64) {
-        let Some(o) = self.objects.get_mut(obj as usize) else { return };
-        if o.refs > 0 {
-            o.refs -= 1;
-        }
-        if o.refs == 0 {
+        let mut arbeit = Vec::new();
+        arbeit.push(obj);
+        while let Some(obj) = arbeit.pop() {
+            let Some(o) = self.objects.get_mut(obj as usize) else { continue };
+            if o.refs > 0 {
+                o.refs -= 1;
+            }
+            if o.refs != 0 {
+                continue;
+            }
             // Kanalende weg: die Gegenseite erfaehrt das ueber ihren Port und
             // spaetestens beim naechsten Senden.
             let peer = match o.data {
                 ObjectData::Channel { peer, .. } => Some(peer),
                 _ => None,
             };
+            if let ObjectData::Namespace { entries } = &o.data {
+                for e in entries.iter() {
+                    arbeit.push(e.object);
+                }
+            }
             *o = Object::free();
             // Objektnummern werden wiederverwendet. Alle Beobachtungen auf
             // diese Nummer muessen deshalb verschwinden — sonst wuerde ein
@@ -380,6 +414,27 @@ pub fn grant_console(pid: u32, rights: Rights) -> Result<Handle> {
     let mut n = lock();
     let obj = n.new_object(ObjectKind::Stream, ObjectData::Console);
     n.grant(pid, obj, rights)
+}
+
+/// Legt einen leeren Namensraumknoten an und gibt dem Prozess ein Handle darauf.
+///
+/// **Es gibt keinen Wurzelknoten.** Ein Prozess kann Namen nur in Knoten
+/// aufloesen, deren Handle ihm jemand explizit gegeben hat; ein Prozess ohne
+/// solches Handle hat keinerlei Namensraum. Genau daran unterscheidet sich das
+/// von einem Dateisystempfad.
+pub fn namespace_create(pid: u32) -> Result<Handle> {
+    let mut n = lock();
+    let obj = n.new_object(ObjectKind::Namespace, ObjectData::Namespace { entries: Vec::new() });
+    n.grant(
+        pid,
+        obj,
+        Rights::READ
+            | Rights::CREATE
+            | Rights::INSPECT
+            | Rights::MANAGE
+            | Rights::TRANSFER
+            | Rights::DUPLICATE,
+    )
 }
 
 /// Erzeugt ein verbundenes Kanalpaar und gibt beide Enden dem Prozess.
@@ -806,15 +861,162 @@ fn perform(pid: u32, sc: Syscall, args: [u64; 6], from_user: bool) -> Result<u64
             crate::kcore::sched::sleep_ticks(ticks);
             Ok(0)
         }
+        Syscall::NamespaceCreate => {
+            // `(knoten, name_ptr, name_len, art, quelle)` — zwei Faelle, beide
+            // brauchen `CREATE` am Knoten:
+            // * `quelle == 0`: ein neuer UNTERKNOTEN entsteht (`art` muss
+            //   `Namespace` sein). Rueckgabe: Handle auf den neuen Knoten.
+            // * `quelle != 0`: ein BESTEHENDES Objekt wird unter dem Namen
+            //   eingehaengt. Das Quellhandle braucht `DUPLICATE` — wer ein
+            //   Objekt benennbar macht, gibt Kopien davon heraus. Die
+            //   Hoechstrechte des Eintrags sind die Rechte des Quellhandles;
+            //   eine Ausweitung ist damit ausgeschlossen. Rueckgabe: 0.
+            let name = read_buffer(args[1], args[2], from_user)?;
+            let _ = karst_abi_native::name::check(&name)?;
+            let art = kind_from_raw(args[3])?;
+            let mut n = lock();
+            let knoten = {
+                let e = n
+                    .procs
+                    .get(pid as usize)
+                    .ok_or(Error::NotFound)?
+                    .handles
+                    .get_with(Handle(args[0]), Rights::CREATE)?;
+                if e.kind != ObjectKind::Namespace {
+                    return Err(Error::WrongType);
+                }
+                e.object
+            };
+            if ns_find(&n, knoten, &name)?.is_some() {
+                // Zwei gleiche Namen in einem Knoten waeren zweideutig.
+                return Err(Error::InvalidArgs);
+            }
+            if ns_len(&n, knoten)? >= MAX_NS_ENTRIES {
+                return Err(Error::Exhausted);
+            }
+            let (ziel, rechte, rueckgabe) = if args[4] == 0 {
+                if art != ObjectKind::Namespace {
+                    return Err(Error::WrongType);
+                }
+                let rechte = Rights::READ
+                    | Rights::CREATE
+                    | Rights::INSPECT
+                    | Rights::MANAGE
+                    | Rights::TRANSFER
+                    | Rights::DUPLICATE;
+                let obj = n
+                    .new_object(ObjectKind::Namespace, ObjectData::Namespace { entries: Vec::new() });
+                let h = n.grant(pid, obj, rechte)?;
+                (obj, rechte, h.0)
+            } else {
+                let e = *n
+                    .procs
+                    .get(pid as usize)
+                    .ok_or(Error::NotFound)?
+                    .handles
+                    .get_with(Handle(args[4]), Rights::DUPLICATE)?;
+                if e.kind != art {
+                    // Die Art kommt aus der Objekttafel, nicht vom Aufrufer:
+                    // ein Eintrag kann nie eine falsche Art vorgeben.
+                    return Err(Error::WrongType);
+                }
+                (e.object, e.rights, 0)
+            };
+            // Der Knoten haelt selbst einen Verweis auf das eingehaengte
+            // Objekt — sonst zeigte ein Eintrag ins Leere, sobald der
+            // Erzeuger sein Handle schliesst.
+            if let Some(o) = n.objects.get_mut(ziel as usize) {
+                o.refs += 1;
+            }
+            let o = n.objects.get_mut(knoten as usize).ok_or(Error::NotFound)?;
+            let ObjectData::Namespace { entries } = &mut o.data else {
+                return Err(Error::WrongType);
+            };
+            entries.push(NsEntry { name, object: ziel, kind: art, rights: rechte });
+            Ok(rueckgabe)
+        }
+        Syscall::NamespaceOpen => {
+            // `(knoten, name_ptr, name_len, rechte) -> Handle`. Der Ersatz fuer
+            // `open()`: aufgeloest wird ausschliesslich in dem Knoten, dessen
+            // Handle vorgezeigt wird. Es gibt keinen Wurzelknoten, keinen Pfad
+            // und keine Umgebungsrechte.
+            let name = read_buffer(args[1], args[2], from_user)?;
+            let _ = karst_abi_native::name::check(&name)?;
+            let gewuenscht = Rights(args[3] as u32).restrict(Rights::ALL);
+            if gewuenscht.bits() == 0 {
+                return Err(Error::InvalidArgs);
+            }
+            let mut n = lock();
+            let knoten = {
+                let e = n
+                    .procs
+                    .get(pid as usize)
+                    .ok_or(Error::NotFound)?
+                    .handles
+                    .get_with(Handle(args[0]), Rights::READ)?;
+                if e.kind != ObjectKind::Namespace {
+                    return Err(Error::WrongType);
+                }
+                e.object
+            };
+            let (obj, art, hoechst) = ns_find(&n, knoten, &name)?.ok_or(Error::NotFound)?;
+            if n.objects.get(obj as usize).map(|o| o.kind) != Some(art) {
+                // Der Eintrag passt nicht mehr zum Objekt dahinter. Das darf
+                // nicht vorkommen (der Knoten haelt einen Verweis), waere aber
+                // die gefaehrlichste aller Verwechslungen — also geprueft.
+                return Err(Error::NotFound);
+            }
+            if !hoechst.contains(gewuenscht) {
+                // Aufloesen kann Rechte nur verkleinern, nie vergroessern.
+                return Err(Error::RightsDenied);
+            }
+            let h = n.grant(pid, obj, gewuenscht)?;
+            Ok(h.0)
+        }
         // Diese Aufrufe brauchen Teile, die dieser Stand noch nicht hat
-        // (Adressraumobjekte, Namensraumdienst, Threads aus Ring 3).
-        // Sie melden das sauber — siehe ROADMAP.md.
+        // (Adressraumobjekte je Prozess, Threads aus Ring 3, Prozesserzeugung
+        // aus der unprivilegierten Ebene). Sie melden das sauber — siehe
+        // ROADMAP.md.
         Syscall::MemoryMap
         | Syscall::MemoryUnmap
-        | Syscall::NamespaceOpen
-        | Syscall::NamespaceCreate
         | Syscall::ProcessSpawn
         | Syscall::ThreadCreate => Err(Error::NotSupported),
+    }
+}
+
+/// Objektart aus der Rohzahl eines Aufrufs. Unbekannte Zahlen werden
+/// abgewiesen, statt auf eine Variante zu raten.
+fn kind_from_raw(raw: u64) -> Result<ObjectKind> {
+    Ok(match raw {
+        1 => ObjectKind::Stream,
+        2 => ObjectKind::Memory,
+        3 => ObjectKind::Channel,
+        4 => ObjectKind::Port,
+        5 => ObjectKind::Process,
+        6 => ObjectKind::Thread,
+        7 => ObjectKind::Namespace,
+        8 => ObjectKind::Timer,
+        _ => return Err(Error::InvalidArgs),
+    })
+}
+
+/// Sucht einen Namen in einem Knoten. Liefert Objektnummer, Objektart und
+/// Hoechstrechte des Eintrags.
+fn ns_find(n: &Native, knoten: u64, name: &[u8]) -> Result<Option<(u64, ObjectKind, Rights)>> {
+    match n.objects.get(knoten as usize).map(|o| &o.data) {
+        Some(ObjectData::Namespace { entries }) => Ok(entries
+            .iter()
+            .find(|e| karst_abi_native::name::eq(&e.name, name))
+            .map(|e| (e.object, e.kind, e.rights))),
+        _ => Err(Error::WrongType),
+    }
+}
+
+/// Anzahl der Eintraege eines Knotens.
+fn ns_len(n: &Native, knoten: u64) -> Result<usize> {
+    match n.objects.get(knoten as usize).map(|o| &o.data) {
+        Some(ObjectData::Namespace { entries }) => Ok(entries.len()),
+        _ => Err(Error::WrongType),
     }
 }
 
@@ -1126,11 +1328,292 @@ pub fn capability_selftest() -> (usize, usize) {
     let demo = spawn_demo();
     let ports = port_selftest();
     let uebergabe_test = transfer_selftest();
+    let namen = namespace_selftest();
     report();
     (
-        ok + demo.0 + ports.0 + uebergabe_test.0,
-        faelle.len() + demo.1 + ports.1 + uebergabe_test.1,
+        ok + demo.0 + ports.0 + uebergabe_test.0 + namen.0,
+        faelle.len() + demo.1 + ports.1 + uebergabe_test.1 + namen.1,
     )
+}
+
+/// Probe der Namensraumknoten — des Ersatzes fuer `open()` auf einem Pfad.
+///
+/// Positiv: einen Knoten anlegen, ein Konsolenhandle unter einem Namen
+/// einhaengen, den Namen mit VERKLEINERTEN Rechten aufloesen und darueber
+/// schreiben; einen Unterknoten anlegen und darin einen Namen aufloesen.
+///
+/// Negativ (alles muss mit einem definierten Fehler enden):
+/// 1. ein Name mit Pfadtrenner — es gibt keine Pfade,
+/// 2. ein Name, den es nicht gibt,
+/// 3. Aufloesen mit MEHR Rechten, als der Eintrag hergibt,
+/// 4. Einhaengen ohne `CREATE` am Knoten,
+/// 5. Einhaengen eines Quellhandles ohne `DUPLICATE`,
+/// 6. Aufloesen auf einem Handle, das kein Knoten ist,
+/// 7. derselbe Name zweimal,
+/// 8. ein zu langer Name,
+/// 9. ein Gastprozess ohne Knotenhandle kommt an gar keinen Namen — der
+///    Beweis, dass es keinen globalen Pfad-Namensraum gibt.
+///
+/// Liefert `(bestanden, gesamt)`.
+pub fn namespace_selftest() -> (usize, usize) {
+    let root = current();
+    let Ok(knoten) = namespace_create(root) else {
+        klog!("abi", "Namensraumprobe: FEHLER, Knoten konnte nicht angelegt werden");
+        return (0, 11);
+    };
+    let konsole = grant_console(root, Rights::WRITE | Rights::DUPLICATE).unwrap_or(Handle(0));
+    let name = b"konsole";
+    let eingehaengt = dispatch_kernel(
+        Syscall::NamespaceCreate as u64,
+        [
+            knoten.0,
+            name.as_ptr() as u64,
+            name.len() as u64,
+            ObjectKind::Stream as u64,
+            konsole.0,
+            0,
+        ],
+    ) == 0;
+
+    // Positiv 1: aufloesen mit genau einem Recht und darueber schreiben.
+    let geoeffnet = dispatch_kernel(
+        Syscall::NamespaceOpen as u64,
+        [knoten.0, name.as_ptr() as u64, name.len() as u64, Rights::WRITE.bits() as u64, 0, 0],
+    );
+    let text = b"Ausgabe ueber einen aufgeloesten Namen";
+    let geschrieben = if geoeffnet > 0 {
+        dispatch_kernel(
+            Syscall::HandleWrite as u64,
+            [geoeffnet as u64, text.as_ptr() as u64, text.len() as u64, 0, 0, 0],
+        )
+    } else {
+        -1
+    };
+    let case_open = eingehaengt && geoeffnet > 0 && geschrieben == text.len() as i64;
+
+    // Positiv 2: Unterknoten anlegen und darin einen Namen fuehren.
+    let unter = b"dienste";
+    let unterknoten = dispatch_kernel(
+        Syscall::NamespaceCreate as u64,
+        [
+            knoten.0,
+            unter.as_ptr() as u64,
+            unter.len() as u64,
+            ObjectKind::Namespace as u64,
+            0,
+            0,
+        ],
+    );
+    let innen = b"log";
+    let case_unterknoten = unterknoten > 0
+        && dispatch_kernel(
+            Syscall::NamespaceCreate as u64,
+            [
+                unterknoten as u64,
+                innen.as_ptr() as u64,
+                innen.len() as u64,
+                ObjectKind::Stream as u64,
+                konsole.0,
+                0,
+            ],
+        ) == 0
+        && dispatch_kernel(
+            Syscall::NamespaceOpen as u64,
+            [
+                unterknoten as u64,
+                innen.as_ptr() as u64,
+                innen.len() as u64,
+                Rights::WRITE.bits() as u64,
+                0,
+                0,
+            ],
+        ) > 0;
+
+    // Negativ 1: Pfadtrenner im Namen.
+    let pfad = b"dienste/log";
+    let case_pfad = dispatch_kernel(
+        Syscall::NamespaceOpen as u64,
+        [knoten.0, pfad.as_ptr() as u64, pfad.len() as u64, Rights::WRITE.bits() as u64, 0, 0],
+    ) == Error::InvalidArgs.as_raw();
+
+    // Negativ 2: unbekannter Name.
+    let fremd = b"gibtesnicht";
+    let case_unbekannt = dispatch_kernel(
+        Syscall::NamespaceOpen as u64,
+        [knoten.0, fremd.as_ptr() as u64, fremd.len() as u64, Rights::WRITE.bits() as u64, 0, 0],
+    ) == Error::NotFound.as_raw();
+
+    // Negativ 3: mehr Rechte verlangen, als der Eintrag hergibt.
+    let case_mehr = dispatch_kernel(
+        Syscall::NamespaceOpen as u64,
+        [
+            knoten.0,
+            name.as_ptr() as u64,
+            name.len() as u64,
+            (Rights::WRITE | Rights::MANAGE).bits() as u64,
+            0,
+            0,
+        ],
+    ) == Error::RightsDenied.as_raw();
+
+    // Negativ 4: einhaengen ohne CREATE am Knoten.
+    let nur_lesen = dispatch_kernel(
+        Syscall::HandleDuplicate as u64,
+        [knoten.0, Rights::READ.bits() as u64, 0, 0, 0, 0],
+    );
+    let neu = b"zusatz";
+    let case_ohne_create = nur_lesen > 0
+        && dispatch_kernel(
+            Syscall::NamespaceCreate as u64,
+            [
+                nur_lesen as u64,
+                neu.as_ptr() as u64,
+                neu.len() as u64,
+                ObjectKind::Stream as u64,
+                konsole.0,
+                0,
+            ],
+        ) == Error::RightsDenied.as_raw();
+
+    // Negativ 5: Quellhandle ohne DUPLICATE.
+    let schlicht = grant_console(root, Rights::WRITE).unwrap_or(Handle(0));
+    let case_ohne_dup = dispatch_kernel(
+        Syscall::NamespaceCreate as u64,
+        [
+            knoten.0,
+            neu.as_ptr() as u64,
+            neu.len() as u64,
+            ObjectKind::Stream as u64,
+            schlicht.0,
+            0,
+        ],
+    ) == Error::RightsDenied.as_raw();
+
+    // Negativ 6: aufloesen auf einem Handle, das kein Knoten ist. Das Handle
+    // hat hier absichtlich das noetige Recht (READ) — abgewiesen wird es
+    // allein wegen der Objektart, nicht mangels Rechten.
+    let strom = grant_console(root, Rights::READ).unwrap_or(Handle(0));
+    let case_kein_knoten = dispatch_kernel(
+        Syscall::NamespaceOpen as u64,
+        [strom.0, name.as_ptr() as u64, name.len() as u64, Rights::WRITE.bits() as u64, 0, 0],
+    ) == Error::WrongType.as_raw();
+
+    // Negativ 7: derselbe Name zweimal.
+    let case_doppelt = dispatch_kernel(
+        Syscall::NamespaceCreate as u64,
+        [
+            knoten.0,
+            name.as_ptr() as u64,
+            name.len() as u64,
+            ObjectKind::Stream as u64,
+            konsole.0,
+            0,
+        ],
+    ) == Error::InvalidArgs.as_raw();
+
+    // Negativ 8: zu langer Name.
+    let lang = [b'x'; karst_abi_native::name::NAME_MAX + 1];
+    let case_lang = dispatch_kernel(
+        Syscall::NamespaceCreate as u64,
+        [
+            knoten.0,
+            lang.as_ptr() as u64,
+            lang.len() as u64,
+            ObjectKind::Stream as u64,
+            konsole.0,
+            0,
+        ],
+    ) == Error::InvalidArgs.as_raw();
+
+    // Negativ 9: ein Gast ohne Knotenhandle hat KEINEN Namensraum. Er bekommt
+    // nur ein Konsolenhandle uebergeben und probiert danach alle kleinen
+    // Handle-Werte als Knoten durch.
+    let gabe = grant_console(root, Rights::WRITE | Rights::TRANSFER).unwrap_or(Handle(0));
+    let case_gast = match spawn(root, "namenlos", &[(gabe, Rights::WRITE)]) {
+        Ok(gast) => {
+            let vorher = set_current(gast);
+            let mut treffer = 0usize;
+            for slot in 0..8u32 {
+                for g in 0..8u32 {
+                    let h = Handle::new(slot, g);
+                    if dispatch_kernel(
+                        Syscall::NamespaceOpen as u64,
+                        [
+                            h.0,
+                            name.as_ptr() as u64,
+                            name.len() as u64,
+                            Rights::WRITE.bits() as u64,
+                            0,
+                            0,
+                        ],
+                    ) >= 0
+                    {
+                        treffer += 1;
+                    }
+                }
+            }
+            set_current(vorher);
+            let _ = exit_process(gast, 0);
+            treffer == 0
+        }
+        Err(_) => false,
+    };
+
+    let faelle = [
+        ("Name aufgeloest und benutzt", case_open),
+        ("Unterknoten", case_unterknoten),
+        ("Pfadtrenner abgewiesen", case_pfad),
+        ("unbekannter Name abgewiesen", case_unbekannt),
+        ("keine Rechteausweitung beim Aufloesen", case_mehr),
+        ("Einhaengen ohne CREATE abgewiesen", case_ohne_create),
+        ("Einhaengen ohne DUPLICATE abgewiesen", case_ohne_dup),
+        ("kein Knoten abgewiesen", case_kein_knoten),
+        ("Name doppelt abgewiesen", case_doppelt),
+        ("Name zu lang abgewiesen", case_lang),
+        ("ohne Knotenhandle kein Name", case_gast),
+    ];
+    let ok = faelle.iter().filter(|(_, b)| *b).count();
+    klog!(
+        "abi",
+        "Namensraumprobe: {}/{} — {} {} ({} B ueber \"konsole\" geschrieben), {} {}",
+        ok,
+        faelle.len(),
+        faelle[0].0,
+        ergebnis(case_open),
+        geschrieben.max(0),
+        faelle[1].0,
+        ergebnis(case_unterknoten)
+    );
+    klog!(
+        "abi",
+        "Namensraum-Negativtest: {} {}, {} {}, {} {}, {} {}",
+        faelle[2].0,
+        ergebnis(case_pfad),
+        faelle[3].0,
+        ergebnis(case_unbekannt),
+        faelle[4].0,
+        ergebnis(case_mehr),
+        faelle[5].0,
+        ergebnis(case_ohne_create)
+    );
+    klog!(
+        "abi",
+        "Namensraum-Negativtest: {} {}, {} {}, {} {}, {} {}, {} {}",
+        faelle[6].0,
+        ergebnis(case_ohne_dup),
+        faelle[7].0,
+        ergebnis(case_kein_knoten),
+        faelle[8].0,
+        ergebnis(case_doppelt),
+        faelle[9].0,
+        ergebnis(case_lang),
+        faelle[10].0,
+        ergebnis(case_gast)
+    );
+    // Aufraeumen: mit dem Knotenhandle faellt der Knoten weg, und mit ihm die
+    // Verweise, die er auf die eingehaengten Objekte haelt.
+    let _ = dispatch_kernel(Syscall::HandleClose as u64, [knoten.0, 0, 0, 0, 0, 0]);
+    (ok, faelle.len())
 }
 
 /// Probe der Ereignisports — des Ersatzes fuer Signals.

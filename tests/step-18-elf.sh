@@ -13,8 +13,12 @@ elf_check() {
         'Eintrag [0-9]+: kaputt.elf ' \
         'Archiv-Negativtest: ([0-9]+)/\1 Faelle wie erwartet abgewiesen' \
         'zweimal derselbe Name +-> zwei Eintraege mit demselben Namen \(ok\)' \
+        'verfaelschte Daten +-> Pruefsumme passt nicht zu den Daten \(ok\)' \
+        'Daten mit passender Summe +-> angenommen \(ok\)' \
         'ELF-Negativtest: ([0-9]+)/\1 Faelle wie erwartet abgewiesen' \
         'dynamisch gebunden +-> dynamisch gebunden, verlangt einen Binder \(ok\)' \
+        'Segmente ueberlappen +-> Segmente ueberlappen sich \(ok\)' \
+        'Segmente in einer Seite +-> zwei Segmente laegen in derselben Seite \(ok\)' \
         'Ausrichtung krumm +-> unstimmige Ausrichtungsangabe \(ok\)' \
         'Abbild geladen und abgeraeumt +-> [0-9]+ Seiten abgebildet, [0-9]+ zurueckgegeben, [0-9]+ Zwischentabelle\(n\) bleiben, Einsprung nicht mehr abgebildet \(ok\)' \
         'ELF-Lader   : hello, [0-9]+ Segmente geladen, Einsprung 0x[0-9a-f]+' \
@@ -52,6 +56,26 @@ elf_check() {
             echo "  [FEHL] weniger als zwei PT_LOAD-Segmente — Rechte nicht getrennt"
             rc=1
         fi
+    fi
+    # Das Archiv muss das aktuelle Format tragen und seine Pruefsummen muessen
+    # zu den Daten passen — sonst wuerde der Kernel es zwar abweisen, aber der
+    # Grund laege beim Packer und nicht beim Lader.
+    if python3 - "$PWD/build/initramfs.img" <<'PY'
+import struct, sys, zlib
+buf = open(sys.argv[1], "rb").read()
+assert buf[:8] == b"IRFS0002", f"falsche Kennung: {buf[:8]!r}"
+n, total = struct.unpack_from("<II", buf, 8)
+assert total == len(buf), "Laengenangabe passt nicht"
+for i in range(n):
+    b = 16 + i * 56
+    off, ln, crc, res = struct.unpack_from("<QQII", buf, b + 32)
+    assert res == 0, "reserviertes Feld belegt"
+    assert zlib.crc32(buf[off:off + ln]) & 0xFFFFFFFF == crc, "Pruefsumme falsch"
+print(f"  [ ok ] Archiv IRFS0002: {n} Eintraege, alle Pruefsummen stimmen")
+PY
+    then :; else
+        echo "  [FEHL] build/initramfs.img ist kein gueltiges IRFS0002-Archiv"
+        rc=1
     fi
     # Das Archiv muss wirklich im ISO-Abbild landen, sonst findet der Kernel
     # beim naechsten Lauf nichts.

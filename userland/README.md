@@ -21,20 +21,29 @@ python3 userland/mkbroken.py build/userland/hello build/userland/kaputt.elf
 python3 userland/mkinitramfs.py build/initramfs.img hello=... kaputt.elf=... liesmich.txt=...
 ```
 
-## Archivformat (`IRFS0001`)
+## Archivformat (`IRFS0002`)
 
 Alles little-endian:
 
 ```text
-0x00  8 B   Kennung "IRFS0001"
+0x00  8 B   Kennung "IRFS0002"
 0x08  u32   Anzahl Eintraege
 0x0c  u32   Gesamtlaenge des Archivs in Bytes
-0x10  Tabelle, Anzahl * 48 B:
+0x10  Tabelle, Anzahl * 56 B:
         +0x00  32 B  Name, mit Nullbytes aufgefuellt (kein '/', ASCII)
         +0x20  u64   Offset der Daten ab Archivanfang
         +0x28  u64   Laenge der Daten
+        +0x30  u32   CRC32 (IEEE, reflektiert) ueber die Daten
+        +0x34  u32   reserviert, 0
 danach: die Daten, jeweils auf 16 B ausgerichtet.
 ```
+
+**Warum Pruefsummen.** Das Archiv reist ueber Firmware, Bootmedium und
+Bootloader zum Kernel. Ein einzelnes gekipptes Byte im Programmtext faellt
+sonst erst als unerklaerlicher Absturz im unprivilegierten Programm auf. Der
+Kernel rechnet die Summe je Eintrag nach (`crc32` in `kcore/initramfs.rs`,
+tabellenlos), **bevor** er ein Abbild anfasst; passt sie nicht, gilt das Archiv
+als unbrauchbar (`Pruefsumme passt nicht zu den Daten`).
 
 **Warum nicht cpio oder tar.** Beide transportieren POSIX-Metadaten (Modus,
 uid/gid, mtime, Verzeichnisse, Symlinks, Pfade). Der Kern kennt davon nichts —
@@ -54,6 +63,11 @@ Bereichslaenge, bevor er ein einziges Byte liest.
   Zweierpotenz mit `p_vaddr ≡ p_offset (mod p_align)`, ganz im unprivilegierten
   Adressbereich, keine Ueberlappung mit einem anderen Segment, nie zugleich
   beschreibbar und ausfuehrbar (W^X).
+* Zwei Segmente duerfen sich auch **keine Seite** teilen: Rechte gelten je
+  Seite, aus RX neben RW wuerde beim Abbilden faktisch RWX. Solche Abbilder
+  weist `parse` mit `zwei Segmente laegen in derselben Seite` ab, bevor die
+  erste Seite angelegt ist (`userland/user.ld` legt die Segmente deshalb auf
+  getrennte Seiten).
 * Die Einsprungadresse muss in einem ausfuehrbaren Segment liegen.
 
 Abgeraeumt wird ueber `kcore::elf::unload`: dieselbe Pruefung liefert dieselben

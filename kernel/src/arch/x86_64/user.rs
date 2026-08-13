@@ -27,15 +27,17 @@
 //! **Nachweis der Schutzbits.** Das voreingestellte QEMU-Rechnermodell meldet
 //! SMEP/SMAP per CPUID NICHT; der Kernel ueberspringt sie dann und vermerkt
 //! das im Boot-Log ("Ausfuehrsperre nein (uebersprungen)"). Dass der Pfad
-//! trotzdem stimmt, laesst sich mit einem Rechnermodell nachpruefen, das die
-//! Bits meldet:
+//! trotzdem stimmt, wird NICHT behauptet, sondern gemessen: `tests/step-17`
+//! startet dasselbe Abbild ein zweites Mal mit einem Rechnermodell, das die
+//! Bits meldet, und prueft das Ergebnis:
 //!
 //! ```text
-//! qemu-system-x86_64 -machine q35 -cpu max -m 512M -cdrom build/karstos.iso \
-//!     -boot d -no-reboot -display none -serial file:build/smaptest.log
+//! qemu-system-x86_64 -machine q35 -cpu max -m 512M -cdrom build/*.iso \
+//!     -boot d -no-reboot -display none -serial file:build/ring3-smap.$$.log
 //! ==> [..] CPU-Schutz  : Schnellaufruf ja, Ausfuehrsperre ja,
 //!                        Zugriffssperre ja, Per-CPU-Basis ja
-//! ==> [..] Selbsttestbilanz: 148/148 bestanden
+//! ==> [..] Schutzwall  : 5/5 Uebergriffe aus Ring 3 abgewehrt
+//! ==> [..] Selbsttestbilanz: 166/166 bestanden
 //! ```
 //!
 //! Mit gesetztem CR4.SMAP laufen alle Systemaufrufe, die unprivilegierten
@@ -248,7 +250,7 @@ __user_demo_hole:
     .balign 16
     .globl __user_demo_spin
 __user_demo_spin:
-    movabs rcx, 30000000
+    movabs rcx, 2000000000
 4:  dec rcx
     jnz 4b
     mov eax, 18                           /* 18 = process_exit                 */

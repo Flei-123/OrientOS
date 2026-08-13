@@ -1,4 +1,7 @@
-//! # karst — der Kernel von Karstos
+//! # Der Kernel — Einstiegspunkt und Bootweg
+//!
+//! Der Produktname steht ausschliesslich in `kcore::branding` (gespeist aus den
+//! Cargo-Metadaten ueber `build.rs`); hier wird er bewusst nicht wiederholt.
 //!
 //! Modularer Monolith in Rust (`no_std`). Der Bootweg steht bewusst komplett in
 //! dieser Datei, damit die Reihenfolge der Inbetriebnahme an einer Stelle

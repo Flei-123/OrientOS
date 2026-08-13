@@ -19,7 +19,7 @@
 //! [`note_cooperative_switch`] in einen EIGENEN Zaehler — im Boot-Log muessen
 //! beide Arten getrennt sichtbar sein, sonst ist "Praeemption" nicht belegt.
 
-use core::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 
 use crate::kcore::arch_iface::ArchOps;
 
@@ -27,6 +27,14 @@ use crate::kcore::arch_iface::ArchOps;
 pub const DEFAULT_QUANTUM: u32 = 2;
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
+/// Tiefe der Verdraengungssperre (0 = offen), siehe [`hold`].
+static HOLD: AtomicU32 = AtomicU32::new(0);
+/// Ticks, die waehrend einer Sperre angefallen sind und noch gebucht werden.
+static OWED: AtomicU64 = AtomicU64::new(0);
+/// Ticks, die insgesamt in eine Sperre gefallen sind (Statistik).
+static HELD_TICKS: AtomicU64 = AtomicU64::new(0);
+/// Wechsel, die nach dem Ende einer Sperre nachgeholt wurden.
+static DEFERRED_SWITCHES: AtomicU64 = AtomicU64::new(0);
 static TICKS: AtomicU64 = AtomicU64::new(0);
 static PREEMPTIVE: AtomicU64 = AtomicU64::new(0);
 static COOPERATIVE: AtomicU64 = AtomicU64::new(0);
@@ -92,6 +100,15 @@ pub fn on_tick() -> bool {
     if !ENABLED.load(Ordering::Relaxed) {
         return false;
     }
+    if held() {
+        // Verdraengungssperre: waehrend eines geschuetzten Abschnitts fasst
+        // dieser Pfad den Planer NICHT an — weder zum Buchen noch zum
+        // Wechseln. Der Tick geht nicht verloren, er wird beim Ende der Sperre
+        // nachgebucht ([`release`]).
+        HELD_TICKS.fetch_add(1, Ordering::Relaxed);
+        OWED.fetch_add(1, Ordering::Relaxed);
+        return false;
+    }
     // Laeuft gerade ein verdraengbarer Kontrollfluss, bucht der Planer den
     // Tick auf dessen Konto — er allein kennt dessen Zeitscheibe (Groesse nach
     // Prioritaet) und meldet, wenn sie aufgebraucht ist.
@@ -117,6 +134,78 @@ pub fn on_tick() -> bool {
 /// Planer; er zaehlt den Wechsel ueber [`note_preemptive_switch`] mit.
 pub fn switch_now() {
     crate::kcore::sched::preempt_current();
+}
+
+// ------------------------------------------------------- Verdraengungssperre
+
+/// Wache ueber einen Abschnitt, der nicht verdraengt werden darf.
+///
+/// Solange eine solche Wache lebt, ruehrt der Zeitgeberpfad den Planer nicht
+/// an: er bucht keinen Tick und nimmt niemandem die CPU weg. Das ist noetig,
+/// wo ein Thread die Datenstruktur des Planers selbst veraendert (z. B.
+/// [`crate::kcore::sched::unblock`]) — ein Tick mitten darin haette dieselbe
+/// Struktur ein zweites Mal veraendert.
+///
+/// Die Ticks gehen dabei nicht verloren: sie werden gezaehlt und beim Ende der
+/// Wache nachgebucht. Ist die Zeitscheibe dadurch aufgebraucht, wird der
+/// Wechsel sofort **nachgeholt** — verzoegerte Verdraengung statt gar keiner.
+///
+/// Die Wache gilt fuer den laufenden Kontrollfluss und darf deshalb NICHT ueber
+/// einen Kontextwechsel hinweg gehalten werden.
+#[must_use = "die Sperre gilt nur, solange die Wache lebt"]
+pub struct Hold {
+    /// Verhindert, dass ausserhalb dieses Moduls eine Wache gebaut wird.
+    _privat: (),
+}
+
+impl Drop for Hold {
+    fn drop(&mut self) {
+        release();
+    }
+}
+
+/// Sperrt die Verdraengung fuer die Lebensdauer der zurueckgelieferten Wache.
+///
+/// Verschachtelung ist erlaubt; erst die aeusserste Wache gibt wieder frei.
+pub fn hold() -> Hold {
+    HOLD.fetch_add(1, Ordering::Acquire);
+    Hold { _privat: () }
+}
+
+/// Laeuft gerade ein geschuetzter Abschnitt?
+pub fn held() -> bool {
+    HOLD.load(Ordering::Relaxed) > 0
+}
+
+/// Gibt die Sperre frei und holt einen faelligen Wechsel nach.
+fn release() {
+    if HOLD.fetch_sub(1, Ordering::Release) != 1 {
+        return;
+    }
+    let offen = OWED.swap(0, Ordering::Relaxed);
+    if offen == 0 {
+        return;
+    }
+    let mut faellig = false;
+    for _ in 0..offen {
+        if let Some(scheibe_zuende) = crate::kcore::sched::charge_tick() {
+            faellig |= scheibe_zuende;
+        }
+    }
+    if faellig {
+        DEFERRED_SWITCHES.fetch_add(1, Ordering::Relaxed);
+        crate::kcore::sched::preempt_current();
+    }
+}
+
+/// Ticks, die bisher in eine Verdraengungssperre gefallen sind.
+pub fn held_ticks() -> u64 {
+    HELD_TICKS.load(Ordering::Relaxed)
+}
+
+/// Wechsel, die nach dem Ende einer Sperre nachgeholt wurden.
+pub fn deferred_switches() -> u64 {
+    DEFERRED_SWITCHES.load(Ordering::Relaxed)
 }
 
 /// Meldet einen aus dem Zeitgeberpfad erzwungenen Wechsel.

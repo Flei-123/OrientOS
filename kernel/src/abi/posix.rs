@@ -106,6 +106,74 @@ pub fn self_test() -> i64 {
             nach_close = karst_abi_posix::sys_write(&mut ctx, f, text.as_ptr() as usize, 1);
         }
     }
+    // `open(2)` gibt es hier nur als Uebersetzung auf einen Namensraumknoten,
+    // den diese Schicht als HANDLE bekommt. Es gibt keinen globalen Root: der
+    // "Pfad" ist ein einzelner Name in genau diesem Knoten. Ohne das Handle
+    // koennte diese Schicht gar nichts aufloesen.
+    let mut fd_offen = -1i64;
+    let mut geschrieben_offen = 0i64;
+    let mut unbekannt_name = 0i64;
+    if let Ok(knoten) = super::native::namespace_create(prozess) {
+        if let Ok(h) = super::native::grant_console(
+            prozess,
+            // `open(2)` verlangt in dieser Uebersetzung WRITE und INSPECT; was
+            // der Eintrag nicht hergibt, gibt es auch nicht ueber einen Namen.
+            karst_abi_native::Rights::WRITE
+                | karst_abi_native::Rights::INSPECT
+                | karst_abi_native::Rights::DUPLICATE,
+        ) {
+            let name = b"konsole";
+            let _ = super::native::dispatch_kernel(
+                Syscall::NamespaceCreate as u64,
+                [
+                    knoten.0,
+                    name.as_ptr() as u64,
+                    name.len() as u64,
+                    karst_abi_native::ObjectKind::Stream as u64,
+                    h.0,
+                    0,
+                ],
+            );
+            fd_offen = karst_abi_posix::sys_open(
+                &mut ctx,
+                knoten,
+                name.as_ptr() as usize,
+                name.len(),
+                karst_abi_posix::O_WRONLY,
+            );
+            if fd_offen >= 0 {
+                let gruss = b"POSIX open(2) auf ein Capability-Handle";
+                geschrieben_offen = karst_abi_posix::sys_write(
+                    &mut ctx,
+                    fd_offen as karst_abi_posix::Fd,
+                    gruss.as_ptr() as usize,
+                    gruss.len(),
+                );
+                let _ =
+                    karst_abi_posix::sys_close(&mut ctx, fd_offen as karst_abi_posix::Fd);
+            }
+            let weg = b"gibtesnicht";
+            unbekannt_name = karst_abi_posix::sys_open(
+                &mut ctx,
+                knoten,
+                weg.as_ptr() as usize,
+                weg.len(),
+                karst_abi_posix::O_WRONLY,
+            );
+        }
+        let _ = super::native::dispatch_kernel(
+            Syscall::HandleClose as u64,
+            [knoten.0, 0, 0, 0, 0, 0],
+        );
+    }
+    crate::klog!(
+        "posix",
+        "Uebersetzer: open(2) auf Namensraumknoten -> fd {}, write -> {} B, unbekannter Name -> {} (erwartet {})",
+        fd_offen,
+        geschrieben_offen,
+        unbekannt_name,
+        -(karst_abi_posix::Errno::ENOENT as i64)
+    );
     crate::klog!(
         "posix",
         "Uebersetzer: write(fd {}) -> {} B ueber Handle, close(2), danach write -> {} (erwartet {}), fork(2) -> {} (erwartet {})",

@@ -134,7 +134,7 @@ Adressraums, Heap-Init mit Testallokation (Box/Vec/String), Timer-Ticks,
 30 **erzwungene** Threadwechsel ohne ein einziges `yield`, ein Programm in
 Ring 3 (`CS=0x0023 (RPL=3), CPL=3`), ein aus dem Startdateisystem geladenes
 ELF64, die Handle-Negativtests und die Bilanz
-`Selbsttestbilanz: 148/148 bestanden`.
+`Selbsttestbilanz: 166/166 bestanden`.
 
 ## Fehlersuche
 

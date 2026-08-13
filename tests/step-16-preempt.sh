@@ -21,6 +21,8 @@ preempt_check() {
         'Leerlauf-Thread: [1-9][0-9]* Einlastung\(en\), [1-9][0-9]* Tick\(s\) im Leerlauf, eigener Stapel [0-9]+ B, Wachzone unversehrt' \
         'Leerlauf unter Verdraengung: [1-9][0-9]* Einlastung\(en\), [1-9][0-9]* Tick\(s\) auf den Leerlauf-Thread gebucht' \
         'Schlafen/Wecken: .* ([0-9]+)/\1 Zusagen' \
+        'Verdraengungssperre: [1-9][0-9]* Tick\(s\) im geschuetzten Abschnitt, 0 Wechsel darin, [1-9][0-9]* nachgeholt nach dem Ende' \
+        'Zeitbudget von Ring 3 erschoepft \(RIP=0x[0-9a-f]{16}\) — Programm wird abgeraeumt' \
         'Startvorgang abgeschlossen' \
         ; do
         if grep -qE "$muster" "$log"; then
@@ -78,6 +80,25 @@ preempt_check() {
         rc=1
     else
         echo "  [ ok ] kcore kennt keine Register — Rettung nur in arch/"
+    fi
+
+    # Der verdraengende Zeitgeberpfad muss auch den Fall behandeln, dass der
+    # Tick unprivilegierten Code trifft — sonst haelt eine Rechenschleife in
+    # Ring 3 den Kernel an, sobald die Verdraengung eingeschaltet ist.
+    if grep -q 'note_user_tick' "$einsprung" && grep -q 'abort_user' "$einsprung"; then
+        echo "  [ ok ] Wachhund fuer Ring 3 haengt auch am verdraengenden Pfad"
+    else
+        echo "  [FEHL] verdraengender Zeitgeberpfad kennt den Wachhund fuer Ring 3 nicht"
+        rc=1
+    fi
+
+    # Die Verdraengungssperre darf den Planer aus dem Interruptpfad heraus
+    # wirklich heraushalten: kein Buchen, kein Wechsel, solange sie gilt.
+    if grep -q 'if held()' kernel/src/kcore/preempt.rs; then
+        echo "  [ ok ] Zeitgeberpfad prueft die Verdraengungssperre vor jeder Buchung"
+    else
+        echo "  [FEHL] Verdraengungssperre wird im Zeitgeberpfad nicht geprueft"
+        rc=1
     fi
 
     # Es darf nur EINEN Planer geben: kein zweiter, paralleler Scheduler.

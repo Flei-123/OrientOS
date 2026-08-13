@@ -24,6 +24,7 @@ extern crate alloc;
 extern crate std;
 
 pub mod handle;
+pub mod name;
 pub mod port;
 pub mod rights;
 pub mod syscall;

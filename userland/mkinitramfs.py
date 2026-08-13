@@ -17,23 +17,32 @@ WARUM EIN EIGENES FORMAT (und nicht cpio oder tar)?
     Der Kernel prueft alle Grenzen mit checked-Arithmetik gegen die
     tatsaechliche Archivlaenge und kommt ohne jede Zeichenkettenanalyse aus.
 
+  * Jeder Eintrag traegt eine CRC32-Pruefsumme ueber SEINE Daten. Ein
+    Bootloader-Modul kommt ueber Firmware, Medium und Speicher zum Kernel;
+    ein einzelnes gekipptes Byte im Programmtext wuerde sonst erst als
+    unerklaerlicher Absturz im unprivilegierten Programm auffallen. Der
+    Kernel prueft die Summe, BEVOR er ein Abbild anfasst.
+
 AUFBAU (alles little-endian):
-    0x00  8 B   Kennung "IRFS0001"
+    0x00  8 B   Kennung "IRFS0002"
     0x08  u32   Anzahl Eintraege
     0x0c  u32   Gesamtlaenge des Archivs in Bytes
-    0x10  Tabelle, Anzahl * 48 B:
+    0x10  Tabelle, Anzahl * 56 B:
             +0x00  32 B  Name, mit Nullbytes aufgefuellt (kein '/', ASCII)
             +0x20  u64   Offset der Daten ab Archivanfang
             +0x28  u64   Laenge der Daten
+            +0x30  u32   CRC32 (IEEE, reflektiert) ueber die Daten
+            +0x34  u32   reserviert, 0
     danach: die Daten, jeweils auf 16 B ausgerichtet.
 """
 
 import struct
 import sys
+import zlib
 
-MAGIC = b"IRFS0001"
+MAGIC = b"IRFS0002"
 NAME_LEN = 32
-ENTRY_LEN = 48
+ENTRY_LEN = 56
 HEADER_LEN = 16
 ALIGN = 16
 
@@ -78,7 +87,8 @@ def main(argv):
     for i, (raw, o, ln) in enumerate(table):
         base = HEADER_LEN + i * ENTRY_LEN
         buf[base:base + len(raw)] = raw
-        struct.pack_into("<QQ", buf, base + NAME_LEN, o, ln)
+        crc = zlib.crc32(items[i][1]) & 0xFFFFFFFF
+        struct.pack_into("<QQII", buf, base + NAME_LEN, o, ln, crc, 0)
     for o, data in blobs:
         buf[o:o + len(data)] = data
 

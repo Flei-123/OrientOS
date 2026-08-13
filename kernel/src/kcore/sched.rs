@@ -843,6 +843,10 @@ pub fn unblock(id: ThreadId) -> bool {
     if s.is_null() {
         return false;
     }
+    // Waehrend der Aenderung der Threadtabelle darf der Zeitgeberpfad sie nicht
+    // ebenfalls anfassen; die Sperre haelt ihn heraus, ein faelliger Wechsel
+    // wird danach nachgeholt.
+    let _wache = crate::kcore::preempt::hold();
     // Sicher: siehe [`yield_now`].
     unsafe { (*s).unblock(id) }
 }
@@ -853,8 +857,14 @@ pub fn exit_current() -> ! {
     if !s.is_null() {
         // Sicher: siehe [`yield_now`].
         unsafe {
-            let id = (*s).current();
-            (*s).exit(id);
+            {
+                // Das Abmelden aendert die Threadtabelle und gehoert deshalb in
+                // einen geschuetzten Abschnitt. Der Wechsel danach findet OHNE
+                // Sperre statt — sonst wanderte sie in den naechsten Thread.
+                let _wache = crate::kcore::preempt::hold();
+                let id = (*s).current();
+                (*s).exit(id);
+            }
             (*s).yield_now();
         }
     }
@@ -1222,6 +1232,48 @@ extern "C" fn idle_prober() -> ! {
     exit_current()
 }
 
+/// So viele Tick(s) verbringt die Sperrprobe im geschuetzten Abschnitt.
+const GUARD_PROBE_TICKS: u64 = 4;
+
+/// Tick(s), die waehrend der Sperre vergangen sind.
+static GUARD_TICKS_INSIDE: AtomicU64 = AtomicU64::new(0);
+/// Erzwungene Wechsel waehrend der Sperre — muss 0 bleiben.
+static GUARD_SWITCHES_INSIDE: AtomicU64 = AtomicU64::new(0);
+/// Nach dem Ende der Sperre nachgeholte Wechsel — muss mindestens 1 sein.
+static GUARD_DEFERRED: AtomicU64 = AtomicU64::new(0);
+/// Hat die Sperrprobe ihren Lauf beendet?
+static GUARD_DONE: AtomicU64 = AtomicU64::new(0);
+
+/// Probe der Verdraengungssperre ([`crate::kcore::preempt::hold`]).
+///
+/// Der Thread ist verdraengbar und rechnet ohne `yield` — waehrend der Sperre
+/// darf ihm der Zeitgeber die CPU trotzdem nicht wegnehmen. Danach muss der
+/// aufgeschobene Wechsel nachgeholt werden. Beides wird gemessen, nicht
+/// behauptet.
+extern "C" fn guard_prober() -> ! {
+    let nachgeholt_vorher;
+    {
+        let _wache = crate::kcore::preempt::hold();
+        // Erst INNERHALB der Sperre messen: so kann kein Wechsel aus der Zeit
+        // vor der Sperre das Ergebnis verfaelschen.
+        let t0 = crate::kcore::preempt::ticks_seen();
+        let p0 = crate::kcore::preempt::preemptive_switches();
+        nachgeholt_vorher = crate::kcore::preempt::deferred_switches();
+        while crate::kcore::preempt::ticks_seen() < t0 + GUARD_PROBE_TICKS {
+            core::hint::spin_loop();
+        }
+        GUARD_TICKS_INSIDE.store(crate::kcore::preempt::ticks_seen() - t0, Ordering::Relaxed);
+        GUARD_SWITCHES_INSIDE
+            .store(crate::kcore::preempt::preemptive_switches() - p0, Ordering::Relaxed);
+    }
+    // Beim Ende der Wache wurden die aufgestauten Ticks nachgebucht; war die
+    // Zeitscheibe damit aufgebraucht, hat genau hier ein Wechsel stattgefunden.
+    GUARD_DEFERRED
+        .store(crate::kcore::preempt::deferred_switches() - nachgeholt_vorher, Ordering::Relaxed);
+    GUARD_DONE.store(1, Ordering::Relaxed);
+    exit_current()
+}
+
 /// Zaehlschleife mit der hoechsten Prioritaet.
 extern "C" fn spin_a() -> ! {
     spin_body(0)
@@ -1256,7 +1308,7 @@ pub fn preempt_selftest() -> (usize, usize) {
     let aktiv = unsafe { crate::kcore::preempt::enable() };
     if !aktiv {
         klog!("sched", "Praeemption : Einschalten abgelehnt — bleibe kooperativ");
-        return (0, 6);
+        return (0, 8);
     }
     klog!(
         "sched",
@@ -1277,7 +1329,7 @@ pub fn preempt_selftest() -> (usize, usize) {
     }
     if angelegt != PREEMPT_THREADS {
         klog!("sched", "FEHLER: Verdraengungstest konnte keine {} Threads anlegen", PREEMPT_THREADS);
-        return (0, 6);
+        return (0, 8);
     }
 
     let p_vorher = crate::kcore::preempt::preemptive_switches();
@@ -1362,30 +1414,68 @@ pub fn preempt_selftest() -> (usize, usize) {
         sl.idle_ticks()
     );
 
+    // Dritte Probe: die Verdraengungssperre. Ein geschuetzter Abschnitt darf
+    // nicht unterbrochen werden — der Zeitgeber ruehrt den Planer waehrend
+    // einer Sperre nicht an —, und der aufgeschobene Wechsel muss danach
+    // nachgeholt werden. Ohne diese Sperre koennte ein Tick den Planer mitten
+    // in einer Aenderung seiner eigenen Tabelle ein zweites Mal veraendern.
+    for c in [&GUARD_TICKS_INSIDE, &GUARD_SWITCHES_INSIDE, &GUARD_DEFERRED, &GUARD_DONE] {
+        c.store(0, Ordering::Relaxed);
+    }
+    let mut sg = CoopScheduler::new();
+    let sperre_da = sg.spawn_prio(guard_prober, PREEMPT_STACK, PRIO_MIN).is_some();
+    if sperre_da {
+        with_active(&mut sg, |s| {
+            // Sicher: genau ein Lauf, aus dem Kontext von `kmain`.
+            unsafe { s.run() }
+        });
+    }
+    let ticks_drin = GUARD_TICKS_INSIDE.load(Ordering::Relaxed);
+    let wechsel_drin = GUARD_SWITCHES_INSIDE.load(Ordering::Relaxed);
+    let nachgeholt = GUARD_DEFERRED.load(Ordering::Relaxed);
+    let sperre_ok = sperre_da
+        && GUARD_DONE.load(Ordering::Relaxed) == 1
+        && ticks_drin >= GUARD_PROBE_TICKS
+        && wechsel_drin == 0
+        && !sg.deadlocked()
+        && sg.stacks_intact();
+    let nachhol_ok = nachgeholt >= 1;
+    klog!(
+        "sched",
+        "Verdraengungssperre: {} Tick(s) im geschuetzten Abschnitt, {} Wechsel darin, {} nachgeholt nach dem Ende",
+        ticks_drin,
+        wechsel_drin,
+        nachgeholt
+    );
+
     let zusagen = (aktiv as usize)
         + (erzwungen_ok as usize)
         + (alle_liefen as usize)
         + (prio_wirkt as usize)
         + (sauber as usize)
-        + (leerlauf_ok as usize);
-    if zusagen != 6 {
+        + (leerlauf_ok as usize)
+        + (sperre_ok as usize)
+        + (nachhol_ok as usize);
+    if zusagen != 8 {
         klog!(
             "sched",
-            "FEHLER: Verdraengung (aktiv {}, erzwungen {}, alle liefen {}, Prioritaet {}, Abschluss {}, Leerlauf {})",
+            "FEHLER: Verdraengung (aktiv {}, erzwungen {}, alle liefen {}, Prioritaet {}, Abschluss {}, Leerlauf {}, Sperre {}, Nachholen {})",
             aktiv,
             erzwungen_ok,
             alle_liefen,
             prio_wirkt,
             sauber,
-            leerlauf_ok
+            leerlauf_ok,
+            sperre_ok,
+            nachhol_ok
         );
     }
     klog!(
         "sched",
-        "Verdraengung: {} erzwungene Wechsel in {} Ticks, {}/6 Zusagen",
+        "Verdraengung: {} erzwungene Wechsel in {} Ticks, {}/8 Zusagen",
         erzwungen,
         PREEMPT_TICKS,
         zusagen
     );
-    (zusagen, 6)
+    (zusagen, 8)
 }

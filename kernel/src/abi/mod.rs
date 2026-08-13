@@ -1,7 +1,8 @@
 //! Schicht **abi** — die Schnittstellen zum Userspace.
 //!
 //! Zwei streng getrennte Ebenen:
-//! * [`native`] — die EIGENE API `karst-native`: capability-basiert,
+//! * [`native`] — die EIGENE, hauseigene API (Name aus `kcore::branding`):
+//!   capability-basiert,
 //!   handle-orientiert, ohne `fork`, ohne `errno`, ohne Signale. Das ist die
 //!   Schnittstelle, auf die der Kernel dauerhaft ausgelegt ist.
 //! * [`posix`] — ein reiner UEBERSETZER auf `native`, hinter dem Cargo-Feature

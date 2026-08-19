@@ -34,73 +34,64 @@ Flach, ohne Verlauf, ohne Schein. Alle Formen sind reine Geometrie
 - Cap-Höhe 100, Strichstärke 26. Optisches Kerning: O–S enger (6) als S–U (14).
 - Untertitel `KERNEL` ist optional (`-nurwort` = ohne).
 
-## Runde 2 — Nadel-Varianten (Wunsch: Kompass-Doppelnadel im O)
+## Stand: FESTGELEGT (Runde 5)
 
-Uebersicht: `osum-nadel-v4.png` · Groessentest 16/24/32 px: `groessentest-nadel.png`
+Grundlage ist Justins Vorlage `osum-vorlage-justin.jpg`. Die wurde nicht
+nachgebaut, sondern mit **potrace vektorisiert** — die Konturen sind also
+exakt die der Vorlage, nur als saubere Bezierkurven statt als JPEG.
 
-| Var | Symbol im O | Dateien | Bewertung (echter Groessentest) |
-|---|---|---|---|
-| D | Doppelnadel diagonal, cyan/schwarz | `s-d-nadel-diag.*`, `w-d-nadel-diag*` | 32 px klar als Kompassnadel lesbar, 24 px ok, 16 px verliert die Richtung. Bestes Bild bei grosser Darstellung |
-| E | Doppelnadel senkrecht, cyan/grau | `s-e-nadel-senk.*` | einzige Variante, die bei 16 px noch Richtung zeigt. Robusteste Wahl fuers Favicon |
-| F | Cursor-Pfeil einfarbig (Vorlage) | `s-f-cursor.*` | ab 24 px klar, bei 16 px nur noch ein cyan Fleck. Inhaltlich Navigation statt Kern |
-| G | Doppelnadel diagonal, schmaler | `s-g-nadel-fein.*` | zu duenn, faellt schon bei 24 px auseinander. Raus |
+`osum-master.json` = der Master mit drei Ebenen:
 
-Empfehlung: **D** als Hauptmarke (gross), **E** als Favicon/Kleinform.
-Zweifarbige Nadel ist Pflicht — einfarbig liest sich die Doppelnadel als Raute, nicht als Kompass.
-
-## Runde 3 — Strichstaerke + Nadeltypen (`logo_gen.py`)
-
-**BUG GEFUNDEN:** Der S-Pfad aller Dateien aus Runde 1+2 ist kaputt — am zweiten
-Bogen stand `sweep-flag 0` statt `1`, dadurch lief der untere Bogen in dieselbe
-Richtung wie der obere und das S wurde ein ueberlappender Klecks. Behoben in
-`logo_gen.py`. Alle Assets muessen neu erzeugt werden, sobald die Variante feststeht.
-
-Ab jetzt ist alles parametrisch: `python3 logo_gen.py <strichstaerke> <nadeltyp>`
-
-**Strichstaerke** (`osum-strichstaerken.png`, Versalhoehe = 100)
-
-| sw | Urteil |
+| Ebene | Inhalt |
 |---|---|
-| 26 | erste Fassung, deutlich zu fett — die Punze im O wird so eng, dass die Nadel keinen Platz hat |
-| 21 | kraeftig, noch schwer |
-| **17** | **ausgewogen — Empfehlung.** Punze gross genug fuer die Nadel, Wortbild ruhig |
-| 14 | leicht, elegant, bei kleinen Groessen schon duenn |
-| 11 | zu fein fuer Favicon/Bootlog |
+| `letters` | OSUM + KERNEL |
+| `n_hell` | helle Facette der Kompassnadel (oben rechts) |
+| `n_dunkel` | dunkle Facette der Kompassnadel (unten links) |
 
-**Nadeltyp** (`osum-nadel-typen.png`)
+Normiert auf **Versalhoehe OSUM = 100 Einheiten**. Lockup misst 370,6 x 148,8 Einheiten.
 
-| Typ | Beschreibung | Urteil |
-|---|---|---|
-| `mono` | beide Haelften cyan | liest sich als Raute/Linse, nicht als Kompassnadel |
-| `mono_fuge` | beide Haelften cyan + feine Fuge | Nadel erkennbar, Fuge verschwindet aber bei 16 px |
-| `duo_soft` | cyan / dunkleres cyan (#12A3BE) | **Empfehlung** — Nadel klar lesbar, ohne harten Kontrast |
-| `duo_hard` | cyan / schwarz | staerkstes Kompassbild, dunkle Haelfte verschmilzt aber mit dem Ring |
+### Farben
 
-Das M hat jetzt Breite 68 (statt 76) und einen tieferen Mittelknick (y=72 statt 63)
-und liest sich damit als normales M — vorher war der Knick zu kurz und die
-Miter-Spitzen bei sw=26 zu lang.
+| Rolle | Wert |
+|---|---|
+| Schrift / Ring | `#0B0D10` |
+| Nadel hell | `#05EEFA` |
+| Nadel dunkel | `#0A8098` |
+| Heller Grund | `#FFFFFF` |
 
+### Bauen
 
-## Runde 4 — FESTGELEGT
+    python3 logo_build.py
 
-Strichstaerke **17**, Doppelnadel **zweifarbig dezent**, Achse links-oben nach rechts-unten (40 Grad).
-Obere Haelfte `#22D3EE`, untere Haelfte `#0D8299` (Stufe 4 aus `osum-nadel-abstufung.png`).
+Braucht `cairosvg` und `Pillow` (beides auf dem Server vorhanden). Erzeugt je
+Modus Lockup, Wortmarke und Signet als SVG+PNG, dazu den Favicon-Satz.
+Nichts wird von Hand nachgezogen — Aenderungen immer ueber `logo_build.py`.
 
-Erzeugt mit `python3 logo_gen.py` — alle Dateien unten sind Ausgabe dieses Skripts,
-nichts ist von Hand nachgezogen. Aendern heisst: Konstante im Skript anpassen, neu bauen.
+### Dateien
 
 | Datei | Zweck |
 |---|---|
-| `osum-wortmarke-hell.*` | Standard, dunkle Schrift auf hellem Grund |
-| `osum-wortmarke-dunkel.*` | weisse Schrift auf `#0B0D10` |
-| `osum-wortmarke-mono.*` | einfarbig schwarz, Nadel mit Fuge (Gravur, Fax, Stempel) |
-| `osum-wortmarke-mono-invers.*` | einfarbig weiss auf dunkel |
-| `osum-signet-*.*` | nur das O mit Nadel — die abtrennbare Bildmarke |
+| `osum-lockup-*.{svg,png}` | vollstaendige Marke: OSUM mit KERNEL darunter |
+| `osum-wortmarke-*.{svg,png}` | nur OSUM, ohne die Zeile KERNEL |
+| `osum-signet-*.{svg,png}` | nur das O mit Nadel — die abtrennbare Bildmarke |
 | `osum-favicon-{16,32,48,64,128,256}.png`, `osum-favicon.ico` | Favicon-Satz |
 
-Bei den einfarbigen Varianten ist die **Fuge (2 Einheiten) zwingend** — ohne sie
-liest sich die Doppelnadel als Raute statt als Kompassnadel.
+Modi: `hell`, `dunkel`, `mono`, `mono-invers`.
 
-**Offen:** Der Zusatz `KERNEL` unter der Wortmarke ist bewusst NICHT in den SVGs.
-In den bisherigen Entwuerfen war das DejaVu Sans, also nur ein Platzhalter.
-Sobald die Hausschrift feststeht, kommt die Zeile als eigener Lockup dazu.
+### Regeln
+
+* Bei den **einfarbigen** Varianten wird automatisch eine **Fuge** zwischen die
+  beiden Nadelfacetten gesetzt. Ohne sie verschmelzen sie zu einer formlosen
+  Raute und die Nadel ist nicht mehr als Nadel lesbar.
+* Das Signet ist die Kleinform und funktioniert bis **16 px** herunter.
+  Fuer alles unter ~120 px Breite Signet statt Lockup nehmen, sonst ist
+  `KERNEL` nur noch Grau.
+* Der Ring des O darf nie ohne Nadel stehen — sonst ist es nur ein Kreis.
+
+### Historie
+
+Verworfen wurden vorher: Punkt-im-O, Ring-im-Ring, Tor (las sich klein als `C`,
+das Wort wurde zu `CSUM`), einfarbige Nadel ohne Fuge, sowie eine komplett
+selbst konstruierte Buchstabengeometrie (Strichstaerke 26 zu fett; deren
+S-Pfad hatte ausserdem am zweiten Bogen `sweep-flag 0` statt `1` und war
+dadurch ein ueberlappender Klecks).

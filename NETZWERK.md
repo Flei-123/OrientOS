@@ -69,7 +69,22 @@ Zuständig für alles Große:
 - Verzeichnisse, Pfadauswahl, TLS
 - Konfiguration, Profile, Serverlisten
 
-Konfiguration z. B. `/etc/karstos/netz.toml`:
+### 3.1 Platzhalter statt fester Pfade
+
+Namen und Pfade stehen **noch nicht fest**. In diesem Dokument (und im Code)
+wird daher durchgehend mit Platzhaltern gearbeitet:
+
+| Platzhalter | Bedeutung | Beispiel (unverbindlich) |
+|---|---|---|
+| `$KONFIG_WURZEL` | Wurzel aller Systemkonfiguration | `/etc/<os>` |
+| `$NETZ_KONFIG` | Netzwerk-/Umleitkonfiguration | `$KONFIG_WURZEL/netz.toml` |
+| `$SCHLUESSEL_WURZEL` | Ablage privater Schlüssel | `$KONFIG_WURZEL/keys` |
+
+**Regel:** Kein fester Pfad im Code. Die Auflösung passiert an genau **einer**
+Stelle (Pfad-Modul), alles andere fragt dort nach. Ändert sich der Name des
+Systems oder das Layout, ist es ein Einzeiler.
+
+Konfiguration `$NETZ_KONFIG`:
 ```toml
 modus = 2            # 0 direkt | 1 tunnel | 2 proxy
 fail_closed = true
@@ -77,7 +92,7 @@ fail_closed = true
 [tunnel]
 typ = "wireguard"
 peer = "…"
-schluessel = "/etc/karstos/keys/wg.priv"
+schluessel = "$SCHLUESSEL_WURZEL/wg.priv"
 
 [proxy]
 typ = "socks5"
@@ -174,3 +189,4 @@ Schritt braucht externe Prüfung, nicht nur Tests.
 - [ ] Umschalten ohne Capability ⇒ abgewiesen
 - [ ] Kernel-Umleitcode messbar < 1.000 Zeilen, ohne Krypto, ohne Parser
 - [ ] Dienst-Neustart ohne Reboot, ohne Leak im Übergangsfenster
+- [ ] Kein fest verdrahteter Konfigpfad im Code — alles über das Pfad-Modul

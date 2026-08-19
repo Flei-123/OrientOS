@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# karst — Bauen von Kernel und bootfaehigem ISO-Abbild.
+# osum — Bauen von Kernel und bootfaehigem ISO-Abbild.
 #
 #   ./build.sh                 Release-Build + ISO
 #   ./build.sh --debug         Debug-Build
@@ -16,7 +16,7 @@ FEATURE_ARGS=()
 EXTRA=()
 # Eigene Crates. Nur diese wirft --fresh weg; core/compiler_builtins bleiben
 # im Cache, sonst dauert jeder Testlauf unnoetig lange.
-OWN_CRATES=(karst karst-mem karst-abi-native karst-abi-posix)
+OWN_CRATES=(osum osum-mem osum-abi-native osum-abi-posix)
 FRESH=0
 
 while [[ $# -gt 0 ]]; do
@@ -61,13 +61,13 @@ else
 fi
 [[ $RC -eq 0 ]] || exit $RC
 
-KERNEL="target/x86_64-karst-none/${PROFILE}/karst"
+KERNEL="target/x86_64-osum-none/${PROFILE}/osum"
 test -f "$KERNEL" || { echo "Kernelabbild fehlt: $KERNEL" >&2; exit 1; }
 
 echo ">> Symboltabelle fuer Backtraces"
 mkdir -p build
 if command -v nm >/dev/null; then
-    nm -n --demangle "$KERNEL" > build/karst.map || true
+    nm -n --demangle "$KERNEL" > build/osum.map || true
 fi
 
 # --------------------------------------------------------------- Userland
@@ -110,7 +110,7 @@ echo ">> ISO bauen"
 ROOT=build/isoroot
 rm -rf "$ROOT"
 mkdir -p "$ROOT/boot/limine" "$ROOT/EFI/BOOT"
-cp "$KERNEL" "$ROOT/boot/karst"
+cp "$KERNEL" "$ROOT/boot/osum"
 if [[ -s "$INITRAMFS" ]]; then
     cp "$INITRAMFS" "$ROOT/boot/initramfs.img"
 fi

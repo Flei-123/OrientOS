@@ -5,7 +5,7 @@
 //! Quellen, in dieser Reihenfolge:
 //! 1. Umgebungsvariable `OS_NAME_OVERRIDE` (fuer Experimente ohne Dateiaenderung),
 //! 2. `[package.metadata.branding] os-name = "..."` in `kernel/Cargo.toml`,
-//! 3. Ableitung aus dem Cargo-Paketnamen (`karst` -> `Karstos`).
+//! 3. Ableitung aus dem Cargo-Paketnamen (`osum` -> `Karstos`).
 //!
 //! Bewusst ohne TOML-Crate: eine Bauabhaengigkeit fuer drei Zeilen Textsuche
 //! waere genau der Ballast, den dieses Projekt vermeiden will.

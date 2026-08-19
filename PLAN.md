@@ -32,10 +32,10 @@ zu warten.
 Gemessener Stand nach dem Skelett (echter Lauf, `./run-qemu.sh --check`):
 
 ```
-[karst] elf        ELF-Negativtest: 11/11 Faelle wie erwartet abgewiesen
-[karst] abi        Handle-Negativtest: 3/3 abgewiesen (ungueltiger Index ok,
+[osum] elf        ELF-Negativtest: 11/11 Faelle wie erwartet abgewiesen
+[osum] abi        Handle-Negativtest: 3/3 abgewiesen (ungueltiger Index ok,
                    veraltete Generation ok, fehlendes Recht ok)
-[karst] boot       Selbsttestbilanz: 93/93 bestanden
+[osum] boot       Selbsttestbilanz: 93/93 bestanden
 ```
 
 ---
@@ -113,7 +113,7 @@ Fehlt dort etwas, wird es beim Lead angemeldet — nicht selbst geaendert.
 | **preempt** | `kernel/src/arch/x86_64/preempt.rs`, `.../idt.rs`, `.../timer.rs`, `kernel/src/kcore/preempt.rs`, `kernel/src/kcore/sched.rs`, `kernel/src/arch/x86_64/context.rs`, `tests/step-16-preempt.sh` |
 | **ring3** | `kernel/src/arch/x86_64/user.rs`, `.../gdt.rs`, `.../interrupts.rs`, `.../msr.rs`, `.../cpu.rs`, `kernel/src/kcore/user.rs`, `tests/step-17-ring3.sh` |
 | **elf** | `kernel/src/kcore/elf.rs`, `kernel/src/kcore/initramfs.rs`, `kernel/src/boot/limine.rs`, `kernel/src/boot/mod.rs`, `kernel/src/mm/mod.rs`, `userland/**` (neu), `build.sh`, `limine.conf`, `tests/step-18-elf.sh` |
-| **handles** | `kernel/src/abi/**`, `libs/karst-abi-native/**`, `libs/karst-abi-posix/**`, `tests/step-19-handles.sh` |
+| **handles** | `kernel/src/abi/**`, `libs/osum-abi-native/**`, `libs/osum-abi-posix/**`, `tests/step-19-handles.sh` |
 | **doku** | `ARCHITECTURE.md`, `ROADMAP.md`, `README.md`, `PACKAGING.md`, `FILESYSTEM.md`, `LANGUAGE.md`, `RENAME.md`, `RUN.md` — und **keine** Quelldatei |
 
 Ueberschneidungen sind bewusst ausgeschlossen: `preempt` besitzt den

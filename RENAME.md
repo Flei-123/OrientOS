@@ -46,11 +46,11 @@ ausgeführt. Ergebnis: `x86_64-nova-none.json`, `libs/nova-mem`,
    * `x86_64-<alt>-none.json` (und `.VERIFIED`)
 3. **Textersetzung über alle Textdateien** (ohne `.git/`, `target/`, `vendor/`,
    `build/`, ISO- und Logdateien). Die Reihenfolge ist wichtig, weil der
-   OS-Name den Kernelnamen als Teilzeichenkette enthält (`karstos` ⊃ `karst`):
+   OS-Name den Kernelnamen als Teilzeichenkette enthält (`karstos` ⊃ `osum`):
    1. OS-Name (`Karstos`) und seine Kleinschreibung (`karstos`)
-   2. Zusammensetzungen (`karstfs`)
-   3. Rust-Modulpfade (`karst_mem` → `nova_mem`)
-   4. Bindestrichformen (`karst-abi-native`)
+   2. Zusammensetzungen (`osumfs`)
+   3. Rust-Modulpfade (`osum_mem` → `nova_mem`)
+   4. Bindestrichformen (`osum-abi-native`)
    5. der Name allein, mit Wortgrenzen (`\bkarst\b`)
 4. **`Cargo.lock` löschen** (wird beim nächsten Build neu erzeugt, sonst
    verweist er auf Pakete, die es nicht mehr gibt)
@@ -61,7 +61,7 @@ ausgeführt. Ergebnis: `x86_64-nova-none.json`, `libs/nova-mem`,
 ## Von Hand — falls das Skript einmal nicht passt
 
 ```sh
-ALT_K=karst; ALT_OS=Karstos
+ALT_K=osum; ALT_OS=Karstos
 NEU_K=nova;  NEU_OS=Novaos
 
 # 1. Verzeichnisse
@@ -108,7 +108,7 @@ OS_NAME_OVERRIDE=Novaos ./build.sh && ./run-qemu.sh --check
 
 ```
 kernel/Cargo.toml
-   name = "karst"                    ─┐
+   name = "osum"                    ─┐
    [package.metadata.branding]        │
    os-name = "Karstos"               ─┤
                                       │  liest
@@ -145,7 +145,7 @@ Nach der Umbenennung liegt in `build/` noch das alte ISO. `./build.sh`
 
 ## Grenzfälle
 
-* **Der neue Name ist Präfix des alten** (`karst` → `kar`): funktioniert, weil
+* **Der neue Name ist Präfix des alten** (`osum` → `kar`): funktioniert, weil
   alle Regeln Wortgrenzen benutzen.
 * **Der neue OS-Name enthält den neuen Kernelnamen** (`nova` → `Novaos`):
   gewollt und getestet — die OS-Regel läuft vor der Kernel-Regel.

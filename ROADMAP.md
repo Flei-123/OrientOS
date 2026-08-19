@@ -10,7 +10,7 @@ Legende: **✔ fertig** · **◐ teilweise** · **▶ als Nächstes** · **○ g
 
 ## Phase 1 — Bootfähiger Kern ✔ *(abgeschlossen)*
 
-* ✔ Build-System: eigenes Target `x86_64-karst-none`, `build.sh`, `run-qemu.sh`, `test.sh`
+* ✔ Build-System: eigenes Target `x86_64-osum-none`, `build.sh`, `run-qemu.sh`, `test.sh`
 * ✔ Limine-Boot (BIOS **und** UEFI), higher-half Kernel bei −2 GiB
 * ✔ Serielle Konsole (COM1) + Framebuffer-Textkonsole mit eigenem 8×16-Font
 * ✔ `println!`/`serial_println!`/`klog!`, Panic-Handler mit Frame-Pointer-Backtrace
@@ -82,7 +82,7 @@ Legende: **✔ fertig** · **◐ teilweise** · **▶ als Nächstes** · **○ g
 * ✔ Erstes unprivilegiertes Programm (`userland/hello.asm`) läuft **wirklich**
   in Ring 3: `CS=0x0023 (RPL=3), CPL=3`, gibt über ein explizit übergebenes
   Handle aus und beendet sich per Systemaufruf; der Kernel räumt es ab
-* ✔ `karst-native` gebaut: Handle-Tabelle je Prozess (Slot + Generation +
+* ✔ `osum-native` gebaut: Handle-Tabelle je Prozess (Slot + Generation +
   prozesseigener Würfelwert), Objekttafel mit Verweiszähler,
   `HandleWrite/Read/Close/Duplicate/Inspect`, `ChannelCreate/Send/Recv`,
   `MemoryCreate`, `ProcessExit`, `spawn`/`spawn_with` **statt `fork`**;
@@ -106,7 +106,7 @@ Legende: **✔ fertig** · **◐ teilweise** · **▶ als Nächstes** · **○ g
   Objekte hinter einem Handle — es gibt **keinen prozessglobalen Wurzelpfad**.
   Einhängen verlangt `CREATE` am Knoten und `DUPLICATE` an der Quelle; beim
   Auflösen können Rechte nur schrumpfen. Namensregeln in
-  `libs/karst-abi-native/src/name.rs` (`NAME_MAX=32`, kein `/`, `\`, `.`,
+  `libs/osum-abi-native/src/name.rs` (`NAME_MAX=32`, kein `/`, `\`, `.`,
   `..`, keine Steuerzeichen), host-getestet über alle 256 Bytes.
   Im Boot-Log: `Namensraumprobe: 11/11` und neun Negativfälle
 * ✔ **Archivprüfsummen**: `IRFS0002` führt CRC32 je Eintrag, geprüft **vor**

@@ -143,25 +143,25 @@ Programm könnte `/etc` öffnen und die Trennung unterlaufen.
 Drei Kerneleigenschaften sind Voraussetzung, alle drei sind so gebaut — und
 seit Phase 3 nicht nur als Typen, sondern als laufender Code mit Negativtests
 im Boot-Log (Handle-Tabelle je Prozess mit Slot + Generation + prozesseigenem
-Würfelwert, `kernel/src/abi/native.rs`, `libs/karst-abi-native/src/table.rs`):
+Würfelwert, `kernel/src/abi/native.rs`, `libs/osum-abi-native/src/table.rs`):
 
 1. **Kein globaler Pfad-Namensraum im Core.**
-   `karst-native` hat kein `open("/pfad")`. Es gibt nur
+   `osum-native` hat kein `open("/pfad")`. Es gibt nur
    `NamespaceOpen(namespace_handle, name, rights)` — aufgelöst **relativ zu
    einem Handle**, das der Prozess besitzt. Ein Prozess ohne Namespace-Handle
    auf `/store` kann `/store` nicht einmal benennen.
-   → `libs/karst-abi-native/src/syscall.rs`, `Syscall::NamespaceOpen`
+   → `libs/osum-abi-native/src/syscall.rs`, `Syscall::NamespaceOpen`
 2. **Keine Umgebungsautorität (ambient authority).**
    Jeder Zugriff braucht ein `Handle` mit `Rights`. Rechte lassen sich beim
    Weitergeben nur **verkleinern** (`Rights::restrict`), nie vergrößern.
-   → `libs/karst-abi-native/src/rights.rs` (host-getestet:
+   → `libs/osum-abi-native/src/rights.rs` (host-getestet:
    `rights_can_only_shrink`)
 3. **Kein `fork`.**
    `fork` vererbt den kompletten Adressraum und alle Deskriptoren — das exakte
    Gegenteil von expliziter Rechteweitergabe. Karstos hat nur
    `ProcessSpawn(image, namespace, handles[])`: Der Elternprozess **listet auf**,
    was das Kind bekommt. In der POSIX-Schicht ist `fork` dauerhaft `-ENOSYS`.
-   → `libs/karst-abi-posix/src/lib.rs`, `sys_fork_unsupported()`
+   → `libs/osum-abi-posix/src/lib.rs`, `sys_fork_unsupported()`
    Kernelseitig gebaut ist das als `spawn`/`spawn_with` in
    `kernel/src/abi/native.rs`: eine frische Handle-Tabelle ist **leer**, das
    Kind bekommt nur namentlich übergebene Handles, und Rechte können dabei nur

@@ -1,5 +1,5 @@
 //! POSIX-`errno`-Werte. **Diese Datei ist der einzige Ort im ganzen Baum, an dem
-//! `errno` existiert.** Der Kernel-Core kennt nur [`karst_abi_native::Error`].
+//! `errno` existiert.** Der Kernel-Core kennt nur [`osum_abi_native::Error`].
 //!
 //! Die Zahlenwerte folgen der Linux/x86_64-Belegung, damit portierte Programme
 //! ohne Uebersetzungstabelle laufen. Das ist eine bewusste Altlast **dieser

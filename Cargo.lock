@@ -9,32 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
 
 [[package]]
-name = "karst"
-version = "0.1.0"
-dependencies = [
- "karst-abi-native",
- "karst-abi-posix",
- "karst-mem",
- "limine",
- "spin",
-]
-
-[[package]]
-name = "karst-abi-native"
-version = "0.1.0"
-
-[[package]]
-name = "karst-abi-posix"
-version = "0.1.0"
-dependencies = [
- "karst-abi-native",
-]
-
-[[package]]
-name = "karst-mem"
-version = "0.1.0"
-
-[[package]]
 name = "limine"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -42,6 +16,32 @@ checksum = "af6d2ee42712e7bd2c787365cd1dab06ef59a61becbf87bec7b32b970bd2594b"
 dependencies = [
  "bitflags",
 ]
+
+[[package]]
+name = "osum"
+version = "0.1.0"
+dependencies = [
+ "limine",
+ "osum-abi-native",
+ "osum-abi-posix",
+ "osum-mem",
+ "spin",
+]
+
+[[package]]
+name = "osum-abi-native"
+version = "0.1.0"
+
+[[package]]
+name = "osum-abi-posix"
+version = "0.1.0"
+dependencies = [
+ "osum-abi-native",
+]
+
+[[package]]
+name = "osum-mem"
+version = "0.1.0"
 
 [[package]]
 name = "spin"

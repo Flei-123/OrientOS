@@ -1,13 +1,13 @@
-//! # karst-abi-posix — ABTRENNBARE POSIX-Kompatibilitaetsschicht
+//! # osum-abi-posix — ABTRENNBARE POSIX-Kompatibilitaetsschicht
 //!
 //! **Diese Crate ist ein UEBERSETZER, kein Kernelbestandteil.** Sie darf
-//! ausschliesslich von [`karst_abi_native`] abhaengen — niemals von Kernel-
+//! ausschliesslich von [`osum_abi_native`] abhaengen — niemals von Kernel-
 //! internen Strukturen. Umgekehrt darf KEIN Kernel-Core-Modul von hier
 //! importieren; der einzige Einsprungpunkt ist [`dispatch`], den der Kernel
 //! feature-gated registriert.
 //!
 //! ## Entfernen der Schicht (siehe ARCHITECTURE.md, Kapitel "POSIX entfernen")
-//! 1. `libs/karst-abi-posix/` loeschen,
+//! 1. `libs/osum-abi-posix/` loeschen,
 //! 2. in `kernel/Cargo.toml` Feature `posix` und die optionale Dependency streichen,
 //! 3. `kernel/src/abi/mod.rs`: den `#[cfg(feature = "posix")]`-Block streichen.
 //! Danach bleibt ein vollstaendiger, lauffaehiger Kernel uebrig — es gibt keinen
@@ -18,14 +18,14 @@
 #[cfg(test)]
 extern crate std;
 
-use karst_abi_native::{Error as NErr, Handle, Rights, Syscall};
+use osum_abi_native::{Error as NErr, Handle, Rights, Syscall};
 
 pub mod errno;
 
 pub use errno::Errno;
 
 /// POSIX-Dateideskriptor. Existiert NUR hier — der Kernel-Core kennt nur
-/// [`karst_abi_native::Handle`].
+/// [`osum_abi_native::Handle`].
 pub type Fd = i32;
 
 /// Die Schnittstelle, die der Kernel dieser Schicht anbietet: ein einziger
@@ -33,7 +33,7 @@ pub type Fd = i32;
 /// entkoppelt und auf dem Host testbar.
 pub trait NativeCalls {
     /// Fuehrt einen nativen Syscall aus (Argumente in ABI-Reihenfolge).
-    fn call(&mut self, nr: Syscall, args: [u64; 6]) -> karst_abi_native::Result<u64>;
+    fn call(&mut self, nr: Syscall, args: [u64; 6]) -> osum_abi_native::Result<u64>;
 
     /// Bildet einen POSIX-Fd auf ein natives Handle ab.
     fn handle_for_fd(&self, fd: Fd) -> Option<Handle>;
@@ -64,7 +64,7 @@ pub const fn to_errno(e: NErr) -> Errno {
 
 /// POSIX-Rueckgabekonvention: >= 0 Erfolg, sonst `-errno`.
 #[inline]
-fn posix_ret(r: karst_abi_native::Result<u64>) -> i64 {
+fn posix_ret(r: osum_abi_native::Result<u64>) -> i64 {
     match r {
         Ok(v) => v as i64,
         Err(e) => -(to_errno(e) as i64),
@@ -162,7 +162,7 @@ mod tests {
     }
 
     impl NativeCalls for FakeKernel {
-        fn call(&mut self, nr: Syscall, args: [u64; 6]) -> karst_abi_native::Result<u64> {
+        fn call(&mut self, nr: Syscall, args: [u64; 6]) -> osum_abi_native::Result<u64> {
             self.last = Some((nr, args));
             match nr {
                 Syscall::HandleRead | Syscall::HandleWrite => Ok(args[2]),
@@ -246,7 +246,7 @@ mod tests {
     }
 
     impl NativeCalls for PosixKernel {
-        fn call(&mut self, nr: Syscall, args: [u64; 6]) -> karst_abi_native::Result<u64> {
+        fn call(&mut self, nr: Syscall, args: [u64; 6]) -> osum_abi_native::Result<u64> {
             self.calls.push((nr, args));
             if let Some(e) = self.fail_with {
                 return Err(e);

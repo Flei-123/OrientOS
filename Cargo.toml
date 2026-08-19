@@ -2,9 +2,9 @@
 resolver = "2"
 members = [
     "kernel",
-    "libs/karst-abi-native",
-    "libs/karst-abi-posix",
-    "libs/karst-mem",
+    "libs/osum-abi-native",
+    "libs/osum-abi-posix",
+    "libs/osum-mem",
 ]
 
 # Warnungen sind unerledigte Arbeit: sie brechen den Bau ab, statt nur im Log

@@ -1,6 +1,6 @@
 [package]
-name = "karst"
-description = "karst — Kernel des Betriebssystems Karstos"
+name = "osum"
+description = "osum — Kernel des Betriebssystems Karstos"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,7 +11,7 @@ license.workspace = true
 os-name = "Karstos"
 
 [[bin]]
-name = "karst"
+name = "osum"
 path = "src/main.rs"
 test = false
 bench = false
@@ -25,15 +25,15 @@ workspace = true
 limine = "0.5"
 # spin: minimale Spinlocks ohne std. Begruendung in ARCHITECTURE.md.
 spin = { version = "0.9", default-features = false, features = ["spin_mutex", "once", "lazy"] }
-karst-mem = { path = "../libs/karst-mem" }
-karst-abi-native = { path = "../libs/karst-abi-native" }
-karst-abi-posix = { path = "../libs/karst-abi-posix", optional = true }
+osum-mem = { path = "../libs/osum-mem" }
+osum-abi-native = { path = "../libs/osum-abi-native" }
+osum-abi-posix = { path = "../libs/osum-abi-posix", optional = true }
 
 [features]
 default = ["posix"]
 # POSIX-Kompatibilitaetsschicht. Ersatzlos abwaehlbar:
 # `cargo build --no-default-features` baut den Core OHNE jede POSIX-Semantik.
-posix = ["dep:karst-abi-posix"]
+posix = ["dep:osum-abi-posix"]
 # Fehler-Selbsttests (siehe run-qemu.sh --test-*). Standardmaessig AUS,
 # damit ein normaler Boot nicht absichtlich abstuerzt.
 test-pagefault = []

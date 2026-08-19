@@ -1,4 +1,4 @@
-//! Syscall-Nummern und -Signaturen von karst-native.
+//! Syscall-Nummern und -Signaturen von osum-native.
 //!
 //! Konvention (x86_64, spaeter pro Arch gespiegelt): Nummer in `rax`,
 //! Argumente in `rdi, rsi, rdx, r10, r8, r9`, Rueckgabe in `rax` als

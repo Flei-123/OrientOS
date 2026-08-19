@@ -1,7 +1,7 @@
-//! `karst-mem` — architekturunabhaengige Speicherlogik.
+//! `osum-mem` — architekturunabhaengige Speicherlogik.
 //!
 //! Diese Crate enthaelt AUSSCHLIESSLICH reine Logik ohne Hardwarezugriff, damit sie
-//! auf dem Host mit `cargo test -p karst-mem --target x86_64-unknown-linux-gnu`
+//! auf dem Host mit `cargo test -p osum-mem --target x86_64-unknown-linux-gnu`
 //! getestet werden kann. Kein `asm!`, keine Ports, keine Register.
 #![no_std]
 

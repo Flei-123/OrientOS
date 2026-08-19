@@ -1,0 +1,12 @@
+[package]
+name = "osum-abi-posix"
+description = "ABTRENNBARE POSIX-Kompatibilitaetsschicht — uebersetzt POSIX-Calls auf osum-native"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+osum-abi-native = { path = "../osum-abi-native" }

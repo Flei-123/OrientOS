@@ -12,7 +12,7 @@ Dokument legt fest, **in welcher Reihenfolge** gebaut wird und warum gerade so.
 | **1** | **VFS-Schicht**, objekt-/handle-basiert, FS-Treiber hinter einem Trait | ohne saubere Grenze zementiert der erste Treiber seine Semantik im ganzen System |
 | **2** | **FAT32 lesen und schreiben** | Pflicht: die EFI System Partition ist FAT. Ohne FAT kein eigener Bootloader, kein Update des eigenen Systems auf UEFI |
 | **3** | **ext4 nur lesen** | Interoperabilität: Daten von bestehenden Linux-Platten holen, ohne sie zu gefährden |
-| **4** | **eigenes Dateisystem** (Arbeitstitel `karstfs`) | erst wenn alles darüber steht und man weiß, was man wirklich braucht |
+| **4** | **eigenes Dateisystem** (Arbeitstitel `osumfs`) | erst wenn alles darüber steht und man weiß, was man wirklich braucht |
 
 ---
 

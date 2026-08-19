@@ -240,7 +240,7 @@ static WRITTEN: AtomicU64 = AtomicU64::new(0);
 /// * **Abmeldung.** Beendet sich das Programm, kehrt der Kernel an die Stelle
 ///   zurueck, an der er es gestartet hat.
 pub fn syscall(nr: u64, args: [u64; 6]) -> SyscallOutcome {
-    use karst_abi_native::{Error, Syscall};
+    use osum_abi_native::{Error, Syscall};
 
     let call = Syscall::from_raw(nr);
 
@@ -740,7 +740,7 @@ pub fn boot_selftest(space: &mut AddressSpace) -> (usize, usize) {
             return (0, total);
         }
     };
-    let handle = match crate::abi::native::grant_console(pid, karst_abi_native::Rights::WRITE) {
+    let handle = match crate::abi::native::grant_console(pid, osum_abi_native::Rights::WRITE) {
         Ok(h) => h,
         Err(e) => {
             klog!("user", "Ring 3      : nicht betreten — kein Ausgabehandle ({})", e.name());
@@ -938,7 +938,7 @@ fn run_initramfs_program(trampoline: u64) -> (usize, usize) {
             return (0, 1);
         }
     };
-    let handle = match crate::abi::native::grant_console(pid, karst_abi_native::Rights::WRITE) {
+    let handle = match crate::abi::native::grant_console(pid, osum_abi_native::Rights::WRITE) {
         Ok(h) => h,
         Err(e) => {
             klog!("user", "Programm aus dem Archiv nicht gestartet: {}", e.name());

@@ -79,7 +79,7 @@ Lade-/Abraeumdurchgang samt Frame-Zaehlung nach.
 
 Nummer in `rax`, Argumente in `rdi, rsi, rdx, r10, r8, r9`, Ergebnis in `rax`
 (`>= 0` Erfolg, `< 0` Fehlerwert — kein `errno`). Nummern siehe
-`libs/karst-abi-native/src/syscall.rs`. Beim Eintritt uebergibt der Kernel in
+`libs/osum-abi-native/src/syscall.rs`. Beim Eintritt uebergibt der Kernel in
 `rdi` das Handle, ueber das das Programm schreiben darf: ohne explizit
 uebergebenes Handle kann es nichts ausgeben.
 

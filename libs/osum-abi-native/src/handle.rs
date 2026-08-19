@@ -1,4 +1,4 @@
-//! Handles — die einzige Referenz auf Kernelobjekte in karst-native.
+//! Handles — die einzige Referenz auf Kernelobjekte in osum-native.
 
 use crate::Rights;
 

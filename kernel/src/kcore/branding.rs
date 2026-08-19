@@ -10,7 +10,7 @@
 //! die einzige Stelle ist, prueft `./test.sh` in einem eigenen Schritt.
 //!
 //! Regel fuer alle anderen Dateien: kein Produktname als Literal. Statt
-//! `"karst laeuft"` schreibt man `"{} laeuft", branding::KERNEL_NAME`.
+//! `"osum laeuft"` schreibt man `"{} laeuft", branding::KERNEL_NAME`.
 
 /// Name des Kernels, klein geschrieben (Cargo-Paketname).
 pub const KERNEL_NAME: &str = env!("BRANDING_KERNEL_NAME");
@@ -21,13 +21,13 @@ pub const OS_NAME: &str = env!("BRANDING_OS_NAME");
 /// Version aus `Cargo.toml`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Praefix jeder Boot-Logzeile, z. B. `[karst]`.
+/// Praefix jeder Boot-Logzeile, z. B. `[osum]`.
 pub const LOG_TAG: &str = concat!("[", env!("BRANDING_KERNEL_NAME"), "]");
 
-/// Name der nativen ABI, z. B. `karst-native`.
+/// Name der nativen ABI, z. B. `osum-native`.
 pub const NATIVE_ABI: &str = concat!(env!("BRANDING_KERNEL_NAME"), "-native");
 
-/// Kopfzeile fuer Banner und Panics, z. B. `karst v0.1.0 — Kernel von Karstos`.
+/// Kopfzeile fuer Banner und Panics, z. B. `osum v0.1.0 — Kernel von Karstos`.
 pub fn banner() -> impl core::fmt::Display {
     struct Banner;
     impl core::fmt::Display for Banner {

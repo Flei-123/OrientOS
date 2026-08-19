@@ -1,7 +1,7 @@
 //! Anbindung der nativen ABI an den Kernel — Prozesse, Objekte, Verteiler.
 //!
 //! **Schicht: abi.** Die ABI selbst (Typen, Nummern, Rechte, Handle-Tabelle)
-//! liegt in der Crate [`karst_abi_native`] und ist host-getestet. Hier steht
+//! liegt in der Crate [`osum_abi_native`] und ist host-getestet. Hier steht
 //! die Kernelseite:
 //!
 //! * eine **Objekttafel** mit Verweiszaehler — Handles zeigen auf eine ZAHL,
@@ -11,7 +11,7 @@
 //! * `spawn` statt `fork`: ein neuer Prozess bekommt genau die Handles, die
 //!   ihm der Erzeuger namentlich uebergibt — nichts wird geerbt,
 //! * der Verteiler [`dispatch`], den der Systemaufrufpfad der Architektur
-//!   aufruft (Nummer + sechs Argumente, Rueckgabe [`karst_abi_native::encode`]).
+//!   aufruft (Nummer + sechs Argumente, Rueckgabe [`osum_abi_native::encode`]).
 //!
 //! Was es hier bewusst NICHT gibt: keinen globalen Namensraum, keine
 //! Umgebungsrechte ("ambient authority"), kein `fork`, kein `errno`, keine
@@ -20,8 +20,8 @@
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 
-use karst_abi_native::table::HandleTable;
-use karst_abi_native::{
+use osum_abi_native::table::HandleTable;
+use osum_abi_native::{
     encode, port::Packet, port::Signals, syscall::ABI_VERSION, Error, Handle, HandleEntry,
     ObjectKind, Result, Rights, Syscall, PACKET_BYTES,
 };
@@ -195,7 +195,7 @@ impl Native {
             pid,
             name,
             user,
-            handles: HandleTable::with_nonce(karst_abi_native::table::DEFAULT_LIMIT, nonce),
+            handles: HandleTable::with_nonce(osum_abi_native::table::DEFAULT_LIMIT, nonce),
             exit_code: None,
         });
         pid
@@ -331,7 +331,7 @@ pub fn spawn_with(
     grants: &[(Handle, Rights)],
 ) -> Result<u32> {
     let mut n = lock();
-    if grants.len() > karst_abi_native::table::DEFAULT_LIMIT {
+    if grants.len() > osum_abi_native::table::DEFAULT_LIMIT {
         return Err(Error::InvalidArgs);
     }
     // Erst pruefen, dann handeln: ein Fehler in der Mitte darf keinen halb
@@ -872,7 +872,7 @@ fn perform(pid: u32, sc: Syscall, args: [u64; 6], from_user: bool) -> Result<u64
             //   Hoechstrechte des Eintrags sind die Rechte des Quellhandles;
             //   eine Ausweitung ist damit ausgeschlossen. Rueckgabe: 0.
             let name = read_buffer(args[1], args[2], from_user)?;
-            let _ = karst_abi_native::name::check(&name)?;
+            let _ = osum_abi_native::name::check(&name)?;
             let art = kind_from_raw(args[3])?;
             let mut n = lock();
             let knoten = {
@@ -941,7 +941,7 @@ fn perform(pid: u32, sc: Syscall, args: [u64; 6], from_user: bool) -> Result<u64
             // Handle vorgezeigt wird. Es gibt keinen Wurzelknoten, keinen Pfad
             // und keine Umgebungsrechte.
             let name = read_buffer(args[1], args[2], from_user)?;
-            let _ = karst_abi_native::name::check(&name)?;
+            let _ = osum_abi_native::name::check(&name)?;
             let gewuenscht = Rights(args[3] as u32).restrict(Rights::ALL);
             if gewuenscht.bits() == 0 {
                 return Err(Error::InvalidArgs);
@@ -1006,7 +1006,7 @@ fn ns_find(n: &Native, knoten: u64, name: &[u8]) -> Result<Option<(u64, ObjectKi
     match n.objects.get(knoten as usize).map(|o| &o.data) {
         Some(ObjectData::Namespace { entries }) => Ok(entries
             .iter()
-            .find(|e| karst_abi_native::name::eq(&e.name, name))
+            .find(|e| osum_abi_native::name::eq(&e.name, name))
             .map(|e| (e.object, e.kind, e.rights))),
         _ => Err(Error::WrongType),
     }
@@ -1512,7 +1512,7 @@ pub fn namespace_selftest() -> (usize, usize) {
     ) == Error::InvalidArgs.as_raw();
 
     // Negativ 8: zu langer Name.
-    let lang = [b'x'; karst_abi_native::name::NAME_MAX + 1];
+    let lang = [b'x'; osum_abi_native::name::NAME_MAX + 1];
     let case_lang = dispatch_kernel(
         Syscall::NamespaceCreate as u64,
         [

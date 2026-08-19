@@ -4,7 +4,7 @@
 //! Allocator mit Adress-Sortierung und sofortiger Verschmelzung benachbarter
 //! Loecher. Rund 150 Zeilen statt einer Fremdabhaengigkeit — und weil hier keine
 //! Hardware angefasst wird, laeuft die komplette Logik in den Host-Tests unten
-//! (`cargo test -p karst-mem --target x86_64-unknown-linux-gnu`), also **bevor**
+//! (`cargo test -p osum-mem --target x86_64-unknown-linux-gnu`), also **bevor**
 //! sie jemals im Kernel Speicher vergibt.
 //!
 //! Layout eines belegten Blocks:

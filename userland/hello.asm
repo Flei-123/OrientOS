@@ -4,7 +4,7 @@
 ; was der ELF64-Lader des Kernels annimmt (ET_EXEC, zwei PT_LOAD-Segmente,
 ; .bss mit memsz > filesz).
 ;
-; Aufrufkonvention der nativen ABI (libs/karst-abi-native/src/syscall.rs):
+; Aufrufkonvention der nativen ABI (libs/osum-abi-native/src/syscall.rs):
 ;   Nummer  in rax
 ;   Args    in rdi, rsi, rdx, r10, r8, r9
 ;   Ergebnis in rax (>= 0 Erfolg, < 0 Fehlerwert — KEIN errno)

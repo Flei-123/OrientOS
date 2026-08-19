@@ -1,6 +1,6 @@
 [package]
-name = "karst-abi-native"
-description = "karst-native: capability-basierte, handle-orientierte native API von Karstos"
+name = "osum-abi-native"
+description = "osum-native: capability-basierte, handle-orientierte native API von Karstos"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

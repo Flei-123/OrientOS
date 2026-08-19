@@ -1,5 +1,5 @@
 [package]
-name = "karst-mem"
+name = "osum-mem"
 description = "Architekturunabhaengige, host-testbare Speicherlogik (Bitmap-Allocator-Kern, Regionen-Arithmetik)"
 version.workspace = true
 edition.workspace = true

@@ -1,6 +1,6 @@
-# Standardziel: der Kernel. `cargo build` ohne Argumente baut karst.
+# Standardziel: der Kernel. `cargo build` ohne Argumente baut osum.
 [build]
-target = "x86_64-karst-none.json"
+target = "x86_64-osum-none.json"
 
 [unstable]
 # PFLICHT auf rustc 1.99.0-nightly: .json-Target-Specs verlangen dieses Flag.

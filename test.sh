@@ -18,7 +18,7 @@ run()  { if "$@"; then echo "  => bestanden"; else echo "  => FEHLGESCHLAGEN"; F
 
 step "Host-Tests der architekturunabhaengigen Crates"
 run cargo test --target x86_64-unknown-linux-gnu \
-      -p karst-mem -p karst-abi-native -p karst-abi-posix
+      -p osum-mem -p osum-abi-native -p osum-abi-posix
 
 step "Kernel baut (Release, mit POSIX)"
 # --fresh: die eigenen Crates werden wirklich neu uebersetzt. Sonst waere das
@@ -65,7 +65,7 @@ fi
 step "Produktname kommt nur aus branding.rs"
 branding_check() {
     # Kein Produktname als Literal im Quelltext. branding.rs selbst und
-    # Verweise auf die eigenen Crates (karst_mem, karst-abi-*) sind erlaubt —
+    # Verweise auf die eigenen Crates (osum_mem, osum-abi-*) sind erlaubt —
     # die benennt ./rename.sh mit um.
     local k os hits
     k=$(grep -m1 '^name = ' kernel/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
@@ -167,8 +167,8 @@ arch_leak() {
     fi
     echo "  jedes test-*-Feature hat einen Schalter in run-qemu.sh"
     # Kennzahlen, damit Groessenwachstum sichtbar bleibt (siehe README).
-    if [[ -f build/isoroot/boot/karst ]]; then
-        echo "  Kernelabbild: $(( $(stat -c%s build/isoroot/boot/karst) / 1024 )) KiB (ELF, ungestrippt)"
+    if [[ -f build/isoroot/boot/osum ]]; then
+        echo "  Kernelabbild: $(( $(stat -c%s build/isoroot/boot/osum) / 1024 )) KiB (ELF, ungestrippt)"
     fi
     echo "  Rust-Zeilen kernel+libs: $(find kernel/src libs -name '*.rs' -exec cat {} + | wc -l)"
     return 0

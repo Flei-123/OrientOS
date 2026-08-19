@@ -1,6 +1,6 @@
 //! Kernel-Heap und `#[global_allocator]`.
 //!
-//! **Schicht: mm.** Die Allokationslogik selbst steht in [`karst_mem::heap`] und
+//! **Schicht: mm.** Die Allokationslogik selbst steht in [`osum_mem::heap`] und
 //! ist auf dem Host getestet; hier kommt nur der Speicher dazu: Frames vom
 //! Frame-Allocator, abgebildet in ein eigenes Fenster der obersten
 //! Tabellenebene.
@@ -16,7 +16,7 @@ use crate::klog;
 use core::alloc::{GlobalAlloc, Layout};
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
-use karst_mem::heap::{Heap, HeapStats};
+use osum_mem::heap::{Heap, HeapStats};
 use spin::Mutex;
 
 use crate::arch::AddressSpace;
@@ -233,8 +233,8 @@ fn grow_locked(h: &mut Heap, layout: Layout) -> usize {
     let need = layout
         .size()
         .saturating_add(layout.align())
-        .saturating_add(karst_mem::heap::HEADER)
-        .saturating_add(karst_mem::heap::ALIGN);
+        .saturating_add(osum_mem::heap::HEADER)
+        .saturating_add(osum_mem::heap::ALIGN);
     grow_inner(h, need.max(GROW_CHUNK)).unwrap_or(0)
 }
 
@@ -401,7 +401,7 @@ fn on_oom(layout: Layout) -> ! {
 ///    bekommt danach dieselbe Adresse, der Heap waechst also nicht bei jeder
 ///    Runde aus Fragmentierung heraus,
 /// 10. jeder gelieferte Zeiger liegt innerhalb des abgebildeten Heapfensters
-///     und ist mindestens auf [`karst_mem::heap::ALIGN`] ausgerichtet,
+///     und ist mindestens auf [`osum_mem::heap::ALIGN`] ausgerichtet,
 /// 11. **Nachwachsen**: eine Anforderung, die groesser ist als alles derzeit
 ///     Freie, sprengt den Heap nicht, sondern laesst ihn wachsen — der Block
 ///     ist danach vollstaendig beschreibbar, liegt im (nun groesseren) Fenster,
@@ -512,7 +512,7 @@ pub fn selftest() -> (usize, usize) {
     //     einen Zeiger ausserhalb des Heaps).
     let zero = Layout::from_size_align(0, 1).expect("gueltiges Layout");
     let z = unsafe { ALLOCATOR.alloc(zero) };
-    let zero_ok = !z.is_null() && contains(z) && (z as usize) % karst_mem::heap::ALIGN == 0;
+    let zero_ok = !z.is_null() && contains(z) && (z as usize) % osum_mem::heap::ALIGN == 0;
     if !z.is_null() {
         unsafe { ALLOCATOR.dealloc(z, zero) };
     }
@@ -547,7 +547,7 @@ pub fn selftest() -> (usize, usize) {
         series_l[i] = lay;
         let p = unsafe { ALLOCATOR.alloc(lay) };
         series[i] = p;
-        if p.is_null() || !contains(p) || (p as usize) % karst_mem::heap::ALIGN != 0 {
+        if p.is_null() || !contains(p) || (p as usize) % osum_mem::heap::ALIGN != 0 {
             inside = false;
         }
     }

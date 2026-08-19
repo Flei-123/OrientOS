@@ -65,7 +65,7 @@ handles_check() {
     done
     # Kein fork, kein errno, kein globaler Pfad-Namensraum im Kern: die
     # native ABI darf solche Aufrufe gar nicht kennen.
-    if grep -rqE '\bfn (sys_)?fork\b' kernel/src libs/karst-abi-native/src; then
+    if grep -rqE '\bfn (sys_)?fork\b' kernel/src libs/osum-abi-native/src; then
         echo "  [FEHL] fork in Core oder nativer ABI gefunden"
         rc=1
     else
@@ -73,7 +73,7 @@ handles_check() {
     fi
     # Keine Signals: asynchrone Ereignisse laufen ausschliesslich ueber Ports,
     # also ueber ein Handle mit Rechten statt ueber einen erzwungenen Sprung.
-    if grep -rqE '\bfn (sys_)?(kill|sigaction|signal)\b' kernel/src libs/karst-abi-native/src; then
+    if grep -rqE '\bfn (sys_)?(kill|sigaction|signal)\b' kernel/src libs/osum-abi-native/src; then
         echo "  [FEHL] Signal-Mechanismus in Core oder nativer ABI gefunden"
         rc=1
     else
@@ -81,7 +81,7 @@ handles_check() {
     fi
     # Erklaerende Kommentare und die Verbotsliste im Test der ABI zaehlen nicht —
     # gesucht wird echter Code, der errno-Semantik einfuehrt.
-    if grep -rniE '\berrno\b' kernel/src/kcore libs/karst-abi-native/src \
+    if grep -rniE '\berrno\b' kernel/src/kcore libs/osum-abi-native/src \
          | grep -vE ':[0-9]+:[[:space:]]*(//|///|//!|\*)' \
          | grep -vq '"errno"'; then
         echo "  [FEHL] errno-Semantik in kcore/ oder der nativen ABI"

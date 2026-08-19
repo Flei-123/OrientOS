@@ -1,4 +1,4 @@
-/* karst — Linkerskript fuer x86_64.
+/* osum — Linkerskript fuer x86_64.
  *
  * Higher-half Kernel bei -2 GiB. Diese Adresse ist kein Zufall: das
  * "kernel" code model von LLVM erzeugt nur dann RIP-relative Zugriffe mit

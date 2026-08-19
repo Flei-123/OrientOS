@@ -17,7 +17,7 @@ use ::limine::request::{
     MemoryMapRequest, ModuleRequest, RequestsEndMarker, RequestsStartMarker, StackSizeRequest,
 };
 use ::limine::BaseRevision;
-use karst_mem::region::{MemoryRegion, RegionKind};
+use osum_mem::region::{MemoryRegion, RegionKind};
 
 /// Stapelgroesse, die wir vom Bootloader verlangen (64 KiB).
 pub const STACK_SIZE: u64 = 64 * 1024;

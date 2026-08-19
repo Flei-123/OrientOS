@@ -2,7 +2,7 @@
 //!
 //! **Schicht: mm.** Kennt keine Seitentabellen und keine x86-Details — nur
 //! "welcher 4-KiB-Frame ist frei". Die eigentliche Bitmap-Logik liegt in der
-//! host-getesteten Crate [`karst_mem::bitmap`]; hier steht nur die Anbindung an
+//! host-getesteten Crate [`osum_mem::bitmap`]; hier steht nur die Anbindung an
 //! die echte Memory-Map und der globale Zugriff.
 //!
 //! **Warum Bitmap und nicht Buddy** (ausfuehrlich in ARCHITECTURE.md): 1 Bit je
@@ -12,8 +12,8 @@
 //! Henne-Ei-Problem, indem sie sich selbst in den erstbesten freien Bereich legt.
 
 use crate::klog;
-use karst_mem::bitmap::{AllocError, Bitmap};
-use karst_mem::region::{frames_for, summarize, MemoryRegion, MemorySummary};
+use osum_mem::bitmap::{AllocError, Bitmap};
+use osum_mem::region::{frames_for, summarize, MemoryRegion, MemorySummary};
 use spin::{Mutex, MutexGuard};
 
 use crate::kcore::mem::{phys_to_virt, FrameAllocator, PhysAddr, PAGE_SIZE};
@@ -440,7 +440,7 @@ pub fn used_frames() -> usize {
 ///
 /// Rueckgabe: `(bestanden, gesamt)`.
 pub fn map_selftest() -> (usize, usize) {
-    use karst_mem::region::RegionKind::{Reserved, Usable};
+    use osum_mem::region::RegionKind::{Reserved, Usable};
     let total = 6usize;
     let mut ok = 0usize;
     const MIB: u64 = 1 << 20;

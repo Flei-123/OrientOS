@@ -1,4 +1,4 @@
-# Architektur von Karstos / karst
+# Architektur von Karstos / osum
 
 Stand: Phase 1–3 (bootfähiger Kern, verdrängender Scheduler, Ring 3, ELF-Lader,
 capability-basierte ABI). Dieses Dokument beschreibt **den gebauten
@@ -31,11 +31,11 @@ Drei Regeln machen das durchsetzbar:
 
 ```
                     ┌──────────────────────────────────────────┐
-                    │  abi/native   (karst-native, capability)  │
+                    │  abi/native   (osum-native, capability)  │
    Userspace-Sicht  ├──────────────────────────────────────────┤
                     │  abi/posix    ← nur mit Feature "posix"   │
                     └──────────────────────────────────────────┘
-                                      │  benutzt nur karst-native
+                                      │  benutzt nur osum-native
    ┌───────────────┬───────────────┬──┴────────────┬───────────────┐
    │   kcore       │      mm       │   drivers     │     boot      │
    │ Typen, Traits │ Frames, Heap, │ Framebuffer-  │ Limine →      │
@@ -59,7 +59,7 @@ Drei Regeln machen das durchsetzbar:
 | `drivers` | `kernel/src/drivers/` | `kcore`, `arch` | `abi`, POSIX |
 | `boot` | `kernel/src/boot/` | Bootprotokoll, `kcore` | Hardwareinitialisierung |
 | `abi/native` | `kernel/src/abi/native.rs` | `kcore`, `mm` | POSIX |
-| `abi/posix` | `kernel/src/abi/posix.rs` | **nur** `karst-abi-native` | Kernelinterna |
+| `abi/posix` | `kernel/src/abi/posix.rs` | **nur** `osum-abi-native` | Kernelinterna |
 
 ### Die arch-Grenze ist echt, nicht behauptet
 
@@ -107,7 +107,7 @@ HHDM-Fenster, sortierte Memory-Map, gesetzter Framebuffer, BIOS **und** UEFI aus
 demselben ISO. Der Preis ist eine Abhängigkeit vom Bootprotokoll — die wird
 dadurch begrenzt, dass **`kernel/src/boot/limine.rs` die einzige Datei ist, die
 Limine kennt**. Sie übersetzt alles sofort in kerneleigene Typen
-(`karst_mem::region::MemoryRegion`, `FramebufferInfo`). Ein zweites Protokoll
+(`osum_mem::region::MemoryRegion`, `FramebufferInfo`). Ein zweites Protokoll
 wäre eine weitere Datei im selben Verzeichnis.
 
 Wichtig: Der Kernel **bleibt nicht** auf den Tabellen des Bootloaders. Er baut in
@@ -154,7 +154,7 @@ es ablegt, sondern anhand der Linkersymbole in drei Bereiche aufgeteilt:
 
 ### Frame-Allocator: Bitmap, nicht Buddy
 
-Gewählt: **Bitmap** (`libs/karst-mem/src/bitmap.rs`).
+Gewählt: **Bitmap** (`libs/osum-mem/src/bitmap.rs`).
 
 * 1 Bit je 4-KiB-Frame = 32 KiB Metadaten pro GiB RAM, konstant, ohne Zeiger.
 * Ein Buddy-Allocator braucht Freilisten — Freilisten brauchen einen Heap — der
@@ -171,7 +171,7 @@ Nähme man stattdessen die höchste Adresse überhaupt, kostete ein PCI-Loch bei
 
 ### Heap: eigener Free-List-Allocator, keine externe Crate
 
-`libs/karst-mem/src/heap.rs`, ca. 150 Zeilen: First-Fit über eine
+`libs/osum-mem/src/heap.rs`, ca. 150 Zeilen: First-Fit über eine
 adresssortierte Freiliste mit sofortiger Verschmelzung benachbarter Löcher.
 Jede Belegung trägt einen 16-Byte-Kopf mit tatsächlicher Blockgröße und dem
 Abstand zum Blockanfang; dadurch ist `dealloc` auch bei übergroßen
@@ -328,9 +328,9 @@ gleichrangige Threads, einer trägt ein Rechenprogramm in Ring 3, das
 Keiner gibt freiwillig ab. Ergebnis im Log:
 
 ```text
-[karst] user  Ring 3 verdraengt: 12 Unterbrechung(en) durch den Zeitgeber,
+[osum] user  Ring 3 verdraengt: 12 Unterbrechung(en) durch den Zeitgeber,
               danach fortgesetzt, CS=0x0023 (RPL=3), Ende 0
-[karst] user  Ring 3 verdraengt: Zaehlthread kam auf 12040431 Durchlaeufe,
+[osum] user  Ring 3 verdraengt: Zaehlthread kam auf 12040431 Durchlaeufe,
               26 erzwungene und 2 freiwillige Wechsel, Ticks 13/13, 4/4 Zusagen
 ```
 
@@ -379,18 +379,18 @@ gibt Ort und Grund aus und läuft dann die **Frame-Pointer-Kette** ab
 Ausgabe ab, statt einen Fehler im Fehlerpfad zu erzeugen.
 
 Adressen werden bewusst **nicht** im Kernel aufgelöst — ein Symbolauflöser im
-Kernel wäre Ballast. `build.sh` legt `build/karst.map` ab; damit oder mit
-`llvm-addr2line -e target/.../karst <adresse>` wird die Zeile bestimmt.
+Kernel wäre Ballast. `build.sh` legt `build/osum.map` ab; damit oder mit
+`llvm-addr2line -e target/.../osum <adresse>` wird die Zeile bestimmt.
 
 ---
 
 ## 7. Die zwei ABIs
 
-### `karst-native` (dauerhaft)
+### `osum-native` (dauerhaft)
 
-Definiert in `libs/karst-abi-native/`, bewusst ohne POSIX-Altlasten:
+Definiert in `libs/osum-abi-native/`, bewusst ohne POSIX-Altlasten:
 
-| POSIX | karst-native | Grund |
+| POSIX | osum-native | Grund |
 |---|---|---|
 | `int fd`, implizites Erben | `Handle` (32 Bit Slot + 32 Bit Generation) | Generation verhindert Use-after-close-Verwechslung |
 | Zugriff über globalen Pfad | Handle mit `Rights` | Capability statt Umgebungsautorität |
@@ -406,7 +406,7 @@ lauffähig.
 
 #### Handle-Tabelle je Prozess
 
-`libs/karst-abi-native/src/table.rs` (host-getestet) hält die Regeln, der Kernel
+`libs/osum-abi-native/src/table.rs` (host-getestet) hält die Regeln, der Kernel
 nur die Verbindung zu echten Objekten:
 
 * Ein Handle ist **Slot + Generation**, dazu ein **prozesseigener Würfelwert**
@@ -432,14 +432,14 @@ mit **0** Treffern.
 
 ### `posix` (abtrennbar)
 
-`libs/karst-abi-posix/` hängt **ausschließlich** von `karst-abi-native` ab und
+`libs/osum-abi-posix/` hängt **ausschließlich** von `osum-abi-native` ab und
 kennt keine Kernelinterna. `errno`, `fd` und die Regel „kleinste freie Zahl"
 existieren nur dort. `fork` ist dauerhaft `-ENOSYS`; portierte Programme müssen
 `posix_spawn` benutzen.
 
 **So verschwindet POSIX ersatzlos:**
 
-1. `libs/karst-abi-posix/` löschen,
+1. `libs/osum-abi-posix/` löschen,
 2. in `kernel/Cargo.toml` das Feature `posix` und die optionale Dependency streichen,
 3. `kernel/src/abi/posix.rs` löschen und die zwei `#[cfg(feature = "posix")]`-Zeilen
    in `kernel/src/abi/mod.rs` streichen.
@@ -454,10 +454,10 @@ im Testlauf wirklich läuft:** `./run-qemu.sh --check --no-posix` baut mit
 ## 8. Abhängigkeiten — jede einzeln begründet
 
 ```
-karst
-├── karst-abi-native   (eigen)
-├── karst-abi-posix    (eigen, optional)
-├── karst-mem          (eigen)
+osum
+├── osum-abi-native   (eigen)
+├── osum-abi-posix    (eigen, optional)
+├── osum-mem          (eigen)
 ├── limine 0.5  ── bitflags 2
 └── spin 0.9
 ```
@@ -474,7 +474,7 @@ selbst im Baum, ca. 400 Zeilen, dafür ohne Fremdabstraktion in der arch-Schicht
 `log`.
 
 Geladene Größe des Kernels (Release, gemessen mit
-`size -A target/x86_64-karst-none/release/karst`):
+`size -A target/x86_64-osum-none/release/osum`):
 
 | Sektion | Größe |
 |---|---|
@@ -532,7 +532,7 @@ Zwei Dinge, die getrennt gehören:
    keine `Compiling`-Zeile enthält.
 
 Gegenprobe (einmal von Hand gefahren, damit die Mechanik nicht nur behauptet
-ist): eine absichtlich unbenutzte Variable in `libs/karst-mem` führte zu
+ist): eine absichtlich unbenutzte Variable in `libs/osum-mem` führte zu
 `error: unused variable: 'ungenutzt'` und einem abgebrochenen Bau.
 
 ## 9a. Der Name ist Konfiguration, kein Code
@@ -542,7 +542,7 @@ Cargo-Metadaten, werden von `kernel/build.rs` als `env!`-Variablen eingespeist
 und ausschließlich in `kernel/src/kcore/branding.rs` sichtbar:
 
 ```
-kernel/Cargo.toml  name = "karst"                     ─┐
+kernel/Cargo.toml  name = "osum"                     ─┐
                    [package.metadata.branding]         │ build.rs
                    os-name = "Karstos"                ─┘   ↓
 kcore/branding.rs  KERNEL_NAME · OS_NAME · VERSION · LOG_TAG · NATIVE_ABI · banner()

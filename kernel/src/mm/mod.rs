@@ -8,7 +8,7 @@ pub mod frame;
 pub mod heap;
 pub mod selftest;
 
-use karst_mem::region::{summarize, MemoryRegion};
+use osum_mem::region::{summarize, MemoryRegion};
 
 use crate::klog;
 

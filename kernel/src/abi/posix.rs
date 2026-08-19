@@ -9,8 +9,8 @@
 //! Gegenprobe im Testlauf: `cargo build --no-default-features`.
 
 use alloc::vec::Vec;
-use karst_abi_native::{Handle, Result as NResult, Syscall};
-use karst_abi_posix::{Fd, NativeCalls};
+use osum_abi_native::{Handle, Result as NResult, Syscall};
+use osum_abi_posix::{Fd, NativeCalls};
 
 /// Ein POSIX-Prozesskontext: die Fd-Tabelle ist eine reine Altlast dieser
 /// Schicht und existiert im Kernel-Core nicht.
@@ -51,7 +51,7 @@ impl NativeCalls for PosixContext {
         } else {
             super::native::dispatch(nr as u64, args)
         };
-        karst_abi_native::Error::decode(raw)
+        osum_abi_native::Error::decode(raw)
     }
 
     fn handle_for_fd(&self, fd: Fd) -> Option<Handle> {
@@ -85,7 +85,7 @@ impl NativeCalls for PosixContext {
 /// Rueckgabe wie bisher: `read(2)` auf einen unbekannten Fd, also `-EBADF`.
 pub fn self_test() -> i64 {
     let mut ctx = PosixContext::for_kernel();
-    let unbekannt = karst_abi_posix::sys_read(&mut ctx, 7, 0, 0);
+    let unbekannt = osum_abi_posix::sys_read(&mut ctx, 7, 0, 0);
 
     // Eine Capability besorgen und als Fd anmelden. Der Kernel selbst kennt
     // die Nummer nicht — sie lebt ausschliesslich in dieser Schicht.
@@ -96,14 +96,14 @@ pub fn self_test() -> i64 {
     let mut nach_close = 0i64;
     if let Ok(h) = super::native::grant_console(
         prozess,
-        karst_abi_native::Rights::WRITE | karst_abi_native::Rights::INSPECT,
+        osum_abi_native::Rights::WRITE | osum_abi_native::Rights::INSPECT,
     ) {
         if let Some(f) = ctx.install_fd(h) {
             fd = f;
             geschrieben =
-                karst_abi_posix::sys_write(&mut ctx, f, text.as_ptr() as usize, text.len());
-            let _ = karst_abi_posix::sys_close(&mut ctx, f);
-            nach_close = karst_abi_posix::sys_write(&mut ctx, f, text.as_ptr() as usize, 1);
+                osum_abi_posix::sys_write(&mut ctx, f, text.as_ptr() as usize, text.len());
+            let _ = osum_abi_posix::sys_close(&mut ctx, f);
+            nach_close = osum_abi_posix::sys_write(&mut ctx, f, text.as_ptr() as usize, 1);
         }
     }
     // `open(2)` gibt es hier nur als Uebersetzung auf einen Namensraumknoten,
@@ -118,9 +118,9 @@ pub fn self_test() -> i64 {
             prozess,
             // `open(2)` verlangt in dieser Uebersetzung WRITE und INSPECT; was
             // der Eintrag nicht hergibt, gibt es auch nicht ueber einen Namen.
-            karst_abi_native::Rights::WRITE
-                | karst_abi_native::Rights::INSPECT
-                | karst_abi_native::Rights::DUPLICATE,
+            osum_abi_native::Rights::WRITE
+                | osum_abi_native::Rights::INSPECT
+                | osum_abi_native::Rights::DUPLICATE,
         ) {
             let name = b"konsole";
             let _ = super::native::dispatch_kernel(
@@ -129,36 +129,36 @@ pub fn self_test() -> i64 {
                     knoten.0,
                     name.as_ptr() as u64,
                     name.len() as u64,
-                    karst_abi_native::ObjectKind::Stream as u64,
+                    osum_abi_native::ObjectKind::Stream as u64,
                     h.0,
                     0,
                 ],
             );
-            fd_offen = karst_abi_posix::sys_open(
+            fd_offen = osum_abi_posix::sys_open(
                 &mut ctx,
                 knoten,
                 name.as_ptr() as usize,
                 name.len(),
-                karst_abi_posix::O_WRONLY,
+                osum_abi_posix::O_WRONLY,
             );
             if fd_offen >= 0 {
                 let gruss = b"POSIX open(2) auf ein Capability-Handle";
-                geschrieben_offen = karst_abi_posix::sys_write(
+                geschrieben_offen = osum_abi_posix::sys_write(
                     &mut ctx,
-                    fd_offen as karst_abi_posix::Fd,
+                    fd_offen as osum_abi_posix::Fd,
                     gruss.as_ptr() as usize,
                     gruss.len(),
                 );
                 let _ =
-                    karst_abi_posix::sys_close(&mut ctx, fd_offen as karst_abi_posix::Fd);
+                    osum_abi_posix::sys_close(&mut ctx, fd_offen as osum_abi_posix::Fd);
             }
             let weg = b"gibtesnicht";
-            unbekannt_name = karst_abi_posix::sys_open(
+            unbekannt_name = osum_abi_posix::sys_open(
                 &mut ctx,
                 knoten,
                 weg.as_ptr() as usize,
                 weg.len(),
-                karst_abi_posix::O_WRONLY,
+                osum_abi_posix::O_WRONLY,
             );
         }
         let _ = super::native::dispatch_kernel(
@@ -172,7 +172,7 @@ pub fn self_test() -> i64 {
         fd_offen,
         geschrieben_offen,
         unbekannt_name,
-        -(karst_abi_posix::Errno::ENOENT as i64)
+        -(osum_abi_posix::Errno::ENOENT as i64)
     );
     crate::klog!(
         "posix",
@@ -180,9 +180,9 @@ pub fn self_test() -> i64 {
         fd,
         geschrieben,
         nach_close,
-        -(karst_abi_posix::Errno::EBADF as i64),
-        karst_abi_posix::sys_fork_unsupported(),
-        -(karst_abi_posix::Errno::ENOSYS as i64)
+        -(osum_abi_posix::Errno::EBADF as i64),
+        osum_abi_posix::sys_fork_unsupported(),
+        -(osum_abi_posix::Errno::ENOSYS as i64)
     );
     unbekannt
 }

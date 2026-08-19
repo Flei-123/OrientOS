@@ -1,6 +1,6 @@
 # RUN — Karstos bauen, starten, prüfen
 
-Kernel `karst`, Betriebssystem `Karstos`, Rust `no_std`, Ziel `x86_64-karst-none`.
+Kernel `osum`, Betriebssystem `Karstos`, Rust `no_std`, Ziel `x86_64-osum-none`.
 Alle Befehle laufen im Projektwurzelverzeichnis, alle Pfade sind relativ.
 
 ## Voraussetzungen
@@ -36,7 +36,7 @@ werden.
 
 | Befehl | Wirkung |
 |---|---|
-| `./build.sh` | Release-Build + Userland + `build/initramfs.img` + ISO + Symbolkarte `build/karst.map` |
+| `./build.sh` | Release-Build + Userland + `build/initramfs.img` + ISO + Symbolkarte `build/osum.map` |
 | `./build.sh --debug` | Debug-Build |
 | `./build.sh --no-posix` | Gegenprobe ohne POSIX-Schicht (`--no-default-features`) |
 | `./run-qemu.sh --check` | bootet und prüft 38 Merkmale im Log, Exitcode 0/1 |
@@ -73,15 +73,15 @@ cargo build -Z build-std=core,compiler_builtins,alloc \
 Der Boot ohne POSIX meldet dann im Log:
 
 ```
-[karst] boot       ABI         : karst-native (POSIX nicht einkompiliert)
-[karst] abi        posix-Schicht NICHT einkompiliert — Core laeuft ohne sie
+[osum] boot       ABI         : osum-native (POSIX nicht einkompiliert)
+[osum] abi        posix-Schicht NICHT einkompiliert — Core laeuft ohne sie
 ```
 
 Host-Tests der hardwarefreien Logik allein (146 Tests, laufen in Sekunden):
 
 ```sh
 cargo test --target x86_64-unknown-linux-gnu \
-    -p karst-mem -p karst-abi-native -p karst-abi-posix
+    -p osum-mem -p osum-abi-native -p osum-abi-posix
 ```
 
 ## Was `./test.sh` abdeckt
@@ -139,8 +139,8 @@ ELF64, die Handle-Negativtests und die Bilanz
 ## Fehlersuche
 
 * Backtrace-Adressen auflösen:
-  `llvm-addr2line -e target/x86_64-karst-none/release/karst -f -C 0x…`
-  oder in `build/karst.map` nachschlagen.
+  `llvm-addr2line -e target/x86_64-osum-none/release/osum -f -C 0x…`
+  oder in `build/osum.map` nachschlagen.
 * Das serielle Log des letzten `--check`-Laufs liegt in `build/boot.log`.
 * Hängt QEMU, greift die Zeitgrenze in `run-qemu.sh` (25 s bis zur Abbruchmarke).
 * Kein Startdateisystem im Log? Dann fehlte beim Bauen `nasm`, `ld` oder

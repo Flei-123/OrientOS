@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# karst in QEMU starten.
+# osum in QEMU starten.
 #
 #   ./run-qemu.sh                  normaler Boot, serielle Ausgabe im Terminal
 #   ./run-qemu.sh --check          Boot pruefen und beenden (fuer CI, Exitcode!)
@@ -163,7 +163,7 @@ if [[ "$MODE" == check ]]; then
             fail=1
         fi
     }
-    check "Kernel meldet sich"            'karst v.* Kernel von Karstos'
+    check "Kernel meldet sich"            'osum v.* Kernel von Karstos'
     check "Bootloader nennt sich"         'Bootloader  : \S+ \S+'
     check "HHDM-Fenster bekannt"          'HHDM-Fenster: virt = phys \+ 0x[0-9a-f]+'
     check "Kernelabbild vermessen"        'gesamt [0-9]+ KiB geladenes Abbild \([0-9]+ Seiten'
@@ -172,7 +172,7 @@ if [[ "$MODE" == check ]]; then
     check "CPU erkannt"                   'CPU         : \S'
     check "Framebuffer-Textkonsole steht" 'Textkonsole [0-9]+x[0-9]+'
     check "Stapel vom Bootloader"         'Stapel      : [0-9]+ KiB angefordert, gewaehrt'
-    check "native ABI antwortet"          'karst-native: Version=[0-9]+'
+    check "native ABI antwortet"          'osum-native: Version=[0-9]+'
     check "Memory-Map gelesen"            'Memory-Map \([0-9]+ Eintraege\)'
     check "Frame-Allocator laeuft"        'Frames      : [0-9]+ verwaltet'
     check "eigener Adressraum aktiv"      'Eigener Adressraum aktiv'

@@ -51,7 +51,7 @@ QEMU-Boot, 0 Compilerwarnungen (im Bausystem als Fehler geschaltet).
 
 ## Was läuft (nicht neu erfinden — lesen, dann erweitern)
 
-* eigenes Target `x86_64-karst-none.json`, `build.sh`, `run-qemu.sh`, `test.sh`, `rename.sh`
+* eigenes Target `x86_64-osum-none.json`, `build.sh`, `run-qemu.sh`, `test.sh`, `rename.sh`
 * Limine 9.6.7 vendored (offline), BIOS **und** UEFI, higher-half bei `0xffffffff80000000`
 * COM1 + Framebuffer-Textkonsole (eigener 8×16-Font), `println!`/`klog!`,
   Panic-Handler mit Frame-Pointer-Backtrace
@@ -71,7 +71,7 @@ QEMU-Boot, 0 Compilerwarnungen (im Bausystem als Fehler geschaltet).
 1. **Branding zentralisiert.** `kernel/src/kcore/branding.rs` ist die EINZIGE
    Stelle mit einem Produktnamen. Gespeist aus `kernel/Cargo.toml`
    (`name`, `[package.metadata.branding] os-name`) über `kernel/build.rs`.
-   **Regel: kein Produktname als Literal in `kernel/src`.** Statt `"karst"`
+   **Regel: kein Produktname als Literal in `kernel/src`.** Statt `"osum"`
    schreibt man `kcore::branding::KERNEL_NAME`. `test.sh` Schritt 14 erzwingt das.
 2. `./rename.sh <kernel> <os>` benennt alles um (verifiziert mit
    `./rename.sh nova Novaos` in `/tmp`, gebootet). Anleitung: `RENAME.md`.

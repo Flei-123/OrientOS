@@ -167,7 +167,7 @@ Messwerte (gemessen am 13.08.2026, Befehle in `PREFLIGHT.md`): 437
 
 ## L-10 · Kein `core` ohne Kunstgriffe: `build-std` und Target-JSON
 
-* **Dateien:** `build.sh`, `.cargo/config.toml`, `x86_64-karst-none.json`
+* **Dateien:** `build.sh`, `.cargo/config.toml`, `x86_64-osum-none.json`
 * **Problem:** Für ein eigenes Ziel muss `core`/`alloc` aus den Quellen neu
   gebaut werden (`-Z build-std`, instabil). Zusätzlich musste `build-std` aus
   `.cargo/config.toml` **heraus**, weil `[unstable]` für **jedes** Ziel gilt und
@@ -312,8 +312,8 @@ Richtung ist inzwischen eindeutig.
 * Rust hat 413 `unsafe`-Vorkommen **nicht verhindert**, aber sie **sichtbar
   gemacht**. Jede dieser Stellen ist markiert, begründet und auffindbar. Das ist
   mehr, als C je geboten hat.
-* Der Borrow-Checker hat in `libs/karst-mem` (Bitmap, Heap, Regionen) und in
-  `libs/karst-abi-native` (Handle-Tabelle) real Fehler verhindert — dort liegt
+* Der Borrow-Checker hat in `libs/osum-mem` (Bitmap, Heap, Regionen) und in
+  `libs/osum-abi-native` (Handle-Tabelle) real Fehler verhindert — dort liegt
   die Logik, dort ist er wertvoll, dort laufen 151 Host-Tests. Die
   Capability-Regeln dieser Runde waren auf dem Host fertig getestet, **bevor**
   der Kernel sie zum ersten Mal ausgeführt hat.

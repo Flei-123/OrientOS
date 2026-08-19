@@ -47,3 +47,35 @@ Uebersicht: `osum-nadel-v4.png` · Groessentest 16/24/32 px: `groessentest-nadel
 
 Empfehlung: **D** als Hauptmarke (gross), **E** als Favicon/Kleinform.
 Zweifarbige Nadel ist Pflicht — einfarbig liest sich die Doppelnadel als Raute, nicht als Kompass.
+
+## Runde 3 — Strichstaerke + Nadeltypen (`logo_gen.py`)
+
+**BUG GEFUNDEN:** Der S-Pfad aller Dateien aus Runde 1+2 ist kaputt — am zweiten
+Bogen stand `sweep-flag 0` statt `1`, dadurch lief der untere Bogen in dieselbe
+Richtung wie der obere und das S wurde ein ueberlappender Klecks. Behoben in
+`logo_gen.py`. Alle Assets muessen neu erzeugt werden, sobald die Variante feststeht.
+
+Ab jetzt ist alles parametrisch: `python3 logo_gen.py <strichstaerke> <nadeltyp>`
+
+**Strichstaerke** (`osum-strichstaerken.png`, Versalhoehe = 100)
+
+| sw | Urteil |
+|---|---|
+| 26 | erste Fassung, deutlich zu fett — die Punze im O wird so eng, dass die Nadel keinen Platz hat |
+| 21 | kraeftig, noch schwer |
+| **17** | **ausgewogen — Empfehlung.** Punze gross genug fuer die Nadel, Wortbild ruhig |
+| 14 | leicht, elegant, bei kleinen Groessen schon duenn |
+| 11 | zu fein fuer Favicon/Bootlog |
+
+**Nadeltyp** (`osum-nadel-typen.png`)
+
+| Typ | Beschreibung | Urteil |
+|---|---|---|
+| `mono` | beide Haelften cyan | liest sich als Raute/Linse, nicht als Kompassnadel |
+| `mono_fuge` | beide Haelften cyan + feine Fuge | Nadel erkennbar, Fuge verschwindet aber bei 16 px |
+| `duo_soft` | cyan / dunkleres cyan (#12A3BE) | **Empfehlung** — Nadel klar lesbar, ohne harten Kontrast |
+| `duo_hard` | cyan / schwarz | staerkstes Kompassbild, dunkle Haelfte verschmilzt aber mit dem Ring |
+
+Das M hat jetzt Breite 68 (statt 76) und einen tieferen Mittelknick (y=72 statt 63)
+und liest sich damit als normales M — vorher war der Knick zu kurz und die
+Miter-Spitzen bei sw=26 zu lang.

@@ -79,3 +79,28 @@ Ab jetzt ist alles parametrisch: `python3 logo_gen.py <strichstaerke> <nadeltyp>
 Das M hat jetzt Breite 68 (statt 76) und einen tieferen Mittelknick (y=72 statt 63)
 und liest sich damit als normales M — vorher war der Knick zu kurz und die
 Miter-Spitzen bei sw=26 zu lang.
+
+
+## Runde 4 — FESTGELEGT
+
+Strichstaerke **17**, Doppelnadel **zweifarbig dezent**, Achse links-oben nach rechts-unten (40 Grad).
+Obere Haelfte `#22D3EE`, untere Haelfte `#0D8299` (Stufe 4 aus `osum-nadel-abstufung.png`).
+
+Erzeugt mit `python3 logo_gen.py` — alle Dateien unten sind Ausgabe dieses Skripts,
+nichts ist von Hand nachgezogen. Aendern heisst: Konstante im Skript anpassen, neu bauen.
+
+| Datei | Zweck |
+|---|---|
+| `osum-wortmarke-hell.*` | Standard, dunkle Schrift auf hellem Grund |
+| `osum-wortmarke-dunkel.*` | weisse Schrift auf `#0B0D10` |
+| `osum-wortmarke-mono.*` | einfarbig schwarz, Nadel mit Fuge (Gravur, Fax, Stempel) |
+| `osum-wortmarke-mono-invers.*` | einfarbig weiss auf dunkel |
+| `osum-signet-*.*` | nur das O mit Nadel — die abtrennbare Bildmarke |
+| `osum-favicon-{16,32,48,64,128,256}.png`, `osum-favicon.ico` | Favicon-Satz |
+
+Bei den einfarbigen Varianten ist die **Fuge (2 Einheiten) zwingend** — ohne sie
+liest sich die Doppelnadel als Raute statt als Kompassnadel.
+
+**Offen:** Der Zusatz `KERNEL` unter der Wortmarke ist bewusst NICHT in den SVGs.
+In den bisherigen Entwuerfen war das DejaVu Sans, also nur ein Platzhalter.
+Sobald die Hausschrift feststeht, kommt die Zeile als eigener Lockup dazu.

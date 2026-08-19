@@ -1,27 +1,38 @@
 #!/usr/bin/env python3
-"""osum-Logo — parametrischer Generator (SVG).
+"""osum-Logo — parametrischer Generator.
 
 Alle Buchstaben sind reine Geometrie auf einem 100er-Raster (Versalhoehe 100).
-Es wird KEINE Schriftdatei fuer OSUM gebraucht, nur fuer den Zusatz "KERNEL".
+Fuer OSUM wird KEINE Schriftdatei gebraucht, nur fuer den Zusatz "KERNEL".
 
-Zwei Stellschrauben:
-  sw   = Strichstaerke (26 war die erste Fassung und ist zu fett; 17 ist ausgewogen)
-  kind = Nadeltyp im O:
-         mono       beide Haelften cyan (liest sich als Raute, nicht als Nadel)
-         mono_fuge  beide Haelften cyan, feine Fuge dazwischen
-         duo_soft   cyan / dunkleres cyan  (dezent, empfohlen)
-         duo_hard   cyan / schwarz         (harter Kontrast, erste Fassung)
+Festgelegt (Stand Runde 4):
+  STRICHSTAERKE = 17   (26 war die erste Fassung und zu fett)
+  NADEL         = Doppelnadel, Achse von links oben nach rechts unten (40 Grad),
+                  obere Haelfte CY, untere Haelfte CY_DUNKEL (etwas dunkler)
 
-WICHTIG — behobener Fehler: der S-Pfad der ersten Fassung hatte am zweiten
-Bogen das falsche sweep-flag (0 statt 1). Dadurch lief der untere Bogen in die
-gleiche Richtung wie der obere und das S wurde zu einem ueberlappenden Klecks.
-Alle Dateien, die vor diesem Skript entstanden sind, haben dieses kaputte S.
+Behobene Fehler gegenueber Runde 1+2:
+  * S-Pfad: zweiter Bogen hatte sweep-flag 0 statt 1 -> S war ein Klecks
+  * M: Breite 68 statt 76, Mittelknick y=72 statt 63, runde Ecken statt Miter-Spitzen
+
+Bauen:  python3 logo_gen.py          (schreibt SVG + PNG + Favicons hierher)
 """
 import math
 
 DARK = "#0B0D10"
-CY = "#22D3EE"
-CY_D = "#12A3BE"
+WHITE = "#FFFFFF"
+CY = "#22D3EE"          # obere Nadelhaelfte
+CY_DUNKEL = "#0D8299"   # untere Nadelhaelfte, etwas dunkler
+
+STRICHSTAERKE = 17
+NADEL_WINKEL = 40       # Grad, Achse links-oben -> rechts-unten
+
+# Modus -> (Strichfarbe, Nadel oben, Nadel unten, Fugenbreite)
+MODI = {
+    "hell":        (DARK,  CY,    CY_DUNKEL, 0.0),
+    "dunkel":      (WHITE, CY,    CY_DUNKEL, 0.0),
+    "mono":        (DARK,  DARK,  DARK,      2.0),
+    "mono-invers": (WHITE, WHITE, WHITE,     2.0),
+}
+DUNKLER_HINTERGRUND = ("dunkel", "mono-invers")
 
 
 def _sa(fg, sw):
@@ -31,11 +42,11 @@ def _sa(fg, sw):
 
 def glyphs(sw, fg, mdip=72):
     """(Name, SVG-Element, Breite der Mittellinie). Sichtbare Breite = Mittellinie + sw."""
-    r = 50 - sw / 2          # O: Radius der Mittellinie, Aussenkante bleibt bei 50
-    rs = (100 - sw) / 4      # S: Radius der beiden Schalen
-    ru = 31.5                # U: Radius des Bogens unten
-    ty = sw / 2 + rs         # S: Mittelpunkt obere Schale
-    by = 100 - sw / 2 - rs   # S: Mittelpunkt untere Schale
+    r = 50 - sw / 2
+    rs = (100 - sw) / 4
+    ru = 31.5
+    ty = sw / 2 + rs
+    by = 100 - sw / 2 - rs
     a = _sa(fg, sw)
     return [
         ("O", f'<circle cx="50" cy="50" r="{r:.2f}" {a}/>', 100 - sw),
@@ -49,60 +60,76 @@ def glyphs(sw, fg, mdip=72):
     ]
 
 
-def needle(sw, kind, ang=-40):
-    """Doppelnadel im O. Raute mit breitester Stelle exakt in der Mitte,
-    dort in zwei Haelften geteilt."""
-    ri = 50 - sw                 # Innenkante des Rings
-    hl = ri * 0.80               # halbe Nadellaenge
-    w = ri * 0.42                # Nadelbreite in der Mitte
+def needle(sw, c_oben, c_unten, fuge=0.0, ang=NADEL_WINKEL):
+    """Doppelnadel: Raute, breiteste Stelle exakt in der Mitte, dort geteilt.
+    fuge > 0 schiebt die Haelften auseinander (fuer einfarbige Varianten noetig,
+    sonst liest sich die Nadel als Raute statt als Kompassnadel)."""
+    ri = 50 - sw
+    hl = ri * 0.80
+    w = ri * 0.42
     a = math.radians(ang)
     ux, uy = math.cos(a), math.sin(a)
     px, py = -uy, ux
     cx = cy = 50.0
-    tip_a = (cx + ux * hl, cy + uy * hl)
-    tip_b = (cx - ux * hl, cy - uy * hl)
-    o = (1.8 if kind == "mono_fuge" else 0.0) / 2
-    q1 = (cx + px * w / 2 + ux * o, cy + py * w / 2 + uy * o)
-    q2 = (cx - px * w / 2 + ux * o, cy - py * w / 2 + uy * o)
-    p1 = (cx + px * w / 2 - ux * o, cy + py * w / 2 - uy * o)
-    p2 = (cx - px * w / 2 - ux * o, cy - py * w / 2 - uy * o)
-    c1, c2 = {"mono": (CY, CY), "mono_fuge": (CY, CY),
-              "duo_soft": (CY, CY_D), "duo_hard": (CY, DARK)}[kind]
+    o = fuge / 2
+    tip_o = (cx - ux * hl, cy - uy * hl)
+    tip_u = (cx + ux * hl, cy + uy * hl)
+    o1 = (cx + px * w / 2 - ux * o, cy + py * w / 2 - uy * o)
+    o2 = (cx - px * w / 2 - ux * o, cy - py * w / 2 - uy * o)
+    u1 = (cx + px * w / 2 + ux * o, cy + py * w / 2 + uy * o)
+    u2 = (cx - px * w / 2 + ux * o, cy - py * w / 2 + uy * o)
     poly = lambda pts, c: ('<polygon points="'
                            + " ".join(f"{x:.2f},{y:.2f}" for x, y in pts)
                            + f'" fill="{c}"/>')
-    return poly([tip_a, q1, q2], c1) + poly([tip_b, p1, p2], c2)
+    return poly([tip_o, o1, o2], c_oben) + poly([tip_u, u1, u2], c_unten)
 
 
-def wortmarke(sw=17, kind="duo_soft", dark=False, pad=14, gap=13):
-    fg = "#FFFFFF" if dark else DARK
-    nk = "duo_soft" if (dark and kind == "duo_hard") else kind
+def wortmarke(modus="hell", sw=STRICHSTAERKE, pad=14, gap=13):
+    fg, co, cu, fu = MODI[modus]
     parts, x = [], pad
     for name, d, spine in glyphs(sw, fg):
-        inner = needle(sw, nk) if name == "O" else ""
+        inner = needle(sw, co, cu, fu) if name == "O" else ""
         parts.append(f'<g transform="translate({x:.2f},{pad})">{d}{inner}</g>')
         x += spine + sw + gap
     w = x - gap + pad
     h = 100 + 2 * pad
-    bg = f'<rect width="{w:.1f}" height="{h}" fill="{DARK}"/>' if dark else ""
+    bg = f'<rect width="{w:.1f}" height="{h}" fill="{DARK}"/>' if modus in DUNKLER_HINTERGRUND else ""
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w:.1f} {h}" '
             f'width="{w:.1f}" height="{h}">{bg}{"".join(parts)}</svg>')
 
 
-def signet(sw=17, kind="duo_soft", dark=False, pad=8):
-    fg = "#FFFFFF" if dark else DARK
+def signet(modus="hell", sw=STRICHSTAERKE, pad=8):
+    """Nur das O mit Nadel — die abtrennbare Bildmarke."""
+    fg, co, cu, fu = MODI[modus]
     s = 100 + 2 * pad
-    bg = f'<rect width="{s}" height="{s}" fill="{DARK}"/>' if dark else ""
+    bg = f'<rect width="{s}" height="{s}" fill="{DARK}"/>' if modus in DUNKLER_HINTERGRUND else ""
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {s} {s}" width="{s}" height="{s}">{bg}'
             f'<g transform="translate({pad},{pad})">'
             f'<circle cx="50" cy="50" r="{50-sw/2:.2f}" fill="none" stroke="{fg}" stroke-width="{sw}"/>'
-            f'{needle(sw, kind)}</g></svg>')
+            f'{needle(sw, co, cu, fu)}</g></svg>')
+
+
+def _bauen():
+    import cairosvg
+    from PIL import Image
+    import io
+    for modus in MODI:
+        for name, svg, breite in (("wortmarke", wortmarke(modus), 1600),
+                                  ("signet", signet(modus), 1024)):
+            open(f"osum-{name}-{modus}.svg", "w").write(svg)
+            cairosvg.svg2png(bytestring=svg.encode(),
+                             write_to=f"osum-{name}-{modus}.png",
+                             output_width=breite)
+    # Favicons aus dem hellen Signet
+    roh = cairosvg.svg2png(bytestring=signet("hell").encode(), output_width=1024)
+    basis = Image.open(io.BytesIO(roh)).convert("RGBA")
+    groessen = [16, 32, 48, 64, 128, 256]
+    for p in groessen:
+        basis.resize((p, p), Image.LANCZOS).save(f"osum-favicon-{p}.png")
+    basis.resize((256, 256), Image.LANCZOS).save(
+        "osum-favicon.ico", sizes=[(p, p) for p in groessen])
+    print("fertig")
 
 
 if __name__ == "__main__":
-    import sys
-    sw = int(sys.argv[1]) if len(sys.argv) > 1 else 17
-    kind = sys.argv[2] if len(sys.argv) > 2 else "duo_soft"
-    open(f"osum-wortmarke-{sw}-{kind}.svg", "w").write(wortmarke(sw, kind))
-    open(f"osum-signet-{sw}-{kind}.svg", "w").write(signet(sw, kind))
-    print("geschrieben")
+    _bauen()

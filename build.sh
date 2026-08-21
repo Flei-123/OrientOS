@@ -35,6 +35,31 @@ done
 BUILD_STD=(-Z build-std=core,compiler_builtins,alloc
            -Z build-std-features=compiler-builtins-mem)
 
+# ------------------------------------------------------------ Firn-Module
+# osum wird Firn-only (LANGUAGE.md). Die schon portierten Module werden VOR
+# dem Kernel uebersetzt — cargo linkt die Objekte ueber kernel/build.rs dazu.
+#
+# Der Uebersetzer ist auf vendor/firn/COMMIT festgenagelt. Grund: Firn wird
+# gerade aktiv weiterentwickelt; ohne festen Stand waere bei jedem Fehler
+# unklar, ob er aus dem Kernel oder aus dem Uebersetzer kommt.
+FIRN_MODULE=(serial)
+FIRNC=vendor/firn/firnc
+echo ">> Firn-Module (${#FIRN_MODULE[@]}), Uebersetzer $(cut -c1-8 vendor/firn/COMMIT)"
+./vendor/firn/hole-firnc.sh
+mkdir -p build/firn
+for M in "${FIRN_MODULE[@]}"; do
+    FIRNLIB=$PWD/vendor/firn/lib "$FIRNC" -o "build/firn/$M.o" "kernel/firn/$M.fi"
+    # Ein Kernelmodul MUSS freistehend sein. Ein undefiniertes Symbol hiesse:
+    # es haengt an etwas, das im Kernel gar nicht existiert. Lieber hier
+    # abbrechen als spaeter im Linker oder, schlimmer, beim Booten.
+    if U=$(nm -u "build/firn/$M.o") && [[ -n $U ]]; then
+        echo "   $M.fi hat undefinierte Symbole:" >&2
+        echo "$U" >&2
+        exit 1
+    fi
+    echo "   $M.fi -> build/firn/$M.o ($(stat -c%s "build/firn/$M.o") B, 0 undefiniert)"
+done
+
 echo ">> cargo build (${PROFILE})"
 mkdir -p build
 if [[ $FRESH -eq 1 ]]; then

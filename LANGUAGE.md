@@ -1,34 +1,92 @@
-# Logbuch: wo Rust im Kernel im Weg steht
+# Logbuch: der Weg von Rust nach Firn
 
-**Zweck.** Langfristig soll Karstos eine eigene Systemsprache bekommen. Sie wird
-**jetzt nicht gebaut** — eine Sprache samt Backend, Werkzeugen und Bibliothek zu
-schreiben, während der Kernel noch keinen Userspace hat, ist der klassische
-Yak-Shave, an dem Projekte sterben.
+**Entschieden (21.08.2026): osum wird Firn-only.** Kein Rust, kein übernommener
+Fremdcode. Dieses Dokument hieß bis dahin „wo Rust im Kernel im Weg steht" und
+sammelte Belege dafür, dass eine eigene Sprache **gerechtfertigt** wäre. Diese
+Frage ist beantwortet — die Sprache heißt **Firn**, sie existiert, und der
+Umbau hat begonnen. Ab hier ist das Dokument zweierlei: der **Migrationsstand**
+und weiterhin das Logbuch der Reibungspunkte, denn jeder davon ist eine
+Anforderung an Firn.
 
-Stattdessen: **Beweise sammeln.** Ab sofort wird jede konkrete Stelle
-protokolliert, an der Rust im Kernel-Kontext behindert — mit Datei, Zeile,
-Problem, Workaround und der Frage, was eine eigene Sprache anders machen müsste.
-Wenn die Liste lang und die Muster klar genug sind, ist die Sprache begründet
-statt gewünscht. Wenn nicht, war es die richtige Entscheidung, sie nicht zu
-bauen.
-
-**Regel:** Dieses Dokument wächst mit jeder Runde. Wer einen Workaround schreibt,
-trägt ihn hier ein. Kein Eintrag ohne Datei und Zeile.
-
-**Stand:** Runde 3, Phase 1–3 (Boot-Kern, verdrängender Scheduler, Ring 3,
-ELF-Lader, Capabilities).
-**Stand der Verweise:** Jeder Verweis hat die Form `` `datei.rs:Zeile` (`Anker`) ``
-und wird von `test.sh` (Schritt „Doku-Verweise") maschinell geprüft: der Anker
-muss im Umkreis von drei Zeilen um die angegebene Zeile wirklich im Quelltext
-stehen. Verrutschte Zeilennummern fallen damit sofort auf, statt jahrelang
-falsch dazustehen.
-
-Messwerte (gemessen am 13.08.2026, Befehle in `PREFLIGHT.md`): 437
-`unsafe`-Vorkommen in `kernel/src` (vorher 413), 16 `static mut` (unverändert),
-53 `addr_of!`/`&raw`, 2 nightly-Features (unverändert), 1 `transmute`
-(unverändert), 3 Dateien mit `naked_asm!` (unverändert).
+> **Der alte Zweck, zur Einordnung:** „Die Sprache wird jetzt nicht gebaut — eine
+> Sprache samt Backend, Werkzeugen und Bibliothek zu schreiben, während der
+> Kernel noch keinen Userspace hat, ist der klassische Yak-Shave, an dem
+> Projekte sterben." Das war zum Zeitpunkt von Runde 3 richtig. Es ist überholt,
+> weil Firn inzwischen sich selbst übersetzt und in Runde 62 einen eigenen
+> Kernel mit Adressräumen, Scheduler und Dateisystem getragen hat.
 
 ---
+
+## M-00 · Migrationsstand
+
+| | |
+|---|---|
+| **Zielsprache** | Firn, `profile kernel` (freistehend, kein libc, kein Runtime, kein `_start`) |
+| **Übersetzer** | **festgenagelt** auf `vendor/firn/COMMIT`, gebaut von `vendor/firn/hole-firnc.sh` |
+| **In Firn** | `kernel/firn/serial.fi` — 95 Zeilen |
+| **Noch in Rust** | 18 370 Zeilen in `kernel/`, `libs/`, `userland/` |
+| **Aufrufrichtung** | nur **Rust → Firn**. Die Gegenrichtung ist gesperrt, siehe M-02 |
+
+### Warum der Übersetzer festgenagelt ist
+
+Firn wird gerade aktiv weiterentwickelt. Würde osum immer gegen den neuesten
+Stand bauen, wäre bei jedem Fehler unklar, ob er aus dem Kernel oder aus dem
+Übersetzer kommt. Deshalb: **ein Commit**, eingetragen in `vendor/firn/COMMIT`,
+und nachgezogen wird **erst, wenn `./test.sh` grün ist**. Die Binärdatei ist
+nicht eingecheckt — nur der Hash und das Bauskript.
+
+## M-01 · Brückenkopf: die serielle Konsole
+
+**Erledigt und gemessen.** `kernel/src/arch/x86_64/serial.rs` enthält keine
+Logik mehr; der 16550-UART wird von `kernel/firn/serial.fi` bedient.
+
+* **Warum ausgerechnet dieses Modul:** es ist ein **Blatt**. Es ruft nichts
+  außerhalb seiner selbst auf und hält keinen Zustand — als einziges Modul
+  trifft es damit keine der beiden Sprachgrenzen aus M-02.
+* **Aufrufkonvention:** Firn erzeugt gewöhnliches SysV-AMD64 (Argumente in
+  `rdi`/`rsi`, Rückgabe in `rax`, `rbp` und `r12`–`r15` werden gerettet).
+  `extern "C"` genügt, es braucht keine Sonderbehandlung.
+* **Symbolschema:** `firnc` vergibt `_F0.<name>`. Der Punkt ist in Rust kein
+  gültiger Bezeichner, deshalb `#[link_name = "_F0.serial_init"]`.
+* **Bauweg:** `build.sh` übersetzt die Firn-Module **vor** cargo und prüft, dass
+  das Objekt **null undefinierte Symbole** hat; `kernel/build.rs` reicht es an
+  den Linker weiter und bricht mit klarer Meldung ab, wenn es fehlt.
+* **Nachweis:** `./test.sh` — **alle 21 Abschnitte bestanden**, 14 QEMU-Boots.
+  Jede Zeile Bootausgabe in diesem Lauf ist durch den Firn-Code gegangen; ein
+  Fehler dort hätte den gesamten Testlauf blind gemacht.
+
+## M-02 · Die zwei Grenzen, die den nächsten Schritt blockieren
+
+Stage 0 von Firn kennt **kein `extern fn`** und **kein `static`**. Beides wird
+vom Übersetzer abgewiesen. Daraus folgt hart:
+
+1. **Firn kann nicht nach Rust zurückrufen.** Ein Firn-Modul kann aufgerufen
+   werden, aber nichts außerhalb seiner Übersetzungseinheit aufrufen.
+2. **Firn kann keinen globalen veränderlichen Zustand halten.** Der Firn-eigene
+   Demo-Kernel umgeht das mit einem Zustandsblock, dessen Adresse der
+   Startcode übergibt — eine funktionierende Krücke, keine Lösung.
+
+**Solange das so ist, bleibt es bei Blattmodulen.** Jeder Treiber will
+irgendwann beides. Die Sprachrunde dafür liegt bei Firn und ist eingeplant;
+bis dahin wird hier nichts erzwungen und nichts nachgebaut.
+
+Das ist übrigens genau **L-04** aus der Liste unten, nur von der anderen Seite:
+Rust hat für „gehört der CPU" keine Kategorie und drängt zu `static mut`
+(16 Vorkommen). Firn hat die Kategorie auch noch nicht — aber es ist die
+Sprache, in der sie noch entstehen kann.
+
+---
+
+## Die Reibungspunkte mit Rust
+
+Weiterhin gültig als **Anforderungsliste an Firn**: jeder Eintrag beschreibt
+eine Stelle, die in der neuen Sprache besser gelöst werden muss als in der
+alten. Stand der Messwerte (21.08.2026): **438** `unsafe`-Vorkommen in
+`kernel/src`, **16** `static mut`.
+
+**Regel:** Wer einen Workaround schreibt, trägt ihn hier ein. Kein Eintrag ohne
+Datei und Zeile. Jeder Verweis hat die Form `` `datei.rs:Zeile` (`Anker`) `` und
+wird von `test.sh` (Schritt „Doku-Verweise") maschinell geprüft.
 
 ## L-01 · `abi_x86_interrupt` — nightly für etwas Fundamentales
 

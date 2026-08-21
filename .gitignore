@@ -6,3 +6,11 @@
 /build/karstos.*.iso
 /build/initramfs.img
 /build/userland/
+
+# Der festgenagelte Firn-Uebersetzer wird gebaut, nicht eingecheckt.
+# Eingecheckt ist nur vendor/firn/COMMIT und das Bauskript.
+/vendor/firn/firnc
+/vendor/firn/lib/
+/vendor/firn/.bau/
+/vendor/firn/.gebaut
+/build/firn/

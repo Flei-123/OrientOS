@@ -147,6 +147,38 @@ Reihenfolge und Begründung ausführlich in [FILESYSTEM.md](FILESYSTEM.md).
 * ○ Lastverteilung, CPU-Affinität, TLB-Shootdown über IPIs
 * ○ Lockfreie Pfade dort, wo Messungen es rechtfertigen — nicht vorher
 
+### Regel für IPIs: warten und Preemption sperren sind zwei Dinge, nie eins
+
+**Festgelegt, bevor die erste Zeile SMP-Code steht.** Wer einen anderen Kern
+per IPI zu etwas auffordert und auf dessen Rückmeldung wartet, hält währenddessen
+**nicht** die Verdrängung gesperrt. Wer noch aussteht, wird **je Task** vermerkt
+(eine eigene CPU-Maske), nicht in einer gemeinsamen Struktur — nur dann darf der
+Scheduler den Wartenden verdrängen, während die Antworten noch unterwegs sind.
+
+Warum das hier steht und nicht später auffällt:
+
+* Die Wartezeit **wächst mit der Kernzahl**. Auf einem Kern ist der Fehler
+  unsichtbar, auf 64 Kernen bestimmt er die Latenzspitzen des ganzen Systems.
+* Auf x86-64 trifft es besonders hart, weil der **TLB-Shootdown** über genau
+  diese IPIs läuft. Prozessende und Seitenrückgewinnung stapeln mehrere Runden.
+* Es ist **kein Fehler, den man später wegoptimiert** — es ist eine Annahme, die
+  sich durch jeden Aufrufer zieht, sobald sie einmal drinsteckt.
+* Der Preis ist bekannt und wird **bewusst gezahlt**: etwas mehr Speicher je Task.
+
+**Beleg, warum das kein theoretisches Bedenken ist:** Linux hatte genau diese
+Sperre in `smp_call_function*()` — über die gesamte Operation, das Warten
+eingeschlossen. Der Umbau kam erst mit **Linux 7.3** (Merge-Fenster 17.08.2026,
+Pull Request von Thomas Gleixner, Code von Bytedance) und senkte die Latenz
+hochpriorer Tasks in Bytedances laufender Serverflotte von **rund 17 ms auf
+etwa 1,5 ms**, die P99-Latenz unter DPDK um **90 %**. Einordnung: die Zahlen
+stammen von den Entwicklern selbst, unabhängige Nachmessungen liegen nicht vor,
+und es geht um **Ausreißer, nicht um Durchsatz**. Für die Regel reicht das —
+sie kostet uns jetzt nichts und später sehr viel.
+
+Dieselbe Denkweise steht schon in `kernel/firn/serial.fi`: die serielle Ausgabe
+ist bewusst **ohne** Sperre, damit der Panic-Handler nicht genau dann verklemmt,
+wenn ein Interrupt mitten in einer Ausgabe zugeschlagen hat.
+
 ## Phase 7 — Netzwerk ○
 
 * ○ NIC-Treiber (virtio-net zuerst, dann e1000/Intel)

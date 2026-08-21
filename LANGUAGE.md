@@ -22,7 +22,7 @@ Anforderung an Firn.
 | | |
 |---|---|
 | **Zielsprache** | Firn, `profile kernel` (freistehend, kein libc, kein Runtime, kein `_start`) |
-| **Übersetzer** | **festgenagelt** auf `vendor/firn/COMMIT`, gebaut von `vendor/firn/hole-firnc.sh` |
+| **Übersetzer** | **festgenagelt** auf `vendor/firn/COMMIT` — derzeit `c889170a` (21.08.2026), gebaut von `vendor/firn/hole-firnc.sh` |
 | **In Firn** | `kernel/firn/serial.fi` — 95 Zeilen |
 | **Noch in Rust** | 18 370 Zeilen in `kernel/`, `libs/`, `userland/` |
 | **Aufrufrichtung** | nur **Rust → Firn**. Die Gegenrichtung ist gesperrt, siehe M-02 |
@@ -54,6 +54,16 @@ Logik mehr; der 16550-UART wird von `kernel/firn/serial.fi` bedient.
 * **Nachweis:** `./test.sh` — **alle 21 Abschnitte bestanden**, 14 QEMU-Boots.
   Jede Zeile Bootausgabe in diesem Lauf ist durch den Firn-Code gegangen; ein
   Fehler dort hätte den gesamten Testlauf blind gemacht.
+* **Erster Übersetzerwechsel überstanden (21.08.2026):** von `1bd95ceb` auf
+  `c889170a` — 13 Firn-Runden Abstand, darunter Typ-Aliase, Standardtyp für
+  Zahlliterale, `+=`, `str` und die Aufteilung von `std`. Das erzeugte Objekt
+  ist **bitgleich** zum vorherigen (gleicher SHA-256), und `./test.sh` läuft
+  unverändert 21/21 durch. Damit ist die Zusage aus dem Firn-Projekt — additive
+  Runden brechen bestehenden Code nicht — für osum einmal **gemessen** statt
+  geglaubt. Log: `build/testlauf-firn-c889170a.log`.
+* **Reproduzierbar:** derselbe Übersetzer erzeugt aus derselben Quelle
+  byteweise dasselbe Objekt (geprüft mit `cmp`). Ein Unterschied im Objekt ist
+  damit immer ein Unterschied in Quelle oder Übersetzer, nie Rauschen.
 
 ## M-02 · Die zwei Grenzen, die den nächsten Schritt blockieren
 
@@ -74,6 +84,39 @@ Das ist übrigens genau **L-04** aus der Liste unten, nur von der anderen Seite:
 Rust hat für „gehört der CPU" keine Kategorie und drängt zu `static mut`
 (16 Vorkommen). Firn hat die Kategorie auch noch nicht — aber es ist die
 Sprache, in der sie noch entstehen kann.
+
+## M-03 · Was Firn Runde 73 freigibt — und warum es den Fahrplan ändert
+
+Bis Runde 73 verbot `profile kernel` **jedes** `import std.*`. Ein Firn-Modul im
+Kernel hatte also die Sprache, aber keine Bibliothek. Das ist aufgehoben:
+
+* **`std.core` ist im Kernelprofil erlaubt.** Darin liegt alles, was weder
+  Speicher anfordert noch einen Systemaufruf macht: die Span-Schicht (`find`,
+  `trim`, `starts_with`, `compare`, Zerlegen), UTF-8-Lesen, Zahlenumwandlung
+  (`text_to_i64`/`u64`/`f64`), Mathematik (`isqrt`, `gcd`, `ilog2`). Der
+  Übersetzer **prüft die Behauptung nach** — ein Modul, das doch allokiert,
+  bleibt verboten, mit Gegenprobe im Firn-Testlauf.
+* **Der Allokator ist ein sichtbarer Parameter** (der Weg, den Zig geht): kein
+  globaler Zuteiler, keine versteckte Anforderung. An der Aufrufstelle ist
+  ablesbar, ob eine Funktion Speicher kostet. Es gibt eine Arena-Implementierung
+  **ohne** Systemaufruf, die ein Kernel benutzen kann.
+
+**Warum das mehr ist als Komfort:** es ist die Antwort auf **L-06**, und zwar
+die, die dort schon als Wunsch steht — „Allokator als explizites Argument, ohne
+Sonderweg für die Standarddatentypen". Firn hat sie gebaut, bevor osum sie
+gebraucht hat.
+
+**Und es dreht M-02 vom Blocker zum Entwurfsprinzip.** „Kein globaler
+veränderlicher Zustand" war als Mangel notiert. Wenn Zustand konsequent als
+Parameter durchgereicht wird — Allokator wie Gerätezustand —, ist das kein
+Umgehen des fehlenden `static`, sondern der bessere Entwurf. Der osum-eigene
+`frame_alloc` kann die Schnittstelle erfüllen; damit kann die Speicherverwaltung
+nach Firn wandern, **ohne** auf eine Sprachrunde zu warten.
+
+Was dadurch **nicht** gelöst ist: `extern fn`. Solange Rust-Code existiert, den
+ein Firn-Modul aufrufen muss, bleibt die Richtung einseitig. Das erledigt sich
+mit dem letzten Rust-Modul — oder mit der geplanten Sprachrunde, je nachdem, was
+zuerst kommt.
 
 ---
 

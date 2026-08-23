@@ -3,12 +3,17 @@
 //! Diese Crate enthaelt AUSSCHLIESSLICH reine Logik ohne Hardwarezugriff, damit sie
 //! auf dem Host mit `cargo test -p osum-mem --target x86_64-unknown-linux-gnu`
 //! getestet werden kann. Kein `asm!`, keine Ports, keine Register.
+//!
+//! **Der Bitmap-Rahmenverwalter ist hier ausgezogen.** Er liegt seit dem
+//! 23.08.2026 in Firn (`kernel/firn/bitmap.fi`), angebunden ueber
+//! `kernel/src/mm/firn_bitmap.rs`, und wird von `tests/firn-bitmap/` geprueft.
+//! Was hier bleibt, ist die Auswertung der Memory-Map (`region`) und der
+//! Kernel-Heap (`heap`) — beides noch in Rust.
 #![no_std]
 
 #[cfg(test)]
 extern crate std;
 
-pub mod bitmap;
 pub mod heap;
 pub mod region;
 
@@ -167,160 +172,21 @@ mod tests {
     }
 
     // --------------------------------------------------------------------
-    // Zusammenspiel Memory-Map -> Frame-Bitmap.
+    // Der Uebergang Memory-Map -> Frame-Bitmap wird hier NICHT mehr geprueft.
     //
-    // Die beiden Bausteine werden im Kernel IMMER zusammen benutzt: aus der
-    // Regionsliste entsteht die Bitmap. Genau dieser Uebergang ist der Ort,
-    // an dem eine zerrissene, unsortierte oder ueberlappende Map gefaehrlich
-    // wird — hier wird er ohne Hardware durchgespielt.
+    // Die Bitmap liegt seit dem 23.08.2026 in Firn (kernel/firn/bitmap.fi) und
+    // ist auf dem Host nicht erreichbar. Die Pruefungen sind nicht entfallen,
+    // sondern umgezogen:
+    //
+    //   * die Bitmap selbst  -> tests/firn-bitmap/ (C-Pruefstand, 23 Faelle,
+    //     gegen DASSELBE Objekt, das im Kernelabbild landet)
+    //   * der Uebergang      -> mm::frame::map_selftest() im Kernel, laeuft in
+    //     JEDEM Boot in QEMU gegen die Firn-Bitmap
+    //
+    // EHRLICH BENANNT: ein Eigenschaftstest ueber 200 zufaellig zerrissene
+    // Karten ist dabei ersatzlos entfallen. Er brauchte Vec und einen Host.
+    // Die beiden schaerfsten Einzelfaelle daraus (unsortierte ueberlappende
+    // Karte, nicht ausgerichtete Raender) stehen jetzt als feste Karten in
+    // map_selftest(). Die Zufallsbreite fehlt.
     // --------------------------------------------------------------------
-
-    use crate::bitmap::Bitmap;
-    use crate::region::{frames_for, summarize, MemoryRegion, RegionKind};
-
-    /// Baut die Bitmap so auf, wie es der Kernel tut: erst nutzbare Regionen
-    /// freigeben, danach alles Nicht-Nutzbare konservativ (nach aussen
-    /// gerundet) wieder reservieren.
-    fn bitmap_from_map<'a>(
-        regions: &[MemoryRegion],
-        bits: &'a mut [u64],
-        frames: usize,
-    ) -> Bitmap<'a> {
-        let mut b = Bitmap::new_all_used(bits, frames);
-        for r in regions.iter().filter(|r| r.kind.is_allocatable()) {
-            if let Some((s, e)) = r.page_aligned() {
-                b.free_range((s / PAGE_SIZE) as usize, (e / PAGE_SIZE) as usize);
-            }
-        }
-        for r in regions.iter().filter(|r| !r.kind.is_allocatable() && r.len > 0) {
-            let s = align_down(r.start, PAGE_SIZE) / PAGE_SIZE;
-            let e = align_up(r.end(), PAGE_SIZE) / PAGE_SIZE;
-            b.reserve_range(s as usize, e as usize);
-        }
-        b
-    }
-
-    #[test]
-    fn bitmap_from_map_only_hands_out_usable_frames() {
-        let regions = [
-            MemoryRegion::new(0, 0x1000, RegionKind::Reserved),
-            MemoryRegion::new(0x1000, 0x9f000, RegionKind::Usable),
-            MemoryRegion::new(0xa0000, 0x60000, RegionKind::Reserved), // Loch bei 640 KiB
-            MemoryRegion::new(0x10_0000, 0x40_0000, RegionKind::Usable),
-            MemoryRegion::new(0x50_0000, 0x10_0000, RegionKind::KernelAndModules),
-            MemoryRegion::new(0x60_0000, 0x20_0000, RegionKind::BootloaderReclaimable),
-        ];
-        let s = summarize(&regions);
-        let frames = frames_for(s.ram_top);
-        assert_eq!(frames as u64, 0x80_0000 / PAGE_SIZE);
-        let mut bits = std::vec![0u64; Bitmap::words_needed(frames)];
-        let mut b = bitmap_from_map(&regions, &mut bits, frames);
-
-        // Frei sind genau die nutzbaren Regionen.
-        assert_eq!(b.free_frames() as u64, (0x9f000 + 0x40_0000) / PAGE_SIZE);
-
-        // Alles abraeumen und jeden Frame gegen die Map pruefen.
-        let mut n = 0u64;
-        while let Ok(f) = b.alloc() {
-            let addr = f as u64 * PAGE_SIZE;
-            let ok = regions
-                .iter()
-                .any(|r| r.kind.is_allocatable() && addr >= r.start && addr + PAGE_SIZE <= r.end());
-            assert!(ok, "Frame {f} ({addr:#x}) stammt nicht aus nutzbarem RAM");
-            n += 1;
-        }
-        assert_eq!(n, (0x9f000 + 0x40_0000) / PAGE_SIZE);
-        assert_eq!(b.free_frames(), 0);
-    }
-
-    #[test]
-    fn overlapping_and_unsorted_map_never_yields_reserved_frames() {
-        // Firmware liefert die Regionen unsortiert, und eine Reserved-Region
-        // ueberlappt eine als nutzbar gemeldete. Der Allocator muss die
-        // Ueberschneidung dem Reservierten zuschlagen.
-        let regions = [
-            MemoryRegion::new(0x8000, 0x2000, RegionKind::Reserved),
-            MemoryRegion::new(0x0, 0x1_0000, RegionKind::Usable),
-            MemoryRegion::new(0x1_0000, 0x1000, RegionKind::BadMemory),
-        ];
-        let frames = frames_for(summarize(&regions).ram_top);
-        let mut bits = std::vec![0u64; Bitmap::words_needed(frames)];
-        let mut b = bitmap_from_map(&regions, &mut bits, frames);
-        assert_eq!(b.free_frames() as u64, (0x1_0000 - 0x2000) / PAGE_SIZE);
-        while let Ok(f) = b.alloc() {
-            let addr = f as u64 * PAGE_SIZE;
-            assert!(
-                !(0x8000..0xa000).contains(&addr),
-                "reservierter Frame {addr:#x} wurde vergeben"
-            );
-            assert!(addr < 0x1_0000, "Frame {addr:#x} liegt ausserhalb des RAM");
-        }
-    }
-
-    #[test]
-    fn torn_map_with_unaligned_edges_is_trimmed_inward() {
-        // Nicht seitenausgerichtete Raender: nutzbar wird nach INNEN gerundet,
-        // reserviert nach AUSSEN. Ein halber Frame darf nie vergeben werden.
-        let regions = [
-            MemoryRegion::new(0x1001, 0x2fff, RegionKind::Usable), // nutzbar: 0x2000..0x4000
-            MemoryRegion::new(0x4000, 0x1000, RegionKind::Usable),
-            MemoryRegion::new(0x5800, 0x800, RegionKind::Reserved), // frisst Frame 5
-        ];
-        let frames = frames_for(summarize(&regions).ram_top);
-        let mut bits = std::vec![0u64; Bitmap::words_needed(frames)];
-        let b = bitmap_from_map(&regions, &mut bits, frames);
-        assert!(b.is_used(0) && b.is_used(1), "angeschnittener Frame vergeben");
-        assert!(!b.is_used(2) && !b.is_used(3) && !b.is_used(4));
-        assert!(b.is_used(5), "teilweise reservierter Frame muss belegt bleiben");
-        assert_eq!(b.free_frames(), 3);
-    }
-
-    /// Eigenschaftstest: fuer zufaellig zerrissene Maps darf der Allocator nie
-    /// einen Frame ausgeben, der nicht vollstaendig in einer nutzbaren Region
-    /// liegt — und nie mehr Frames, als die Map hergibt.
-    #[test]
-    fn random_torn_maps_never_leak_frames_outside_usable_memory() {
-        let mut r = Lcg::new(0xf00d);
-        for _ in 0..200 {
-            let mut regions = std::vec::Vec::new();
-            let mut cursor = 0u64;
-            for _ in 0..r.range(1, 12) {
-                cursor += (r.below(4) as u64) * PAGE_SIZE + r.below(4096) as u64;
-                let len = (r.below(20) as u64) * PAGE_SIZE + r.below(4096) as u64;
-                let kind = match r.below(4) {
-                    0 => RegionKind::Reserved,
-                    1 => RegionKind::BootloaderReclaimable,
-                    _ => RegionKind::Usable,
-                };
-                regions.push(MemoryRegion::new(cursor, len, kind));
-                cursor += len;
-            }
-            let frames = frames_for(summarize(&regions).ram_top);
-            if frames == 0 {
-                continue;
-            }
-            let mut bits = std::vec![0u64; Bitmap::words_needed(frames)];
-            let mut b = bitmap_from_map(&regions, &mut bits, frames);
-            let frei = b.free_frames();
-            let mut n = 0;
-            while let Ok(f) = b.alloc() {
-                let addr = f as u64 * PAGE_SIZE;
-                assert!(f < frames, "Frame {f} ausserhalb der Bitmap");
-                let in_usable = regions.iter().any(|reg| {
-                    reg.kind.is_allocatable() && addr >= reg.start && addr + PAGE_SIZE <= reg.end()
-                });
-                let in_other = regions.iter().any(|reg| {
-                    !reg.kind.is_allocatable()
-                        && reg.len > 0
-                        && addr < reg.end()
-                        && addr + PAGE_SIZE > reg.start
-                });
-                assert!(in_usable, "Frame {addr:#x} liegt nicht in nutzbarem RAM");
-                assert!(!in_other, "Frame {addr:#x} ueberlappt eine belegte Region");
-                n += 1;
-            }
-            assert_eq!(n, frei, "Zaehler und tatsaechliche Ausgabe weichen ab");
-            assert_eq!(b.free_frames(), 0);
-        }
-    }
 }

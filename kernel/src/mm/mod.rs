@@ -4,6 +4,7 @@
 //! Abbildung in Hardware aussieht, weiss ausschliesslich `arch`. In dieser
 //! Datei steht deshalb kein einziges Hardware-Tabellenbit.
 
+pub mod firn_bitmap;
 pub mod frame;
 pub mod heap;
 pub mod selftest;

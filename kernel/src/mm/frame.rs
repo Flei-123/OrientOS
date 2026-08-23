@@ -1,9 +1,19 @@
 //! Physischer Frame-Allocator (Bitmap).
 //!
 //! **Schicht: mm.** Kennt keine Seitentabellen und keine x86-Details — nur
-//! "welcher 4-KiB-Frame ist frei". Die eigentliche Bitmap-Logik liegt in der
-//! host-getesteten Crate [`osum_mem::bitmap`]; hier steht nur die Anbindung an
-//! die echte Memory-Map und der globale Zugriff.
+//! "welcher 4-KiB-Frame ist frei". Die eigentliche Bitmap-Logik liegt seit dem
+//! 23.08.2026 in **Firn** (`kernel/firn/bitmap.fi`), angebunden über
+//! [`crate::mm::firn_bitmap`]; hier steht nur die Auswertung der echten
+//! Memory-Map und der globale Zugriff.
+//!
+//! Die frühere Rust-Fassung (`libs/osum-mem/src/bitmap.rs`) ist ausgebaut. Ihre
+//! 23 Testfälle sind nicht verloren gegangen: sie stehen als C-Prüfstand in
+//! `tests/firn-bitmap/` und werden gegen **dasselbe** Firn-Objekt gefahren, das
+//! im Kernelabbild landet.
+//!
+//! Was der Wechsel bringt: die Rechnungen sind **geprüft**. `used -= 1` lief in
+//! Rusts Release-Bau still um; ab da hätte der Verwalter Milliarden freier
+//! Rahmen gemeldet und Speicher vergeben, den es nicht gibt.
 //!
 //! **Warum Bitmap und nicht Buddy** (ausfuehrlich in ARCHITECTURE.md): 1 Bit je
 //! 4 KiB sind 32 KiB Metadaten pro GiB RAM, konstant und ohne Zeiger. Ein
@@ -12,7 +22,7 @@
 //! Henne-Ei-Problem, indem sie sich selbst in den erstbesten freien Bereich legt.
 
 use crate::klog;
-use osum_mem::bitmap::{AllocError, Bitmap};
+use crate::mm::firn_bitmap::{AllocError, Bitmap};
 use osum_mem::region::{frames_for, summarize, MemoryRegion, MemorySummary};
 use spin::{Mutex, MutexGuard};
 
@@ -436,12 +446,23 @@ pub fn used_frames() -> usize {
 /// 6. **zerrissene Karte**: eine reservierte Region liegt mitten in einer als
 ///    nutzbar gemeldeten. Nach [`apply_map`] muss jeder ihrer Frames belegt
 ///    sein, kein Frame darf der Memory-Map widersprechen, und die Zahl der
-///    freien Frames muss exakt der Erwartung entsprechen.
+///    freien Frames muss exakt der Erwartung entsprechen,
+/// 7. **unsortierte, ueberlappende Karte**: die Firmware liefert die Regionen
+///    in beliebiger Reihenfolge, und eine reservierte Region ueberlappt eine
+///    als nutzbar gemeldete. Kein Frame der Ueberschneidung darf vergeben
+///    werden,
+/// 8. **nicht ausgerichtete Raender**: nutzbar wird nach INNEN gerundet,
+///    reserviert nach AUSSEN. Ein angebrochener Frame wird nie halb vergeben.
+///
+/// Die Faelle 7 und 8 standen bis zum 23.08.2026 als Host-Tests in
+/// `libs/osum-mem/src/lib.rs`. Mit dem Umzug der Bitmap nach Firn sind sie
+/// hierher gewandert — und laufen damit in jedem Boot gegen das echte Objekt
+/// statt gegen eine Host-Kopie.
 ///
 /// Rueckgabe: `(bestanden, gesamt)`.
 pub fn map_selftest() -> (usize, usize) {
-    use osum_mem::region::RegionKind::{Reserved, Usable};
-    let total = 6usize;
+    use osum_mem::region::RegionKind::{BadMemory, Reserved, Usable};
+    let total = 8usize;
     let mut ok = 0usize;
     const MIB: u64 = 1 << 20;
 
@@ -516,9 +537,53 @@ pub fn map_selftest() -> (usize, usize) {
         ok += 1;
     }
 
+    // 7 — unsortiert UND ueberlappend: eine reservierte Region mitten in einer
+    //     nutzbaren, und die Liste kommt nicht in Adressreihenfolge. Genau so
+    //     liefert echte Firmware sie gelegentlich.
+    let unsortiert = [
+        MemoryRegion::new(0x8000, 0x2000, Reserved),
+        MemoryRegion::new(0x0, 0x1_0000, Usable),
+        MemoryRegion::new(0x1_0000, 0x1000, BadMemory),
+    ];
+    let mut s7 = [0u64; 4];
+    let f7 = (0x1_1000u64 / PAGE_SIZE as u64) as usize;
+    let mut bm7 = Bitmap::new_all_used(&mut s7, f7);
+    apply_map(&mut bm7, &unsortiert);
+    let erwartet7 = ((0x1_0000 - 0x2000) / PAGE_SIZE as u64) as usize;
+    let mut ueberschuss7 = false;
+    for i in 0..f7 {
+        let addr = i as u64 * PAGE_SIZE as u64;
+        if !bm7.is_used(i) && ((0x8000..0xa000).contains(&addr) || addr >= 0x1_0000) {
+            ueberschuss7 = true;
+        }
+    }
+    if bm7.free_frames() == erwartet7 && !ueberschuss7 && map_violations(&bm7, &unsortiert) == 0 {
+        ok += 1;
+    }
+
+    // 8 — krumme Raender: nutzbar nach innen, reserviert nach aussen gerundet.
+    let krumm = [
+        MemoryRegion::new(0x1001, 0x2fff, Usable), // nutzbar erst ab 0x2000
+        MemoryRegion::new(0x4000, 0x1000, Usable),
+        MemoryRegion::new(0x5800, 0x800, Reserved), // frisst Frame 5 ganz
+    ];
+    let mut s8 = [0u64; 2];
+    let mut bm8 = Bitmap::new_all_used(&mut s8, 6);
+    apply_map(&mut bm8, &krumm);
+    if bm8.is_used(0)
+        && bm8.is_used(1)
+        && !bm8.is_used(2)
+        && !bm8.is_used(3)
+        && !bm8.is_used(4)
+        && bm8.is_used(5)
+        && bm8.free_frames() == 3
+    {
+        ok += 1;
+    }
+
     klog!(
         "mm",
-        "Selbsttest Memory-Map: {}/{} Zusagen erfuellt (4 kaputte Karten abgewiesen, zerrissene Karte: {} Frames nachreserviert)",
+        "Selbsttest Memory-Map: {}/{} Zusagen erfuellt (4 kaputte Karten abgewiesen, zerrissene Karte: {} Frames nachreserviert, unsortiert+ueberlappend und krumme Raender geprueft)",
         ok,
         total,
         overlap

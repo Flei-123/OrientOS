@@ -22,9 +22,9 @@ Anforderung an Firn.
 | | |
 |---|---|
 | **Zielsprache** | Firn, `profile kernel` (freistehend, kein libc, kein Runtime, kein `_start`) |
-| **Übersetzer** | **festgenagelt** auf `vendor/firn/COMMIT` — derzeit `c889170a` (21.08.2026), gebaut von `vendor/firn/hole-firnc.sh` |
-| **In Firn** | `kernel/firn/serial.fi` — 95 Zeilen |
-| **Noch in Rust** | 18 370 Zeilen in `kernel/`, `libs/`, `userland/` |
+| **Übersetzer** | **festgenagelt** auf `vendor/firn/COMMIT` — derzeit `4536a191` (23.08.2026), gebaut von `vendor/firn/hole-firnc.sh` |
+| **In Firn** | `kernel/firn/serial.fi` (95) · `kernel/firn/bitmap.fi` (335) |
+| **Noch in Rust** | rund 17 800 Zeilen in `kernel/`, `libs/`, `userland/` |
 | **Aufrufrichtung** | nur **Rust → Firn**. Die Gegenrichtung ist gesperrt, siehe M-02 |
 
 ### Warum der Übersetzer festgenagelt ist
@@ -117,6 +117,94 @@ Was dadurch **nicht** gelöst ist: `extern fn`. Solange Rust-Code existiert, den
 ein Firn-Modul aufrufen muss, bleibt die Richtung einseitig. Das erledigt sich
 mit dem letzten Rust-Modul — oder mit der geplanten Sprachrunde, je nachdem, was
 zuerst kommt.
+
+*(Nachtrag 23.08.2026: Runde 75 hat `extern fn` gebracht, in beide Richtungen.
+Die Grenze aus M-02 ist damit zur Hälfte gefallen. `static` fehlt weiterhin.)*
+
+## M-04 · Zweiter Baustein: der Bitmap-Rahmenverwalter
+
+**`libs/osum-mem/src/bitmap.rs` (593 Zeilen Rust) ist ausgebaut**, an seiner
+Stelle steht `kernel/firn/bitmap.fi` (335 Zeilen Firn), angebunden über
+`kernel/src/mm/firn_bitmap.rs`.
+
+### Warum ausgerechnet dieses Modul
+
+* Es hält **keinen globalen Zustand**. Bitspeicher und Verwaltungsblock gehören
+  dem Aufrufer und werden als Zeiger hereingereicht — die Rust-Fassung machte
+  es mit `&'a mut [u64]` genauso. Damit trifft es die verbliebene Grenze
+  (`static`) **nicht**.
+* Es ist **reine Logik**: Bitrechnerei, Next-Fit mit Umlauf, Bereichsoperationen.
+  Kein Portgefummel, keine Hardware.
+* Es hatte **23 Testfälle**, darunter einen Eigenschaftstest gegen ein
+  Referenzmodell. Damit war objektiv prüfbar, ob die Neufassung dasselbe tut.
+* Es läuft in **jedem Boot**. Ein Fehler fällt sofort auf, nicht irgendwann.
+
+### Was Firn hier beiträgt, was Rust nicht tat
+
+Die Rechnungen sind **geprüft**. In Rusts Release-Bau läuft `used -= 1` still
+um; ab da meldet der Verwalter Milliarden freier Rahmen und vergibt Speicher,
+den es nicht gibt. Dieselbe Zeile bricht in Firn mit Datei, Zeile, Spalte und
+**beiden Zahlen** ab.
+
+Wo ein Überlauf **kein** Fehler ist — Bereichsgrenzen aus der Memory-Map dürfen
+über das Ende der Bitmap hinausragen —, steht das ausdrücklich im Quelltext: die
+Grenze wird vorher gekappt (`kappen`), und `bm_free` prüft `anzahl > U64MAX -
+index`, statt die Summe zu bilden. Der Unterschied zwischen „darf überlaufen"
+und „darf nicht" ist damit **lesbar**, statt eine Konvention zu sein.
+
+### Nachweis
+
+* **23 von 23** Fällen bestanden — `tests/firn-bitmap/`, ein C-Prüfstand gegen
+  **dasselbe** Objekt, das im Kernelabbild landet (Kernelprofil, freistehend).
+  Derselbe Zufallsgenerator wie die Rust-Fassung, also dieselbe Folge von
+  Anforderungen.
+* `test.sh` Abschnitt 22 prüft zusätzlich, dass der Verwaltungsblock auf beiden
+  Seiten denselben Aufbau hat (mit Gegenprobe) und dass die Rust-Fassung
+  wirklich weg ist.
+* Im Kernel: **8/8** Memory-Map-Zusagen, **28/28** Frame-Zusagen, in jedem Boot.
+
+### Was dabei verloren ging — ehrlich benannt
+
+Vier Host-Tests in `libs/osum-mem/src/lib.rs` prüften den Übergang
+Memory-Map → Bitmap. Zwei davon (unsortierte überlappende Karte, nicht
+ausgerichtete Ränder) sind nach `mm::frame::map_selftest()` gewandert und laufen
+jetzt in **jedem Boot** gegen das echte Objekt — das ist eine Verbesserung.
+
+**Ersatzlos entfallen** ist ein Eigenschaftstest über **200 zufällig zerrissene
+Memory-Maps**. Er brauchte `Vec` und einen Host. Die Zufallsbreite fehlt seitdem.
+
+### Der Preis: Tempo
+
+Gemessen unter identischer Last (40 000 Anforderungen/Rückgaben, 65 536 Rahmen,
+dieselbe Folge, bestes von 7 Läufen):
+
+| Fassung | Zeit | Verhältnis |
+|---|---|---|
+| Rust-Verfahren, ungeprüft | 0,081 s | 1,00× |
+| **Firn `dev-fast`** (was osum baut) | **0,415 s** | **5,11×** |
+| Firn `release-fast` (Prüfungen aus) | 0,098 s | 1,22× |
+
+**Das ist kein Rundungsfehler und wird hier nicht schöngeredet.** Die Aufteilung
+sagt aber, woher es kommt: mit abgeschalteten Prüfungen liegt Firn bei 1,22× —
+der Rest sind die Prüfungen selbst plus ein Codegen, der noch jede lokale
+Variable über den Stapel führt statt über Register.
+
+**Warum es trotzdem vertretbar ist:** der Rahmenverwalter wird im Boot einige
+tausend Mal aufgerufen, nicht einige Millionen. 5× auf einer Operation im
+Mikrosekundenbereich ist im Boot-Log nicht messbar. Sollte sich das ändern —
+etwa wenn der Verwalter in einem heißen Pfad landet —, ist die Zahl hier
+festgehalten und muss dann neu bewertet werden.
+
+### Ein Übersetzerfehler, dabei gefunden
+
+`--opt-level=release-safe` erzeugt falschen Code: eine geprüfte Multiplikation
+benutzt `mul`, das implizit `rdx` überschreibt, und der Registerallokator
+rechnet nicht damit. Ein Wert, der in `rdx` liegt und die Rechnung überleben
+soll, ist danach zerstört. Die Bitmap fällt auf dieser Stufe in **19 von 23**
+Fällen um und ist auf allen anderen fehlerfrei.
+
+Minimalfall (20 Zeilen), Disassemblat und Analyse: `tests/firn-fehler/`.
+osum baut mit `dev-fast` und ist nicht betroffen; `release-safe` bleibt gesperrt.
 
 ---
 

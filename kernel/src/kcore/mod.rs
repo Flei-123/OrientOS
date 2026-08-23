@@ -15,6 +15,7 @@
 pub mod arch_iface;
 pub mod branding;
 pub mod elf;
+pub mod firn_panic;
 pub mod initramfs;
 pub mod mem;
 pub mod panic;

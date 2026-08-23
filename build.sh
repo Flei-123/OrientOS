@@ -52,12 +52,20 @@ for M in "${FIRN_MODULE[@]}"; do
     # Ein Kernelmodul MUSS freistehend sein. Ein undefiniertes Symbol hiesse:
     # es haengt an etwas, das im Kernel gar nicht existiert. Lieber hier
     # abbrechen als spaeter im Linker oder, schlimmer, beim Booten.
-    if U=$(nm -u "build/firn/$M.o") && [[ -n $U ]]; then
-        echo "   $M.fi hat undefinierte Symbole:" >&2
+    #
+    # GENAU EINE Ausnahme: `osum_panic`. Firns geprüfte Arithmetik (Runde
+    # 72/83) erzeugt im Kernelprofil keinen eigenen Panik-Pfad, sondern ruft
+    # dieses externe Symbol — welche Bedeutung ein Ueberlauf hat, entscheidet
+    # der Kernel. Definiert in kernel/src/kcore/firn_panic.rs. Die Liste ist
+    # bewusst eine Weissliste: jeder ANDERE undefinierte Name bricht ab.
+    ERLAUBT='^osum_panic$'
+    if U=$(nm -u --format=posix "build/firn/$M.o" | awk '{print $1}' | grep -vE "$ERLAUBT") && [[ -n $U ]]; then
+        echo "   $M.fi hat unerlaubte undefinierte Symbole:" >&2
         echo "$U" >&2
         exit 1
     fi
-    echo "   $M.fi -> build/firn/$M.o ($(stat -c%s "build/firn/$M.o") B, 0 undefiniert)"
+    OFFEN=$(nm -u --format=posix "build/firn/$M.o" | awk '{print $1}' | tr '\n' ' ')
+    echo "   $M.fi -> build/firn/$M.o ($(stat -c%s "build/firn/$M.o") B, offen: ${OFFEN:-keine})"
 done
 
 echo ">> cargo build (${PROFILE})"

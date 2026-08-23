@@ -8,10 +8,16 @@
 // deadlock in exactly that situation. As long as only one CPU runs this is
 // harmless; with SMP a per CPU buffer follows (see ROADMAP.md).
 //
-// Why this module is the bridgehead: it is a LEAF. It calls nothing outside
-// itself and it keeps no state. That matters, because stage 0 of Firn has
-// neither `extern fn` nor `static` -- a module that needed either of them
-// could not be built yet. See LANGUAGE.md.
+// Why this module was the bridgehead: it is a LEAF. It calls nothing outside
+// itself and it keeps no state. At the time that mattered, because stage 0 of
+// Firn had neither `extern fn` nor `static`. Round 75 lifted the first of those
+// -- calls now work in both directions -- so the leaf property is no longer a
+// constraint here, only a convenience. See LANGUAGE.md.
+//
+// One outside name remains and cannot be avoided: `osum_panic`. Since round
+// 72/83 the arithmetic in this file is CHECKED, and the kernel profile hands a
+// failed check to that external symbol. osum defines it in
+// kernel/src/kcore/firn_panic.rs.
 //
 // Port I/O is the one thing that cannot be expressed with pointers: `in` and
 // `out` are instructions of their own with an address space of their own.
@@ -33,14 +39,30 @@ const LINE_STATUS: u16 = 5
 // must not hang. The same number as in the Rust original.
 const SPIN_LIMIT: u64 = 1000000
 
+// Maske fuer ein Oktett, als u64 -- ein blankes `0xFF` waere ein u8 und Firn
+// rechnet nicht zwischen Typen, ohne dass es dasteht.
+const OCTET: u64 = 0xFF
+
 // ------------------------------------------------------------------ port I/O
 
 fn out8(port: u16, value: u8) {
     asm("out dx, al", in("dx") port, in("al") value)
 }
 
+// `in al, dx` schreibt NUR `al`. Die oberen 56 Bit von `rax` behalten, was
+// vorher darin stand -- der Assembler sagt darueber nichts zu.
+//
+// Deshalb steht hier eine Maske und nicht bloss ein `as u8`: seit Firn-Runde
+// 72/83 ist die Bereichsumwandlung GEPRUEFT. Ein `as u8` auf ein `rax` mit
+// Resten in den oberen Bits ruft `osum_panic` -- und weil der Panikpfad seine
+// Meldung ueber genau diese serielle Konsole schreiben will, endet das in einer
+// Rekursion, die den Boot vor der ersten Zeile Ausgabe anhaelt. Genau so ist es
+// beim Uebersetzerwechsel auf 4536a191 passiert.
+//
+// Die Maske ist auch fachlich das Richtige: das Register enthaelt genau ein
+// Oktett Nutzdaten, alles darueber ist keine Information.
 fn in8(port: u16) -> u8 {
-    return asm("in al, dx", out("rax"), in("dx") port) as u8
+    return (asm("in al, dx", out("rax"), in("dx") port) & OCTET) as u8
 }
 
 // --------------------------------------------------------------------- setup

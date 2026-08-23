@@ -23,8 +23,8 @@ Anforderung an Firn.
 |---|---|
 | **Zielsprache** | Firn, `profile kernel` (freistehend, kein libc, kein Runtime, kein `_start`) |
 | **Übersetzer** | **festgenagelt** auf `vendor/firn/COMMIT` — derzeit `4536a191` (23.08.2026), gebaut von `vendor/firn/hole-firnc.sh` |
-| **In Firn** | `serial.fi` (117) · `bitmap.fi` (344) · `elf.fi` (415) |
-| **Noch in Rust** | rund 17 700 Zeilen in `kernel/`, `libs/`, `userland/` |
+| **In Firn** | `serial.fi` (117) · `bitmap.fi` (344) · `elf.fi` (461) — 922 Zeilen |
+| **Noch in Rust** | 17 993 Zeilen in `kernel/`, `libs/`, `userland/` |
 | **Aufrufrichtung** | nur **Rust → Firn**. Die Gegenrichtung ist gesperrt, siehe M-02 |
 
 ### Warum der Übersetzer festgenagelt ist

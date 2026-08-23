@@ -23,8 +23,8 @@ Anforderung an Firn.
 |---|---|
 | **Zielsprache** | Firn, `profile kernel` (freistehend, kein libc, kein Runtime, kein `_start`) |
 | **Übersetzer** | **festgenagelt** auf `vendor/firn/COMMIT` — derzeit `4536a191` (23.08.2026), gebaut von `vendor/firn/hole-firnc.sh` |
-| **In Firn** | `kernel/firn/serial.fi` (95) · `kernel/firn/bitmap.fi` (335) |
-| **Noch in Rust** | rund 17 800 Zeilen in `kernel/`, `libs/`, `userland/` |
+| **In Firn** | `serial.fi` (117) · `bitmap.fi` (344) · `elf.fi` (415) |
+| **Noch in Rust** | rund 17 700 Zeilen in `kernel/`, `libs/`, `userland/` |
 | **Aufrufrichtung** | nur **Rust → Firn**. Die Gegenrichtung ist gesperrt, siehe M-02 |
 
 ### Warum der Übersetzer festgenagelt ist
@@ -205,6 +205,106 @@ Fällen um und ist auf allen anderen fehlerfrei.
 
 Minimalfall (20 Zeilen), Disassemblat und Analyse: `tests/firn-fehler/`.
 osum baut mit `dev-fast` und ist nicht betroffen; `release-safe` bleibt gesperrt.
+
+## M-05 · Dritter Baustein: der ELF64-Prüfteil
+
+**Der Prüfteil von `kernel/src/kcore/elf.rs` (268 Zeilen Rust) ist ausgebaut**,
+an seiner Stelle steht `kernel/firn/elf.fi` (415 Zeilen Firn), angebunden über
+`kernel/src/kcore/firn_elf.rs`.
+
+### Warum ausgerechnet dieser Teil
+
+Ein ELF kommt **von außen**. Jede Zahl darin ist die Behauptung eines Fremden:
+„meine Tabelle beginnt bei Offset X", „mein Segment ist Y lang". Wer damit
+ungeprüft rechnet, baut sich genau die Lücke, die Angreifer suchen — ein
+`off + filesz`, das umläuft, ergibt eine kleine Zahl, die Bereichsprüfung geht
+durch, und danach wird an einer Adresse gelesen, die nie geprüft wurde.
+
+Der **Ladeteil** bleibt in Rust. Er hängt an Seitentabellen, Rahmenverwalter und
+Direct-Map-Fenster — ein Dutzend Rückrufe. Er fasst aber auch keine fremden
+Bytes an: er arbeitet mit den bereits geprüften Werten. Das ist keine
+Bequemlichkeit, sondern der richtige Schnitt.
+
+### Erst der Maßstab, dann die Portierung
+
+`elf.rs` hatte **null `#[test]`**. Es gab einen Selbsttest im Kernel mit
+16 Fällen — besser als nichts, aber kein Maßstab, an dem sich eine Neufassung
+messen lässt: die Fälle standen als Rust-Code **in** der Datei, die ersetzt
+werden sollte.
+
+Deshalb wurde der Maßstab **zuerst** gebaut und gegen die **alte** Fassung
+belegt, bevor eine Zeile Firn entstand:
+
+* **53 Falldateien**, erzeugt von `tests/firn-elf/faelle.py` — 8 gültige,
+  45 abzuweisende
+* Abgedeckt: abgeschnittene Dateien an jeder interessanten Stelle, jedes
+  Kopffeld einzeln verfälscht, lügende Offsets und Größen, **Werte dicht an
+  `u64::MAX`, die erst beim Addieren überlaufen**, überlappende Segmente,
+  Segmente in derselben Seite, Grenzfälle der Ausrichtung, genau 16 gegen 17
+  Segmente
+* **Die alte Rust-Fassung besteht 53 von 53** — belegt, nicht behauptet
+
+Die alte Fassung liegt als **Referenzmaßstab** in
+`tests/firn-elf/alter-pruefteil.rs.txt`. Sie wird nicht mehr gebaut, aber in
+jedem Testlauf **gefahren**: solange beide Fassungen zu jedem Fall dasselbe
+sagen, ist die Portierung nachweislich **verhaltensgleich** — nicht bloß
+„besteht auch Tests".
+
+### Nachweis
+
+* **53 von 53** gegen die Firn-Fassung (`tests/firn-elf/lauf.sh`)
+* **53 von 53** gegen die Rust-Fassung (`tests/firn-elf/lauf-rust.sh`)
+* `test.sh` Abschnitt 23: beide Läufe, `MAX_SEGMENTS`-Abgleich,
+  Strukturaufbau mit Gegenprobe, Symbole im Abbild, „der Rust-Prüfteil ist weg"
+* Im Kernel: **16/16** ELF-Negativfälle, **5/5** Ladefälle, jeder Boot — das
+  echte `hello` aus dem Startdateisystem wird über den Firn-Parser geladen
+
+### Was Firn hier beiträgt
+
+Die Rust-Fassung hat die Überläufe mit `checked_add` von Hand abgefangen, an
+jeder einzelnen Stelle, und der Modulkopf sagte ausdrücklich dazu: *„alle
+Additionen sind überlaufsicher"*. Das war **Disziplin**, und sie hat gehalten.
+
+In Firn ist es die **Sprache**: jede Rechnung, die überläuft, bricht ab — auch
+die, an die niemand gedacht hat. Wo ein Überlauf ein *erwarteter Fehlerfall*
+ist und kein Programmfehler, steht das ausdrücklich da: `passt_dazu(a, b)`
+bildet die Summe gar nicht erst, sondern prüft `b <= U64MAX - a`. Der
+Unterschied zwischen „darf nicht überlaufen" und „muss einen Fehlerwert
+liefern" ist damit **lesbar**.
+
+### Der Preis: Tempo
+
+1 060 000 Aufrufe über alle 53 Fälle, bestes von 5 Läufen:
+
+| Fassung | je Aufruf | Verhältnis |
+|---|---|---|
+| Rust-Verfahren (`checked_*`, `cc -O2`) | 79 ns | 1,00× |
+| **Firn `dev-fast`** (was osum baut) | **651 ns** | **8,25×** |
+| Firn `release-fast` (Prüfungen aus) | 136 ns | 1,97× |
+
+**Das ist schlechter als bei der Bitmap** (dort 5,11× / 1,22×), und der Grund
+ist klar: ein Parser rechnet in jeder Zeile.
+
+**Warum es trotzdem tragbar ist:** der Prüfteil läuft im Boot **fünfmal** —
+einmal je Programm plus die Selbsttests. 651 statt 79 Nanosekunden sind
+zusammen unter drei Mikrosekunden. Sollte osum je Programme im Sekundentakt
+starten, ist die Zahl hier festgehalten und muss neu bewertet werden.
+
+**Die Ursache ist gefunden und aufgeschrieben**, nicht hingenommen:
+`tests/firn-fehler/TEMPO.md` benennt drei Codegen-Befunde mit Minimalbeispiel
+und Disassemblat gegen `cc -O2`. Der größte — **die geprüfte Addition legt
+beide Operanden auf den Stapel, auf dem Erfolgspfad** — erklärt rund drei
+Viertel des Aufschlags und lässt sich beheben, ohne die Semantik anzufassen.
+
+### Was verloren ging — ehrlich benannt
+
+**Nichts an Testabdeckung.** Das ist hier ausnahmsweise die ganze Wahrheit: der
+Kernel-Selbsttest mit seinen 16 Fällen läuft unverändert weiter (jetzt gegen die
+Firn-Fassung), und dazu kamen 53 Falldateien, die es vorher nicht gab.
+
+Was **nicht** portiert ist und offen bleibt: der Ladeteil (Seiten anlegen,
+Inhalte kopieren, Zurückrollen), rund 440 Zeilen. Er braucht Rückrufe nach
+`mm` und `arch` — machbar seit Runde 75, aber ein eigener Brocken.
 
 ---
 
@@ -435,8 +535,12 @@ wird von `test.sh` (Schritt „Doku-Verweise") maschinell geprüft.
 
 ## L-14 · Bytes in Strukturen lesen: entweder `unsafe` oder von Hand
 
-* **Datei:** `kernel/src/kcore/elf.rs:148` (`fn rd16`), daneben `rd32`/`rd64`,
-  ähnlich in `kernel/src/kcore/initramfs.rs`
+* **Datei:** `kernel/src/kcore/initramfs.rs:154` (`fn rd32`), daneben `rd64`
+  * *Stand 23.08.2026:* Die ELF-Seite dieses Eintrags ist weg — die Byteleser
+    des ELF-Kopfs liegen jetzt in `kernel/firn/elf.fi`. **Gelöst ist der Punkt
+    damit nicht:** dort stehen sie genauso von Hand, nur mit geprüfter
+    Arithmetik. Die Formatbeschreibung als Sprachmittel fehlt Firn ebenso.
+    Der Archivleser ist noch in Rust und hält den Eintrag offen.
 * **Problem:** Ein ELF-Kopf und ein Archiveintrag sind Bytefolgen fester Lage.
   Rust bietet dafür genau zwei Wege: `transmute`/Zeigerspiel (unsicher, und bei
   falscher Ausrichtung schlicht undefiniert) oder Feld für Feld

@@ -2,7 +2,7 @@
 
 **Kernel: `osum` · OS: `Karstos` · Sprache: [Firn](LANGUAGE.md) — noch teils Rust (`no_std`) · Ziel: `x86_64-osum-none`**
 
-> **Sprachwechsel im Gange.** osum wird **Firn-only**. Der Umbau läuft modulweise: die serielle Konsole und der Bitmap-Rahmenverwalter sind bereits in Firn, der Rest folgt. Stand und Begründung: [LANGUAGE.md](LANGUAGE.md).
+> **Sprachwechsel im Gange.** osum wird **Firn-only**. Der Umbau läuft modulweise: die serielle Konsole, der Bitmap-Rahmenverwalter und der ELF-Prüfteil sind bereits in Firn, der Rest folgt. Stand und Begründung: [LANGUAGE.md](LANGUAGE.md).
 
 Kein Linux-Fork, kein übernommener Fremdcode. Der Kernel bootet auf BIOS **und**
 UEFI, baut seine eigenen Seitentabellen, hat einen funktionierenden Heap, prüft

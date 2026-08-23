@@ -26,7 +26,7 @@ fn link_firn_objects() {
         .expect("kernel/ hat immer ein Elternverzeichnis")
         .to_path_buf();
 
-    for name in ["serial", "bitmap"] {
+    for name in ["serial", "bitmap", "elf"] {
         let quelle = wurzel.join(format!("kernel/firn/{name}.fi"));
         let objekt = wurzel.join(format!("build/firn/{name}.o"));
         println!("cargo:rerun-if-changed={}", quelle.display());

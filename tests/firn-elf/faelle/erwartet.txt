@@ -1,0 +1,53 @@
+gueltig-ein-segment.elf 0 ein ladbares Segment, R+X, Einsprung darin
+gueltig-zwei-segmente.elf 0 zwei Segmente, RX und RW, verschiedene Seiten
+gueltig-align-passt.elf 0 Ausrichtung 4096, Datei- und Speicherlage stimmen modulo ueberein
+gueltig-align-eins.elf 0 Ausrichtung 1 stellt keine Bedingung
+gueltig-fremder-kopftyp.elf 0 unbekannter Programmkopftyp wird uebersprungen
+gueltig-am-oberen-rand.elf 0 Segment endet genau auf USER_LIMIT
+gueltig-am-unteren-rand.elf 0 Segment beginnt genau auf USER_BASE
+leer.elf 1 Datei ohne ein einziges Oktett
+kurz-1.elf 1 ein Oktett
+kurz-magie.elf 1 nur die Kennung
+kurz-63.elf 1 ein Oktett zu kurz fuer den Kopf
+kurz-nur-kopf.elf 7 Kopf vollstaendig, Tabelle fehlt
+kurz-halber-phdr.elf 7 Programmkopf um ein Oktett abgeschnitten
+magie-falsch.elf 2 drittes Oktett der Kennung falsch
+magie-null.elf 2 Kennung komplett null
+klasse-32bit.elf 3 32-Bit-Klasse
+klasse-null.elf 3 Klasse 0
+endian-gross.elf 4 big endian
+typ-rel.elf 5 Objektdatei statt ausfuehrbar
+typ-dyn.elf 5 dynamisch gebundenes Abbild (ET_DYN)
+maschine-arm.elf 6 ARM statt x86-64
+maschine-aarch64.elf 6 aarch64 statt x86-64
+phentsize-falsch.elf 7 Groesse eines Programmkopfs stimmt nicht
+phentsize-null.elf 7 Groesse eines Programmkopfs ist 0
+phnum-null.elf 7 kein einziger Programmkopf
+phoff-jenseits.elf 7 Tabelle beginnt weit hinter dem Dateiende
+phoff-knapp-jenseits.elf 7 Tabelle ragt um ein Oktett ueber das Dateiende
+phoff-ueberlauf.elf 7 Tabellenbeginn so gross, dass beginn+laenge ueberlaeuft
+phnum-riesig.elf 7 65535 Programmkoepfe, Tabelle passt nicht in die Datei
+filesz-groesser-memsz.elf 12 Dateilaenge groesser als Speicherlaenge
+memsz-null.elf 12 Segment belegt keinen Speicher
+filesz-jenseits.elf 8 Segmentdaten ragen ueber das Dateiende
+fileoff-jenseits.elf 8 Segmentbeginn liegt hinter dem Dateiende
+fileoff-ueberlauf.elf 8 Dateibeginn+laenge laeuft ueber
+vaddr-im-kernel.elf 9 Segment im privilegierten Bereich
+vaddr-unter-user-base.elf 9 Segment unterhalb von USER_BASE
+vaddr-null.elf 9 Segment auf Adresse 0
+vend-ueber-limit.elf 9 Segment ragt ueber USER_LIMIT hinaus
+vaddr-ueberlauf.elf 9 Zieladresse+laenge laeuft ueber
+align-keine-zweierpotenz.elf 13 Ausrichtung 3 ist keine Zweierpotenz
+align-krumm-gross.elf 13 Ausrichtung 1000 ist keine Zweierpotenz
+align-lage-passt-nicht.elf 13 Datei- und Speicherlage stimmen modulo Ausrichtung nicht
+interp-allein.elf 14 einziger Programmkopf verlangt einen Binder
+interp-zweiter.elf 14 zweiter Programmkopf verlangt einen Binder
+entry-ausserhalb.elf 15 Einsprung liegt in keinem Segment
+entry-knapp-dahinter.elf 15 Einsprung ein Oktett hinter dem Segment
+entry-in-nicht-ausfuehrbarem.elf 15 Einsprung liegt in einem nicht ausfuehrbaren Segment
+segmente-ueberlappen.elf 10 zwei Segmente auf derselben Adresse
+segmente-ueberlappen-teilweise.elf 10 zweites Segment ragt in das erste hinein
+segmente-teilen-seite.elf 11 zwei Segmente ohne Ueberlappung, aber in derselben Seite
+zu-viele-segmente.elf 16 17 ladbare Segmente bei einer Grenze von 16
+genau-16-segmente.elf 0 genau 16 ladbare Segmente sind erlaubt
+kein-ladbares-segment.elf 7 kein einziger ladbarer Programmkopf

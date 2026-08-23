@@ -1,0 +1,461 @@
+// kernel/firn/elf.fi -- der Pruefteil des ELF64-Laders von osum, in Firn.
+//
+// Ersetzt den Abschnitt zwischen den Markierungen PRUEFTEIL in
+// kernel/src/kcore/elf.rs. Das Laden selbst (Seiten anlegen, Inhalte
+// kopieren, Rueckrollen) bleibt in Rust -- es haengt an Seitentabellen und
+// Rahmenverwalter, also an einem Dutzend Rueckrufen. Was hier steht, ist
+// genau der Teil, der FREMDE BYTES anfasst.
+//
+// WARUM AUSGERECHNET DIESER TEIL
+//
+// Ein ELF kommt von aussen. Jede Zahl darin ist eine Behauptung eines
+// Fremden: "meine Tabelle beginnt bei Offset X", "mein Segment ist Y lang".
+// Wer diesen Zahlen ungeprueft rechnet, baut sich genau die Luecke, die
+// Angreifer suchen -- ein `off + filesz`, das umlaeuft, ergibt eine kleine
+// Zahl, die Bereichspruefung geht durch, und danach wird an einer Adresse
+// gelesen, die nie geprueft wurde.
+//
+// Die Rust-Fassung hat das mit `checked_add` von Hand abgefangen, an jeder
+// einzelnen Stelle, und der Modulkopf sagte ausdruecklich dazu: "alle
+// Additionen sind ueberlaufsicher". Das war Disziplin. Hier ist es die
+// Sprache: seit Firn-Runde 72/83 bricht JEDE Rechnung ab, die ueberlaeuft --
+// auch die, an die niemand gedacht hat.
+//
+// Wo ein Ueberlauf ein ERWARTETER Fehlerfall ist und kein Programmfehler,
+// steht das ausdruecklich da: die Summe wird gar nicht erst gebildet, sondern
+// vorher gegen die Obergrenze geprueft (`passt_dazu`). Der Unterschied
+// zwischen "darf nicht ueberlaufen" und "muss einen Fehlerwert liefern" ist
+// damit lesbar, statt eine Konvention zu sein.
+//
+// KEIN GLOBALER ZUSTAND: der Aufrufer besitzt den Puffer und die Ergebnis-
+// struktur und reicht beide als Zeiger herein.
+
+profile kernel
+
+// ------------------------------------------------------------ Fehlercodes
+//
+// Die Zahlen sind Teil der Schnittstelle -- sie stehen genauso in
+// kernel/src/kcore/elf.rs (Rust-Seite), in tests/firn-elf/faelle.py
+// (Massstab) und in tests/firn-elf/pruefstand.c.
+
+const OK: u64 = 0
+const E_TOO_SHORT: u64 = 1
+const E_BAD_MAGIC: u64 = 2
+const E_BAD_CLASS: u64 = 3
+const E_BAD_ENDIAN: u64 = 4
+const E_BAD_TYPE: u64 = 5
+const E_BAD_MACHINE: u64 = 6
+const E_BAD_TABLE: u64 = 7
+const E_SEG_OUT_OF_FILE: u64 = 8
+const E_SEG_OUT_OF_RANGE: u64 = 9
+const E_SEG_OVERLAP: u64 = 10
+const E_SEGS_SHARE_PAGE: u64 = 11
+const E_SEG_INSANE: u64 = 12
+const E_BAD_ALIGN: u64 = 13
+const E_NEEDS_INTERP: u64 = 14
+const E_BAD_ENTRY: u64 = 15
+const E_TOO_MANY_SEGMENTS: u64 = 16
+
+error ElfError {
+    TooShort, BadMagic, BadClass, BadEndian, BadType, BadMachine, BadTable,
+    SegmentOutOfFile, SegmentOutOfRange, SegmentOverlap, SegmentsSharePage,
+    SegmentInsane, BadAlign, NeedsInterpreter, BadEntry, TooManySegments,
+}
+
+// ---------------------------------------------------------------- Konstanten
+
+const EHDR_LEN: u64 = 64
+const PHDR_LEN: u64 = 56
+const PT_LOAD: u64 = 1
+// Verweis auf einen Binder. Kommt nur in dynamisch gebundenen Abbildern vor;
+// dieser Kern bindet nicht und weist solche Abbilder ab, statt sie halb zu
+// laden und beim ersten Sprung ins Leere laufen zu lassen.
+const PT_INTERP: u64 = 3
+const ET_EXEC: u64 = 2
+// Maschinenkennung der aktiven Architektur (x86-64 = 62).
+const EM_EXPECTED: u64 = 62
+
+const PAGE: u64 = 4096
+// kernel/src/kcore/user.rs: der unprivilegierte Bereich.
+const USER_BASE: u64 = 0x400000
+const USER_LIMIT: u64 = 0x800000000000
+
+const MAX_SEGMENTS: u64 = 16
+const U64MAX: u64 = 0xFFFFFFFFFFFFFFFF
+
+// Rechtebits im Programmkopf.
+const PF_X: u64 = 1
+const PF_W: u64 = 2
+const PF_R: u64 = 4
+
+// ----------------------------------------------------------------- Struktur
+
+// Ein geprueftes Segment. `flags` traegt die ELF-Rechtebits unveraendert
+// weiter (PF_R/PF_W/PF_X); die Rust-Seite zerlegt sie in ihre drei Wahrheits-
+// werte. Absicht: hier wird nichts umgedeutet, was der Aufrufer anders
+// braeuchte.
+struct ElfSegment {
+    vaddr: u64,
+    file_len: u64,
+    mem_len: u64,
+    file_off: u64,
+    flags: u64,
+}
+
+// Das Ergebnis. Der Aufrufer legt es an und besitzt es -- Firn hat kein
+// `static`, und das ist hier kein Mangel, sondern der richtige Schnitt.
+struct ElfImage {
+    entry: u64,
+    count: u64,
+    segments: [ElfSegment; 16],
+}
+
+// ---------------------------------------------------------- Bytes lesen
+//
+// Ein ELF ist little endian. Die Leser bekommen die Puffergrenze NICHT
+// mitgegeben: jeder Aufrufer prueft vorher, dass die Stelle innerhalb der
+// Datei liegt. Das ist dieselbe Aufteilung wie in der Rust-Fassung -- und der
+// Grund, warum die Reihenfolge der Pruefungen unten nicht vertauscht werden
+// darf.
+
+fn rd8(p: u64, off: u64) -> u64 {
+    let b: u8 = *((p + off) as *mut u8)
+    return b as u64
+}
+
+fn rd16(p: u64, off: u64) -> u64 {
+    return rd8(p, off) | (rd8(p, off + 1) << 8)
+}
+
+fn rd32(p: u64, off: u64) -> u64 {
+    return rd16(p, off) | (rd16(p, off + 2) << 16)
+}
+
+fn rd64(p: u64, off: u64) -> u64 {
+    return rd32(p, off) | (rd32(p, off + 4) << 32)
+}
+
+// -------------------------------------------------------------- Hilfsmittel
+
+// Passt `b` noch dazu, ohne dass `a + b` ueberlaeuft?
+//
+// Die Summe wird BEWUSST nicht gebildet. Ein Ueberlauf ist hier ein
+// erwarteter Fehlerfall -- die Zahlen kommen aus einer fremden Datei --, kein
+// Programmfehler. Wuerde hier `a + b` stehen, braeche Firns geprüfte
+// Arithmetik den Kernel ab, statt das Abbild abzuweisen. Genau dieser
+// Unterschied ist der Grund, warum die Zeile so aussieht, wie sie aussieht.
+fn passt_dazu(a: u64, b: u64) -> bool {
+    return b <= U64MAX - a
+}
+
+fn ist_zweierpotenz(v: u64) -> bool {
+    return v != 0 && (v & (v - 1)) == 0
+}
+
+// Abrunden auf den Seitenanfang.
+fn seite_ab(v: u64) -> u64 {
+    return v & (U64MAX ^ (PAGE - 1))
+}
+
+// Aufrunden auf das Seitenende. Der Aufrufer hat vorher sichergestellt, dass
+// `v` unterhalb von USER_LIMIT liegt -- die Addition kann also nicht
+// ueberlaufen.
+fn seite_auf(v: u64) -> u64 {
+    return seite_ab(v + PAGE - 1)
+}
+
+fn ist_user_addr(a: u64) -> bool {
+    return a >= USER_BASE && a < USER_LIMIT
+}
+
+// ------------------------------------------------------------ der Kopf
+
+// Prueft die 64 Oktette am Dateianfang. Liefert den Beginn der
+// Programmkopftabelle; alles Weitere liest der Aufrufer selbst.
+fn kopf_pruefen(p: u64, len: u64, tabelle: *mut u64, anzahl: *mut u64) -> ElfError!u64 {
+    if len < EHDR_LEN {
+        return ElfError::TooShort
+    }
+    if rd8(p, 0) != 0x7F {
+        return ElfError::BadMagic
+    }
+    if rd8(p, 1) != 69 {
+        return ElfError::BadMagic
+    }
+    if rd8(p, 2) != 76 {
+        return ElfError::BadMagic
+    }
+    if rd8(p, 3) != 70 {
+        return ElfError::BadMagic
+    }
+    if rd8(p, 4) != 2 {
+        return ElfError::BadClass
+    }
+    if rd8(p, 5) != 1 {
+        return ElfError::BadEndian
+    }
+    if rd16(p, 16) != ET_EXEC {
+        return ElfError::BadType
+    }
+    if rd16(p, 18) != EM_EXPECTED {
+        return ElfError::BadMachine
+    }
+
+    let phoff: u64 = rd64(p, 32)
+    let phentsize: u64 = rd16(p, 54)
+    let phnum: u64 = rd16(p, 56)
+    if phentsize != PHDR_LEN {
+        return ElfError::BadTable
+    }
+    if phnum == 0 {
+        return ElfError::BadTable
+    }
+
+    // phnum ist hoechstens 65535, PHDR_LEN ist 56 -- das Produkt kann nicht
+    // ueberlaufen. Die Summe mit phoff sehr wohl: phoff kommt ungeprueft aus
+    // der Datei und darf jeden Wert haben.
+    let tab_len: u64 = phnum * PHDR_LEN
+    if !passt_dazu(phoff, tab_len) {
+        return ElfError::BadTable
+    }
+    if phoff + tab_len > len {
+        return ElfError::BadTable
+    }
+
+    *tabelle = phoff
+    *anzahl = phnum
+    return rd64(p, 24)
+}
+
+// ------------------------------------------------------- ein Programmkopf
+
+// Prueft einen einzelnen ladbaren Programmkopf und traegt ihn ein.
+// `q` zeigt auf den Programmkopf, `len` ist die Dateilaenge.
+fn segment_pruefen(p: u64, len: u64, q: u64, img: *mut ElfImage) -> ElfError!u64 {
+    let flags: u64 = rd32(p, q + 4)
+    let off: u64 = rd64(p, q + 8)
+    let vaddr: u64 = rd64(p, q + 16)
+    let filesz: u64 = rd64(p, q + 32)
+    let memsz: u64 = rd64(p, q + 40)
+    let align: u64 = rd64(p, q + 48)
+
+    if filesz > memsz {
+        return ElfError::SegmentInsane
+    }
+    if memsz == 0 {
+        return ElfError::SegmentInsane
+    }
+
+    // Ausrichtung: entweder ohne Bedingung (0 oder 1) oder eine Zweierpotenz,
+    // und dann muessen Datei- und Speicherlage modulo dieser Zahl
+    // uebereinstimmen. Stimmt das nicht, kann der Lader den Inhalt gar nicht
+    // seitenweise an die richtige Stelle kopieren -- so ein Abbild ist in sich
+    // falsch, nicht bloss unbequem.
+    if align > 1 {
+        if !ist_zweierpotenz(align) {
+            return ElfError::BadAlign
+        }
+        if vaddr % align != off % align {
+            return ElfError::BadAlign
+        }
+    }
+
+    // Liegt der Dateianteil wirklich in der Datei?
+    if !passt_dazu(off, filesz) {
+        return ElfError::SegmentOutOfFile
+    }
+    if off + filesz > len {
+        return ElfError::SegmentOutOfFile
+    }
+
+    // Und die Zieladresse im unprivilegierten Bereich?
+    if !passt_dazu(vaddr, memsz) {
+        return ElfError::SegmentOutOfRange
+    }
+    let vend: u64 = vaddr + memsz
+    if !ist_user_addr(vaddr) {
+        return ElfError::SegmentOutOfRange
+    }
+    if vend > USER_LIMIT {
+        return ElfError::SegmentOutOfRange
+    }
+
+    // Gegen alle schon eingetragenen Segmente pruefen.
+    let lo: u64 = seite_ab(vaddr)
+    let hi: u64 = seite_auf(vend)
+    var k: u64 = 0
+    while k < (*img).count {
+        let pv: u64 = (*img).segments[k as usize].vaddr
+        let pm: u64 = (*img).segments[k as usize].mem_len
+        let pend: u64 = pv + pm
+
+        if vaddr < pend {
+            if pv < vend {
+                return ElfError::SegmentOverlap
+            }
+        }
+
+        // Rechte gelten je SEITE, nicht je Segment. Laegen zwei Segmente in
+        // derselben Seite, muesste der Lader ihre Rechte verodern und wuerde
+        // z. B. aus RX+RW ein RWX machen -- W^X waere still ausgehebelt.
+        // Solche Abbilder werden HIER abgewiesen, bevor die erste Seite
+        // angelegt ist; sonst faellt es erst beim Abbilden als "schon
+        // abgebildet" auf, und dann ist schon die Haelfte da.
+        let plo: u64 = seite_ab(pv)
+        let phi: u64 = seite_auf(pend)
+        if lo < phi {
+            if plo < hi {
+                return ElfError::SegmentsSharePage
+            }
+        }
+        k = k + 1
+    }
+
+    let n: u64 = (*img).count
+    (*img).segments[n as usize].vaddr = vaddr
+    (*img).segments[n as usize].file_len = filesz
+    (*img).segments[n as usize].mem_len = memsz
+    (*img).segments[n as usize].file_off = off
+    (*img).segments[n as usize].flags = flags
+    (*img).count = n + 1
+    return OK
+}
+
+// ------------------------------------------------------------ der Durchlauf
+
+fn durchlauf(p: u64, len: u64, img: *mut ElfImage) -> ElfError!u64 {
+    var tabelle: u64 = 0
+    var anzahl: u64 = 0
+    let entry: u64 = try kopf_pruefen(p, len, &tabelle, &anzahl)
+
+    (*img).entry = entry
+    (*img).count = 0
+
+    var i: u64 = 0
+    while i < anzahl {
+        // tabelle + anzahl*PHDR_LEN wurde in kopf_pruefen gegen die
+        // Dateilaenge geprueft -- diese Rechnung kann also nicht ueberlaufen
+        // und nicht aus der Datei herauszeigen.
+        let q: u64 = tabelle + i * PHDR_LEN
+        let ptype: u64 = rd32(p, q)
+
+        if ptype == PT_INTERP {
+            return ElfError::NeedsInterpreter
+        }
+        if ptype == PT_LOAD {
+            if (*img).count == MAX_SEGMENTS {
+                return ElfError::TooManySegments
+            }
+            let r: u64 = try segment_pruefen(p, len, q, img)
+        }
+        i = i + 1
+    }
+
+    if (*img).count == 0 {
+        return ElfError::BadTable
+    }
+
+    // Der Einsprung muss in einem ausfuehrbaren Segment liegen. Ohne diese
+    // Pruefung springt der Kern in eine Seite ohne Ausfuehrrecht und faengt
+    // sich sofort einen Fehler -- mit einer Meldung, die auf die Seiten-
+    // tabellen zeigt statt auf die Datei, die schuld ist.
+    var gefunden: bool = false
+    var j: u64 = 0
+    while j < (*img).count {
+        let sv: u64 = (*img).segments[j as usize].vaddr
+        let sm: u64 = (*img).segments[j as usize].mem_len
+        let sf: u64 = (*img).segments[j as usize].flags
+        if entry >= sv {
+            if entry < sv + sm {
+                if (sf & PF_X) != 0 {
+                    gefunden = true
+                }
+            }
+        }
+        j = j + 1
+    }
+    if !gefunden {
+        return ElfError::BadEntry
+    }
+    return OK
+}
+
+// ------------------------------------------------------------ Schnittstelle
+
+// Uebersetzt einen Fehlerwert in seine Zahl. `E!T` ueberquert die
+// Sprachgrenze nicht -- die Rust-Seite bekommt eine Zahl und macht daraus
+// wieder ihr `ElfError`.
+fn code_von(e: ElfError) -> u64 {
+    // Kettenvergleich statt `match`: Firns `match` arbeitet auf `enum`,
+    // `int` und `bool`, nicht auf einem Fehlertyp. Genauso macht es Firns
+    // eigener Code (demos/mcserver/main.fi, `err_code`).
+    if e == ElfError::TooShort {
+        return E_TOO_SHORT
+    }
+    if e == ElfError::BadMagic {
+        return E_BAD_MAGIC
+    }
+    if e == ElfError::BadClass {
+        return E_BAD_CLASS
+    }
+    if e == ElfError::BadEndian {
+        return E_BAD_ENDIAN
+    }
+    if e == ElfError::BadType {
+        return E_BAD_TYPE
+    }
+    if e == ElfError::BadMachine {
+        return E_BAD_MACHINE
+    }
+    if e == ElfError::BadTable {
+        return E_BAD_TABLE
+    }
+    if e == ElfError::SegmentOutOfFile {
+        return E_SEG_OUT_OF_FILE
+    }
+    if e == ElfError::SegmentOutOfRange {
+        return E_SEG_OUT_OF_RANGE
+    }
+    if e == ElfError::SegmentOverlap {
+        return E_SEG_OVERLAP
+    }
+    if e == ElfError::SegmentsSharePage {
+        return E_SEGS_SHARE_PAGE
+    }
+    if e == ElfError::SegmentInsane {
+        return E_SEG_INSANE
+    }
+    if e == ElfError::BadAlign {
+        return E_BAD_ALIGN
+    }
+    if e == ElfError::NeedsInterpreter {
+        return E_NEEDS_INTERP
+    }
+    if e == ElfError::BadEntry {
+        return E_BAD_ENTRY
+    }
+    if e == ElfError::TooManySegments {
+        return E_TOO_MANY_SEGMENTS
+    }
+    // Unerreichbar: die Liste oben ist vollstaendig. Bliebe ein Fall offen,
+    // waere 0 = 'angenommen' die gefaehrlichste aller Antworten -- deshalb
+    // steht hier ein Fehlercode und keine Null.
+    return E_TOO_SHORT
+}
+
+// Prueft ein Abbild vollstaendig durch und traegt die Ladeauftraege in `img`
+// ein. Liefert 0 bei Erfolg, sonst den Fehlercode.
+//
+// Fuehrt KEINE Speicherzugriffe ausserhalb von [p, p+len) aus und bildet
+// nichts ab.
+#[export_c]
+fn elf_parse(p: u64, len: u64, img: *mut ElfImage) -> u64 {
+    return durchlauf(p, len, img) catch |e| (code_von(e))
+}
+
+// Hoechstzahl der Segmente -- damit die Rust-Seite ihre Struktur nicht raten
+// muss und der Testlauf beide Seiten vergleichen kann.
+#[export_c]
+fn elf_max_segments() -> u64 {
+    return MAX_SEGMENTS
+}

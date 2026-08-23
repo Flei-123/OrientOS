@@ -42,7 +42,7 @@ BUILD_STD=(-Z build-std=core,compiler_builtins,alloc
 # Der Uebersetzer ist auf vendor/firn/COMMIT festgenagelt. Grund: Firn wird
 # gerade aktiv weiterentwickelt; ohne festen Stand waere bei jedem Fehler
 # unklar, ob er aus dem Kernel oder aus dem Uebersetzer kommt.
-FIRN_MODULE=(serial bitmap)
+FIRN_MODULE=(serial bitmap elf)
 FIRNC=vendor/firn/firnc
 echo ">> Firn-Module (${#FIRN_MODULE[@]}), Uebersetzer $(cut -c1-8 vendor/firn/COMMIT)"
 ./vendor/firn/hole-firnc.sh

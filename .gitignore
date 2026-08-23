@@ -1,11 +1,10 @@
+# Bauverzeichnisse gehoeren NICHT ins Repo. Beides war historisch teilweise
+# eingecheckt (138 Dateien unter target/, 12 unter build/, darunter Limine-
+# Binaerdateien und ein 7-MB-ISO) -- herausgenommen am 23.08.2026.
+# Wer einen Beweis aufheben will, legt ihn woanders ab: das Ergebnis eines
+# Testlaufs ist der Commit, der ihn bestanden hat, nicht sein Log.
 /target/
-/build/*.iso
-/build/isoroot/
-/build/*.log
-/build/boot.*.log
-/build/karstos.*.iso
-/build/initramfs.img
-/build/userland/
+/build/
 
 # Der festgenagelte Firn-Uebersetzer wird gebaut, nicht eingecheckt.
 # Eingecheckt ist nur vendor/firn/COMMIT und das Bauskript.

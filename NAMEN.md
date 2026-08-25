@@ -1,16 +1,64 @@
 # NAMEN.md — Namensfindung: Stand und Begründung
 
-Stand: 19.08.2026
+Stand: 25.08.2026 (OS-Name gesetzt; Kernelteil unveraendert vom 19.08.2026)
 
 | Ebene | Name | Status |
 |---|---|---|
 | **Kernel** | **osum** | **gesetzt** (Cargo-Paketname `osum`) |
-| **Betriebssystem** | *offen* | Arbeitstitel `Karstos`, wird später ersetzt |
+| **Betriebssystem** | **OrientOS** | **gesetzt** (25.08.2026, ersetzt den Arbeitstitel `Karstos`) |
 | **Sprache** | **Firn** | gesetzt, eigenes Projekt |
 
 Umbenennung erfolgt ausschließlich über `./rename.sh <kernel> <os>` — siehe
 `RENAME.md`. Im Quelltext steht kein Produktname; alles kommt aus
 `kernel/src/kcore/branding.rs`.
+
+---
+
+## Warum OrientOS
+
+Gesetzt am 25.08.2026. **OrientOS** war der Name eines frueheren eigenen
+Projekts (~2024): ein Betriebssystem von Grund auf mit eingebautem
+KI-Assistenten. Der Kernel von damals ist nie geflogen, die Idee schon --
+sie steht jetzt in [ASSISTENT.md](ASSISTENT.md). Der Name schliesst das ab.
+
+### Geprueft am 25.08.2026
+
+| Register | `orientos` |
+|---|---|
+| crates.io | frei (fuer den OS-Namen ohnehin unerheblich -- nur der **Kernel** ist ein Cargo-Paket) |
+| npm | frei |
+| PyPI | frei |
+
+| Domain | Stand |
+|---|---|
+| `orientos.org`, `orientos.sh`, `orient-os.com` | **frei** |
+| `orientos.com` | vergeben |
+| `orientos.dev` | keine Nameserver gesetzt, beim Registrar zu pruefen |
+
+**Vorbelastung:** `OrientDB`, eine Graphdatenbank, existiert weiter. Andere
+Kategorie, keine Verwechslungsgefahr in der Domaene Betriebssystem -- anders
+als bei den frueher verworfenen Kandidaten, die alle *in derselben Kategorie*
+kollidierten. Auf GitHub gibt es kein ernstzunehmendes Betriebssystem dieses
+Namens.
+
+**Hinweis:** "Orient" ist ein geografisch aufgeladener Begriff. Bewusst
+akzeptiert.
+
+### Warum nicht `OsumOS`
+
+Registerseitig frei, aber verworfen: Kernel `osum` und System `OsumOS`
+unterscheiden sich um zwei Buchstaben. Kernel- und Produktname trennt man --
+NT/Windows, XNU/macOS, Linux/GNU machen es alle so, und aus gutem Grund:
+sonst laesst sich in keinem Satz mehr sagen, welche Ebene gemeint ist.
+
+### Zweitmarke
+
+Eine Variante **XoffiOS** ist vorgesehen. Sie wird **kein** eigener Zweig:
+ein Quellbaum, zwei Builds. Dafuer bekommt `kernel/src/kcore/branding.rs`
+zusaetzlich einen `option_env!`-Vorrang, wie ihn `brand.rs` in FreeViewer hat
+-- dann laufen zwei Marken nebeneinander, ohne dass `./rename.sh` den Baum
+anfasst. Unterschiede zwischen Marken gehoeren in **Daten** (welche Pakete im
+Abbild liegen, Erscheinungsbild, Paketquelle), nie in Code.
 
 ---
 
@@ -95,7 +143,7 @@ Maßstab ist nicht „gibt es das Wort irgendwo?", sondern
 ## Kontrolle nach der Umbenennung
 
 ```
-./rename.sh osum Karstos     # ausgeführt 19.08.2026
+./rename.sh osum OrientOS     # ausgeführt 19.08.2026
 ./build.sh && ./run-qemu.sh --check
 ./test.sh                    # ALLE TESTS BESTANDEN
 ```

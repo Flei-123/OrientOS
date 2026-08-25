@@ -124,7 +124,7 @@ pub fn sys_close<N: NativeCalls>(n: &mut N, fd: Fd) -> i64 {
     }
 }
 
-/// `fork(2)` gibt es in Karstos nicht und wird es nie geben: die native ABI
+/// `fork(2)` gibt es in OrientOS nicht und wird es nie geben: die native ABI
 /// kennt kein Adressraum-Kopieren. POSIX-Programme muessen `posix_spawn`
 /// benutzen, das auf [`Syscall::ProcessSpawn`] abbildet.
 pub const fn sys_fork_unsupported() -> i64 {

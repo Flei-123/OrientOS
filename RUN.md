@@ -1,6 +1,6 @@
-# RUN — Karstos bauen, starten, prüfen
+# RUN — OrientOS bauen, starten, prüfen
 
-Kernel `osum`, Betriebssystem `Karstos`, Rust `no_std`, Ziel `x86_64-osum-none`.
+Kernel `osum`, Betriebssystem `OrientOS`, Rust `no_std`, Ziel `x86_64-osum-none`.
 Alle Befehle laufen im Projektwurzelverzeichnis, alle Pfade sind relativ.
 
 ## Voraussetzungen
@@ -22,7 +22,7 @@ Netzzugang zu crates.io ist nicht nötig; Limine liegt vorgebaut in `vendor/limi
 ## Der kurze Weg
 
 ```sh
-./build.sh          # Kernel + Userland + Initramfs + bootfähiges build/karstos.iso
+./build.sh          # Kernel + Userland + Initramfs + bootfähiges build/orientos.iso
 ./run-qemu.sh       # interaktiver Start, serielle Ausgabe im Terminal (Strg-C beendet)
 ./test.sh           # der vollständige Nachweis: 19 Schritte, Exitcode 0 = alles grün
 ```

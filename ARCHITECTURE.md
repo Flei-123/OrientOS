@@ -1,4 +1,4 @@
-# Architektur von Karstos / osum
+# Architektur von OrientOS / osum
 
 Stand: Phase 1–3 (bootfähiger Kern, verdrängender Scheduler, Ring 3, ELF-Lader,
 capability-basierte ABI). Dieses Dokument beschreibt **den gebauten
@@ -9,7 +9,7 @@ etwas noch fehlt, steht es ausdrücklich als „noch nicht".
 
 ## 1. Leitgedanke
 
-Karstos ist ein **modularer Monolith**: ein einziges Kernel-Binary (Performance,
+OrientOS ist ein **modularer Monolith**: ein einziges Kernel-Binary (Performance,
 keine IPC-Kosten auf jedem Systemaufruf), aber mit Modulgrenzen, die so scharf
 sind, dass sich einzelne Subsysteme später **ohne Umbau des Rests** in den
 Userspace ziehen lassen.
@@ -544,7 +544,7 @@ und ausschließlich in `kernel/src/kcore/branding.rs` sichtbar:
 ```
 kernel/Cargo.toml  name = "osum"                     ─┐
                    [package.metadata.branding]         │ build.rs
-                   os-name = "Karstos"                ─┘   ↓
+                   os-name = "OrientOS"                ─┘   ↓
 kcore/branding.rs  KERNEL_NAME · OS_NAME · VERSION · LOG_TAG · NATIVE_ABI · banner()
                                     ↓
              klog!(), Panic-Handler, Boot-Banner, ABI-Beschreibung

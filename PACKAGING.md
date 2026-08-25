@@ -1,4 +1,4 @@
-# Software-Verteilung in Karstos
+# Software-Verteilung in OrientOS
 
 Entwurfsentscheidung, festgelegt. Dieses Dokument beschreibt das **Ziel** und
 begründet es; vom Verteilmodell selbst (Store, Generationen, drei Datentöpfe)
@@ -126,7 +126,7 @@ Pflichtmerkmal führt und nicht als Zusatz.
 
 | System | Übernommen | Nicht übernommen |
 |---|---|---|
-| **Nix / Guix** | Content-Addressing, Generationen, atomares Update, GC | die Sprache und die Komplexität der Ableitungen; Karstos braucht kein eigenes Build-System, um eine App zu installieren |
+| **Nix / Guix** | Content-Addressing, Generationen, atomares Update, GC | die Sprache und die Komplexität der Ableitungen; OrientOS braucht kein eigenes Build-System, um eine App zu installieren |
 | **macOS `.app`** | eine App = ein Verzeichnis, Löschen = Wegwerfen | die Ausnahmen (`~/Library`-Streu, `/Library/LaunchDaemons`, Installer-Pakete) |
 | **Android** | strikte Datentrennung je App, App bekommt nur, was sie darf | die Play-Services-Abhängigkeit und das Rechte-Nachfragen zur Laufzeit |
 | **GoboLinux** | lesbare Verzeichnisstruktur statt historisch gewachsener Pfade | Kompatibilitätssymlinks nach `/usr/bin` — das wäre die Hintertür, die alles wieder aufweicht |
@@ -158,7 +158,7 @@ Würfelwert, `kernel/src/abi/native.rs`, `libs/osum-abi-native/src/table.rs`):
    `rights_can_only_shrink`)
 3. **Kein `fork`.**
    `fork` vererbt den kompletten Adressraum und alle Deskriptoren — das exakte
-   Gegenteil von expliziter Rechteweitergabe. Karstos hat nur
+   Gegenteil von expliziter Rechteweitergabe. OrientOS hat nur
    `ProcessSpawn(image, namespace, handles[])`: Der Elternprozess **listet auf**,
    was das Kind bekommt. In der POSIX-Schicht ist `fork` dauerhaft `-ENOSYS`.
    → `libs/osum-abi-posix/src/lib.rs`, `sys_fork_unsupported()`

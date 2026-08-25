@@ -1,4 +1,4 @@
-# Dateisysteme in Karstos
+# Dateisysteme in OrientOS
 
 Reihenfolge und Begründung. Gebaut ist davon in Phase 1 noch nichts — dieses
 Dokument legt fest, **in welcher Reihenfolge** gebaut wird und warum gerade so.
@@ -25,7 +25,7 @@ hätte es Inodes, Hardlinks, `..`-Einträge, `mode_t`-Bits, Zeitstempel in einer
 bestimmten Auflösung und einen globalen Wurzelbaum. FAT hat nichts davon und
 wird deshalb überall mit Emulationsschichten verbogen.
 
-Karstos macht es andersherum:
+OrientOS macht es andersherum:
 
 * Ein Dateisystem liefert **Objekte hinter Handles**, keine Inodes.
 * Die Trait-Grenze verlangt nur, was jedes Dateisystem wirklich kann:
@@ -67,7 +67,7 @@ fragt gezielt und bekommt `NotSupported`, wenn es sie nicht gibt.
 ## 2. FAT32 zuerst — nicht aus Nostalgie, aus Zwang
 
 Die **EFI System Partition ist FAT**. Das ist keine Konvention, das steht in der
-UEFI-Spezifikation. Ohne FAT-Schreibzugriff kann Karstos:
+UEFI-Spezifikation. Ohne FAT-Schreibzugriff kann OrientOS:
 
 * seinen eigenen Bootloader nicht installieren,
 * seine eigenen Systemgenerationen nicht in den Bootpfad eintragen,
@@ -118,7 +118,7 @@ Zwei Beispiele, die niemand ignorieren sollte:
   Merkmal ist einfach zu beschreiben und schwer richtig zu machen.
 
 Ein eigenes Dateisystem ist also kein Wochenendprojekt und darf nicht auf dem
-kritischen Pfad zu „Karstos bootet und ist benutzbar" liegen. Bis dahin tun es
+kritischen Pfad zu „OrientOS bootet und ist benutzbar" liegen. Bis dahin tun es
 FAT32 und ein Initramfs — letzteres ist seit Phase 3 **gebaut** und lädt bereits
 das erste unprivilegierte Programm (siehe § 5 und ARCHITECTURE.md § 5c).
 

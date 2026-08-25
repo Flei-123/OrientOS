@@ -1,6 +1,6 @@
-# Karstos — Betriebssystem von Grund auf
+# OrientOS — Betriebssystem von Grund auf
 
-**Kernel: `osum` · OS: `Karstos` · Sprache: [Firn](LANGUAGE.md) — noch teils Rust (`no_std`) · Ziel: `x86_64-osum-none`**
+**Kernel: `osum` · OS: `OrientOS` · Sprache: [Firn](LANGUAGE.md) — noch teils Rust (`no_std`) · Ziel: `x86_64-osum-none`**
 
 > **Sprachwechsel im Gange.** osum wird **Firn-only**. Der Umbau läuft modulweise: die serielle Konsole, der Bitmap-Rahmenverwalter und der ELF-Prüfteil sind bereits in Firn, der Rest folgt. Stand und Begründung: [LANGUAGE.md](LANGUAGE.md).
 
@@ -26,7 +26,7 @@ rustup component add rust-src llvm-tools
 sudo apt install qemu-system-x86 xorriso mtools ovmf nasm python3
 
 # 2. Bauen und in QEMU starten
-./build.sh          # Kernel + Userland + Initramfs + bootfähiges build/karstos.iso
+./build.sh          # Kernel + Userland + Initramfs + bootfähiges build/orientos.iso
 ./run-qemu.sh       # startet, serielle Ausgabe im Terminal (Strg-C beendet)
 
 # 3. Alles prüfen (Host-Tests + 14 echte QEMU-Boots)
@@ -37,7 +37,7 @@ sudo apt install qemu-system-x86 xorriso mtools ovmf nasm python3
 
 | Befehl | Wirkung |
 |---|---|
-| `./build.sh` | Release-Build + Userland + `build/initramfs.img` + ISO (`build/karstos.iso`) + Symbolkarte (`build/osum.map`) |
+| `./build.sh` | Release-Build + Userland + `build/initramfs.img` + ISO (`build/orientos.iso`) + Symbolkarte (`build/osum.map`) |
 | `./build.sh --debug` | Debug-Build |
 | `./build.sh --no-posix` | Gegenprobe: Kernel ohne POSIX-Schicht (`--no-default-features`) |
 | `./run-qemu.sh` | interaktiver Start, serielle Ausgabe auf stdout |
@@ -70,7 +70,7 @@ andere ist reproduzierbar:
 
 ```text
 ================================================================
-[osum] boot       osum v0.1.0 — Kernel von Karstos
+[osum] boot       osum v0.1.0 — Kernel von OrientOS
 [osum] boot       Architektur : x86_64 (Basisseite 4096 B)
 [osum] boot       ABI         : osum-native + posix (abwaehlbar)
 [osum] boot       Konfiguration: Bauart release, POSIX ja, Fehler-Selbsttest keine (normaler Boot)
@@ -116,7 +116,7 @@ andere ist reproduzierbar:
 [osum] mm           Frame-Buchhaltung: 1346 belegt + 129693 frei = 131039 verwaltet, stimmig: ja
 [osum] heap       Kernel-Heap : 1024 KiB bei virt 0xffffff0000000000 (eigener Free-List-Allocator)
 [osum] heap       Testallokation: Box@0xffffff0000000010 = 0xdeadbeef
-[osum] heap       Testallokation: Vec mit 1024 Elementen, Summe 357389824, String "Karstos lebt"
+[osum] heap       Testallokation: Vec mit 1024 Elementen, Summe 357389824, String "OrientOS lebt"
 [osum] heap       belegt 8272 B von 1048576 B
 [osum] heap       nach Freigabe: belegt 0 B von 1048576 B
 [osum] heap         Heap-Wachstum: 2166784 B abgebildet (vorher 1048576 B), 1 Erweiterung(en), 5 abgelehnt, Grenze 16777216 B, Spielraum 14610432 B
@@ -374,7 +374,7 @@ llvm-addr2line -e target/x86_64-osum-none/release/osum -f -C 0xffffffff800275dc
 ## Verzeichnisse
 
 ```
-karstos/
+orientos/
 ├── build.sh  run-qemu.sh  test.sh      Bauen, Starten, Prüfen
 ├── tests/step-16..19.sh                je ein Nachweis (test.sh hängt sie an)
 ├── x86_64-osum-none.json              eigenes Target

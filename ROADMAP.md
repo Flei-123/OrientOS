@@ -1,4 +1,4 @@
-# Roadmap von Karstos
+# Roadmap von OrientOS
 
 Ziel: ein eigenständiges, langfristig linuxfähiges Betriebssystem — kein Fork,
 kein übernommener Code. Zeithorizont: Jahre. Reihenfolge ist nach Abhängigkeit
@@ -192,15 +192,15 @@ wenn ein Interrupt mitten in einer Ausgabe zugeschlagen hat.
 * ○ Auslagerung/Demand-Paging, Copy-on-Write für `MemoryMap`
 * ○ Benutzerverwaltung rein über Capabilities (keine uid/gid im Kern)
 * ○ Paketformat und Aktualisierung mit atomarem Zurückrollen
-* ○ Werkzeugkette: Karstos-Target für rustc/LLVM, Portierung von coreutils-Ersatz
-* ○ Selbst-Hosting: Karstos baut Karstos
+* ○ Werkzeugkette: OrientOS-Target für rustc/LLVM, Portierung von coreutils-Ersatz
+* ○ Selbst-Hosting: OrientOS baut OrientOS
 
 ---
 
-## Phase 9 — aarch64: Karstos auf ARM ○
+## Phase 9 — aarch64: OrientOS auf ARM ○
 
 Ab hier wird aus einem Kernel ein **Ökosystem**. Ziel ist ausdrücklich nicht
-„läuft auch auf einem Raspberry Pi", sondern Karstos als eigenständige
+„läuft auch auf einem Raspberry Pi", sondern OrientOS als eigenständige
 Alternative über alle Geräteklassen: Desktop und Server auf x86_64, **mobil auf
 aarch64**. Deshalb ist die `arch/`-Grenze in diesem Projekt geschäftskritisch
 und nicht Kosmetik — sie ist der Grund, warum Phase 9 überhaupt möglich ist,
@@ -232,7 +232,7 @@ Ehrlich, ohne Beschönigung: Der Kernel ist das kleinste Problem.
 |---|---|
 | **GPU / Display** | Auf x86 gibt es einen Framebuffer von der Firmware. Auf Mobil-SoCs gibt es Display-Controller (DPU/MDSS), MIPI-DSI-Panels mit gerätespezifischen Initialisierungssequenzen und Grafikkerne (Adreno, Mali), deren Treiber teils reverse-engineert sind. Ohne Display kein Telefon |
 | **Touch-Eingabe** | Kapazitive Controller über I²C, jeder mit eigenem Protokoll, oft mit Firmware-Blob. Dazu Gestenerkennung, Multitouch, Palm Rejection — Dinge, die auf dem Desktop niemand braucht |
-| **Modem / Baseband** | Der schwerste Punkt. Das Modem ist ein eigener Prozessor mit proprietärer Firmware, angebunden über QMI/RPMSG o. ä. Telefonie und Mobilfunkdaten sind ohne Herstellerunterlagen praktisch nicht sauber zu bauen. Realistische Zwischenstufe: Karstos als **Tablet-/WLAN-Gerät**, Telefonie später oder gar nicht |
+| **Modem / Baseband** | Der schwerste Punkt. Das Modem ist ein eigener Prozessor mit proprietärer Firmware, angebunden über QMI/RPMSG o. ä. Telefonie und Mobilfunkdaten sind ohne Herstellerunterlagen praktisch nicht sauber zu bauen. Realistische Zwischenstufe: OrientOS als **Tablet-/WLAN-Gerät**, Telefonie später oder gar nicht |
 | **Energieverwaltung** | Auf Mobilgeräten entscheidet sie über Brauchbarkeit. Regler, Takt- und Spannungsstufen (DVFS), Schlafzustände, Aufweckquellen, Akkuladung (PMIC), Temperaturdrosselung. Ein System, das den Akku in drei Stunden leert, ist kein Ersatz für Android |
 | **Treiberrealität** | Es gibt keine PCI-Aufzählung. Jedes Gerät hängt an I²C/SPI/MMIO und muss aus dem Device Tree bekannt sein. Jeder SoC ist eine eigene Portierung — „ARM" ist keine Plattform, sondern eine Befehlssatzfamilie |
 | **Bootketten** | Verriegelte Bootloader, signierte Abbilder, herstellerspezifische Partitionslayouts. Ohne entsperrbares Gerät kein Test |

@@ -1,4 +1,4 @@
-# NETZWERK.md — Karstos Netzwerk- und Anonymisierungsarchitektur
+# NETZWERK.md — OrientOS Netzwerk- und Anonymisierungsarchitektur
 
 Status: Designdokument, festgehalten **bevor** der Netzwerkstack gebaut wird.
 Grund: Die Umleitschicht muss von Anfang an mitgedacht werden — nachträglich
@@ -129,7 +129,7 @@ eigenes Relay-Netz — gleiche Anbindung, kein Umbau.
 
 | Schritt | Inhalt | Aufwand | Anmerkung |
 |---|---|---|---|
-| 1 | **Netzwerkstack** (Ethernet, IP, TCP, UDP, DNS) | groß | Karstos hat noch keinen. Ohne ihn ist alles Theorie. |
+| 1 | **Netzwerkstack** (Ethernet, IP, TCP, UDP, DNS) | groß | OrientOS hat noch keinen. Ohne ihn ist alles Theorie. |
 | 2 | **Umleitschicht + Toggle + fail-closed** | ~500–1.000 Z. | generisch, ohne konkrete Technik |
 | 3 | **Schnittstellen `Tunnel` / `StromProxy` in Firn** | klein | verbaut nichts, definiert früh |
 | 4 | **SOCKS5-Client in Firn** | ~300 Z. | Tor sofort nutzbar über bestehenden Daemon |
@@ -153,7 +153,7 @@ Capabilities setzt.
 
 **Ausnahme WireGuard, mit Auflage.**
 Linux hat WireGuard im Kernel (Durchsatz: sonst zweimal kopieren pro Paket).
-Für Karstos zunächst trotzdem Userspace. Falls Messungen später Handlungsbedarf
+Für OrientOS zunächst trotzdem Userspace. Falls Messungen später Handlungsbedarf
 zeigen: **nur der Datenpfad** (ChaCha20 auf dem Paket) wandert in den Kernel,
 der **Handshake bleibt draußen**.
 

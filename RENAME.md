@@ -46,8 +46,8 @@ ausgeführt. Ergebnis: `x86_64-nova-none.json`, `libs/nova-mem`,
    * `x86_64-<alt>-none.json` (und `.VERIFIED`)
 3. **Textersetzung über alle Textdateien** (ohne `.git/`, `target/`, `vendor/`,
    `build/`, ISO- und Logdateien). Die Reihenfolge ist wichtig, weil der
-   OS-Name den Kernelnamen als Teilzeichenkette enthält (`karstos` ⊃ `osum`):
-   1. OS-Name (`Karstos`) und seine Kleinschreibung (`karstos`)
+   OS-Name den Kernelnamen als Teilzeichenkette enthält (`orientos` ⊃ `osum`):
+   1. OS-Name (`OrientOS`) und seine Kleinschreibung (`orientos`)
    2. Zusammensetzungen (`osumfs`)
    3. Rust-Modulpfade (`osum_mem` → `nova_mem`)
    4. Bindestrichformen (`osum-abi-native`)
@@ -61,7 +61,7 @@ ausgeführt. Ergebnis: `x86_64-nova-none.json`, `libs/nova-mem`,
 ## Von Hand — falls das Skript einmal nicht passt
 
 ```sh
-ALT_K=osum; ALT_OS=Karstos
+ALT_K=osum; ALT_OS=OrientOS
 NEU_K=nova;  NEU_OS=Novaos
 
 # 1. Verzeichnisse
@@ -74,7 +74,7 @@ find . -type f -not -path './.git/*' -not -path './target/*' \
        -not -path './vendor/*' -not -path './build/*' \
   -exec perl -pi -e "
       s/\Q$ALT_OS\E/$NEU_OS/g;
-      s/\Qkarstos\E/\L$NEU_OS/g;
+      s/\Qorientos\E/\L$NEU_OS/g;
       s/\b\Q$ALT_K\Efs\b/${NEU_K}fs/g;
       s/\b\Q$ALT_K\E_/${NEU_K}_/g;
       s/\b\Q$ALT_K\E-/${NEU_K}-/g;
@@ -110,7 +110,7 @@ OS_NAME_OVERRIDE=Novaos ./build.sh && ./run-qemu.sh --check
 kernel/Cargo.toml
    name = "osum"                    ─┐
    [package.metadata.branding]        │
-   os-name = "Karstos"               ─┤
+   os-name = "OrientOS"               ─┤
                                       │  liest
 OS_NAME_OVERRIDE (Umgebung, optional)─┤
                                       ▼

@@ -1,4 +1,4 @@
-//! # osum-native — die native ABI von Karstos
+//! # osum-native — die native ABI von OrientOS
 //!
 //! Designregeln (bewusst KEIN POSIX):
 //! * **Capability-basiert**: Es gibt keinen globalen Namensraum, auf den ein Prozess

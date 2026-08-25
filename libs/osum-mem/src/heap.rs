@@ -1,4 +1,4 @@
-//! Eigener Heap-Allocator von Karstos — **keine externe Crate**.
+//! Eigener Heap-Allocator von OrientOS — **keine externe Crate**.
 //!
 //! Bewusst selbst geschrieben (Kernziel *lightweight*): ein First-Fit-Free-List-
 //! Allocator mit Adress-Sortierung und sofortiger Verschmelzung benachbarter

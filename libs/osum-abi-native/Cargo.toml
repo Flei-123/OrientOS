@@ -1,6 +1,6 @@
 [package]
 name = "osum-abi-native"
-description = "osum-native: capability-basierte, handle-orientierte native API von Karstos"
+description = "osum-native: capability-basierte, handle-orientierte native API von OrientOS"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

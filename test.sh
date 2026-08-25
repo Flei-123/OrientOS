@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Gesamter Testlauf von Karstos: Host-Tests + echte QEMU-Boots.
+# Gesamter Testlauf von OrientOS: Host-Tests + echte QEMU-Boots.
 # Exitcode 0 = alles bestanden.
 set -uo pipefail
 cd "$(dirname "$0")"

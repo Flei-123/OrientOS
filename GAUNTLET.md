@@ -1,7 +1,7 @@
-# Gauntlet-Log — karstos
+# Gauntlet-Log — orientos
 **Ziel:** WICHTIG ZUERST LESEN: PREFLIGHT.md, ARCHITECTURE.md, ROADMAP.md, README.md, test.sh. Dieses Projekt IST BEREITS FERTIG GEBAUT, kompiliert warnungsfrei und BOOTET nachweislich in QEMU (BIOS und UEFI). `./test.sh` laeuft aktuell mit 15/15 Schritten gruen durch. NICHT neu anfangen, NICHTS wegwerfen, keine funktionierende Datei loeschen oder durch eine Fremd-Crate ersetzen. Wer den Boot kaputt macht, hat einen Totalausfall produziert, keinen Fortschritt. Gebaut wird AUF DIESEM STAND WEITER.
 
-ZIEL DIESER RUNDE: Karstos vom blossen Boot-Kern zum System mit ECHTEM USERSPACE bringen. Vier Meilensteine:
+ZIEL DIESER RUNDE: OrientOS vom blossen Boot-Kern zum System mit ECHTEM USERSPACE bringen. Vier Meilensteine:
 
 1) PRAEEMPTIVER SCHEDULER
    - Der Timer-Interrupt (PIT 100 Hz, bereits vorhanden) ruft den Scheduler. Bisher gibt es nur kooperatives yield in kcore/sched.rs mit context.rs (naked_asm) — das bleibt als Basis, wird aber um echte Praeemption erweitert.
@@ -29,7 +29,7 @@ ZIEL DIESER RUNDE: Karstos vom blossen Boot-Kern zum System mit ECHTEM USERSPACE
 
 RAHMENBEDINGUNGEN (nicht verhandelbar):
 - Alles Architekturspezifische strikt in kernel/src/arch/x86_64/, dahinter das arch-Trait-Interface in kernel/src/kcore/arch_iface.rs. In kernel/src ausserhalb arch/ darf KEIN x86-Detail auftauchen (cr0-3, PML4, PTE, rdmsr/wrmsr, lgdt/lidt, in/out, asm!, invlpg, iretq, swapgs, syscall-MSRs). test.sh Schritt 15 prueft das per grep — er muss gruen bleiben.
-- Der Produktname kommt AUSSCHLIESSLICH aus kernel/src/kcore/branding.rs (gespeist aus Cargo-Metadaten via build.rs). Kein hartkodiertes "osum"/"Karstos" in kernel/src ausserhalb branding.rs — test.sh Schritt 14 prueft das.
+- Der Produktname kommt AUSSCHLIESSLICH aus kernel/src/kcore/branding.rs (gespeist aus Cargo-Metadaten via build.rs). Kein hartkodiertes "osum"/"OrientOS" in kernel/src ausserhalb branding.rs — test.sh Schritt 14 prueft das.
 - LIGHTWEIGHT: derzeit nur 2 externe Crates (limine, spin). Jede neue externe Crate braucht eine harte Begruendung in ARCHITECTURE.md. Kein Ersetzen des eigenen Heap-/Bitmap-Allocators/der eigenen Seitentabellen durch Fremd-Crates (z.B. NICHT x86_64-crate, NICHT linked_list_allocator).
 - KEINE todo!()/unimplemented!() im Baum. NULL Compilerwarnungen (build.sh erzwingt -D warnings).
 - vendor/limine/ nicht anfassen. Keine kosmetischen Umbenennungen, keine Umformatierung des ganzen Baums.

@@ -160,14 +160,14 @@ xorriso -as mkisofs -quiet -R -r -J \
     --efi-boot boot/limine/limine-uefi-cd.bin \
     -efi-boot-part --efi-boot-image \
     --protective-msdos-label \
-    "$ROOT" -o build/karstos.iso
+    "$ROOT" -o build/orientos.iso
 
 # BIOS-Bootsektor eintragen (das Host-Tool wird bei Bedarf gebaut).
 if [[ ! -x vendor/limine/limine ]]; then
     make -s -C vendor/limine >/dev/null
 fi
-vendor/limine/limine bios-install build/karstos.iso >/dev/null
+vendor/limine/limine bios-install build/orientos.iso >/dev/null
 
-SIZE_K=$(( $(stat -c%s build/karstos.iso) / 1024 ))
+SIZE_K=$(( $(stat -c%s build/orientos.iso) / 1024 ))
 KSIZE_K=$(( $(stat -c%s "$KERNEL") / 1024 ))
-echo ">> fertig: build/karstos.iso (${SIZE_K} KiB), Kernel ${KSIZE_K} KiB"
+echo ">> fertig: build/orientos.iso (${SIZE_K} KiB), Kernel ${KSIZE_K} KiB"

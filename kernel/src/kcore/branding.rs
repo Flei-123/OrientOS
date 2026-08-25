@@ -27,7 +27,7 @@ pub const LOG_TAG: &str = concat!("[", env!("BRANDING_KERNEL_NAME"), "]");
 /// Name der nativen ABI, z. B. `osum-native`.
 pub const NATIVE_ABI: &str = concat!(env!("BRANDING_KERNEL_NAME"), "-native");
 
-/// Kopfzeile fuer Banner und Panics, z. B. `osum v0.1.0 — Kernel von Karstos`.
+/// Kopfzeile fuer Banner und Panics, z. B. `osum v0.1.0 — Kernel von OrientOS`.
 pub fn banner() -> impl core::fmt::Display {
     struct Banner;
     impl core::fmt::Display for Banner {

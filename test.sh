@@ -14,7 +14,11 @@ FAIL=0
 # sich zwei Leute in dieser Datei ins Gehege kommen.
 EXTRA=(tests/step-*.sh)
 [[ -e "${EXTRA[0]}" ]] || EXTRA=()
-BASE_STEPS=15
+# Die Schritte in DIESER Datei, gezaehlt statt geschaetzt: die Zahl stand
+# hier fest und war um eins zu klein -- der Lauf endete mit "24/23" und
+# nach dem Kernelwechsel mit "27/26". Eine Zahl, die niemand nachzaehlt,
+# ist irgendwann falsch.
+BASE_STEPS=$(grep -c '^step "' "$0")
 TOTAL=$((BASE_STEPS + ${#EXTRA[@]}))
 NR=0
 step() { NR=$((NR + 1)); echo; echo "################ $NR/$TOTAL $* ################"; }
@@ -24,13 +28,18 @@ step "Host-Tests der architekturunabhaengigen Crates"
 run cargo test --target x86_64-unknown-linux-gnu \
       -p osum-mem -p osum-abi-native -p osum-abi-posix
 
-step "Kernel baut (Release, mit POSIX)"
+# ACHTUNG, seit dem Kernelwechsel: `--kernel rust` steht hier
+# AUSDRUECKLICH. Voreinstellung von build.sh ist der Osum-Kernel; die
+# Schritte 2 bis 13 messen aber weiterhin den alten Rust-Kernel, weil er
+# Dinge kann, die noch nicht portiert sind (KERNELWECHSEL.md). Was den
+# Osum-Kernel misst, steht in tests/step-24 und tests/step-25.
+step "Rust-Kernel baut (Release, mit POSIX) -- die noch nicht portierte Vorlage"
 # --fresh: die eigenen Crates werden wirklich neu uebersetzt. Sonst waere das
 # Bau-Log ein No-op und die Warnungspruefung weiter unten wertlos.
-run ./build.sh --fresh
+run ./build.sh --kernel rust --fresh
 
-step "Kernel baut OHNE POSIX-Schicht"
-run ./build.sh --no-posix
+step "Rust-Kernel baut OHNE POSIX-Schicht"
+run ./build.sh --kernel rust --no-posix
 
 step "Boot in QEMU (BIOS)"
 run ./run-qemu.sh --check

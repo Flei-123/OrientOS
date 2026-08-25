@@ -8,6 +8,41 @@ Legende: **✔ fertig** · **◐ teilweise** · **▶ als Nächstes** · **○ g
 
 ---
 
+## Phase 0 — Der Kernelwechsel ✔ *(25.08.2026)*
+
+**Die Phasen 1 bis 3 unten beschreiben den Rust-Kernel dieses Repos. Er
+ist seit dem 25.08.2026 nicht mehr das Produkt.** Der Kernel von
+OrientOS kommt aus dem **Osum-Repo** (Firn), eingebunden als
+`vendor/osum` mit festgenageltem Commit. OrientOS ist das System darum
+herum. Begründung, Abgleich Modul für Modul und der Stand der offenen
+Punkte: **[KERNELWECHSEL.md](KERNELWECHSEL.md)**.
+
+* ✔ Abgleich Modul für Modul, **bevor** etwas ersetzt wurde
+  (KERNELWECHSEL.md § 2)
+* ✔ `vendor/osum/COMMIT` + `hole-osum.sh` — festgenagelt, mit Herkunft,
+  ohne eingechecktes Abbild
+* ✔ `build.sh --kernel osum|rust`, Voreinstellung **osum**;
+  `run-osum.sh` startet das Produkt-ISO
+* ✔ **UEFI-Boot nach Osum portiert** (dort Commit `c4427fa`): der
+  Multiboot-Kopf verlangt einen linearen Rahmenpuffer, dasselbe Abbild
+  bootet über SeaBIOS **und** OVMF
+* ✔ **Capability-Handles nach Firn portiert** (dort Commit `2d89634`):
+  Handle = Slot + Generation + Würfelwert, 10 Rechtebits, 8 Objektarten,
+  18 Zusagen aus Ring 3 gemessen
+* ◐ **Noch in Rust** (KERNELWECHSEL.md § 4): SMEP/SMAP · die
+  arch-Trait-Grenze · Rahmenpufferkonsole + Font · Boot-Module mit
+  CRC32 · Kanäle, Ports, Namensräume, `ProcessSpawn`, Speicherobjekte
+* ▶ **Als Nächstes:** SMEP/SMAP nach Osum (klein), dann die
+  Rahmenpufferkonsole (Osum fordert den Puffer bereits an, benutzt ihn
+  aber nicht)
+
+**Was die Phasen 1–3 unten für den Osum-Kernel bedeuten:** vieles davon
+kann er längst, und mehr (getrennte Adressräume je Prozess, SMP,
+PCI/NVMe, eigenes Dateisystem, ein Userland aus 23 Werkzeugen). Die
+Häkchen unten gelten für die **Vorlage**, nicht für das Produkt.
+
+---
+
 ## Phase 1 — Bootfähiger Kern ✔ *(abgeschlossen)*
 
 * ✔ Build-System: eigenes Target `x86_64-osum-none`, `build.sh`, `run-qemu.sh`, `test.sh`

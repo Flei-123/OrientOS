@@ -1,5 +1,23 @@
 # Logbuch: der Weg von Rust nach Firn
 
+> **ÜBERHOLT AM 25.08.2026 — und zwar auf die gute Art.** Der Weg, den
+> dieses Dokument beschreibt, ist nicht gescheitert; er ist **abgekürzt**
+> worden. Statt 18 000 Zeilen Rust modulweise nach Firn zu übersetzen,
+> benutzt OrientOS jetzt den Kernel, der in Firn bereits fertig dasteht:
+> **Osum**, eigenes Repository, eingebunden über `vendor/osum/COMMIT`.
+> Der Migrationsstand in M-00 unten war am 25.08.2026 bei 5 % — er ist
+> jetzt gegenstandslos, weil nicht mehr dieser Baum migriert wird.
+>
+> **Was jetzt gilt, steht in [KERNELWECHSEL.md](KERNELWECHSEL.md):** der
+> Abgleich Modul für Modul, was portiert wurde (UEFI-Boot,
+> Capability-Handles) und was noch in Rust steht (SMEP/SMAP,
+> arch-Grenze, Rahmenpufferkonsole, Boot-Module, Kanäle/Ports/Namensräume).
+>
+> **Warum dieses Dokument trotzdem stehen bleibt:** es ist das Logbuch
+> der Reibungspunkte zwischen Rust und einem Kernel, und jeder Eintrag
+> darin ist eine Anforderung an Firn. Diese Einträge (M-02 abwärts,
+> L-*) gelten unverändert. Nur die **Zahlen** in M-00 sind Geschichte.
+
 **Entschieden (21.08.2026): osum wird Firn-only.** Kein Rust, kein übernommener
 Fremdcode. Dieses Dokument hieß bis dahin „wo Rust im Kernel im Weg steht" und
 sammelte Belege dafür, dass eine eigene Sprache **gerechtfertigt** wäre. Diese
@@ -17,15 +35,35 @@ Anforderung an Firn.
 
 ---
 
-## M-00 · Migrationsstand
+## M-00 · Migrationsstand — **erledigt durch den Kernelwechsel**
+
+Der Stand, der hier bis zum 25.08.2026 stand, war:
 
 | | |
 |---|---|
-| **Zielsprache** | Firn, `profile kernel` (freistehend, kein libc, kein Runtime, kein `_start`) |
-| **Übersetzer** | **festgenagelt** auf `vendor/firn/COMMIT` — derzeit `4536a191` (23.08.2026), gebaut von `vendor/firn/hole-firnc.sh` |
 | **In Firn** | `serial.fi` (117) · `bitmap.fi` (344) · `elf.fi` (461) — 922 Zeilen |
 | **Noch in Rust** | 17 993 Zeilen in `kernel/`, `libs/`, `userland/` |
-| **Aufrufrichtung** | nur **Rust → Firn**. Die Gegenrichtung ist gesperrt, siehe M-02 |
+
+Also rund **5 %** nach drei Runden. Der Rest wären etwa 18 000 Zeilen
+Übersetzungsarbeit gewesen — mit dem Ergebnis eines Kernels, der
+**weniger** kann als der, der daneben schon fertig in Firn steht.
+
+**Der Stand seit dem 25.08.2026:**
+
+| | |
+|---|---|
+| **Kernel** | kommt aus dem **Osum-Repo**, festgenagelt über `vendor/osum/COMMIT`. 15 495 Zeilen Firn im Kern, 3 592 im Userland, 1 234 libc, 1 204 Assembler. |
+| **Übersetzer des Kernels** | Osums eigener Nagel (dort `vendor/firn/COMMIT`) — ein **anderer** Commit als der dieses Repos. Zwei Projekte, zwei Nägel. |
+| **Firn in diesem Repo** | `kernel/firn/serial.fi`, `bitmap.fi`, `elf.fi` (922 Zeilen) — gehören zum **Rust-Kernel**, der als Vorlage stehen bleibt. |
+| **Noch in Rust** | 18 017 Zeilen in `kernel/src`, `libs/`. Nicht mehr das Produkt, sondern die Vorlage für das, was noch nicht portiert ist — Liste in [KERNELWECHSEL.md](KERNELWECHSEL.md) § 4. |
+| **Übersetzer dieses Repos** | weiter festgenagelt auf `vendor/firn/COMMIT` — `4536a191` (23.08.2026) |
+| **Aufrufrichtung** | unverändert: nur **Rust → Firn**, siehe M-02 |
+
+**Was der Wechsel an diesem Dokument NICHT ändert.** Die Reibungspunkte
+M-02 und L-* sind Erfahrungen mit Rust im Kernel; sie bleiben gültig und
+sind weiterhin Anforderungen an Firn. Was sich geändert hat, ist die
+Antwort auf die Frage *„wer schreibt den Kernel"* — nicht die auf
+*„welche Sprache".*
 
 ### Warum der Übersetzer festgenagelt ist
 

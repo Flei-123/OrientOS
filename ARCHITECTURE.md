@@ -1,13 +1,38 @@
-# Architektur von OrientOS / osum
+# Architektur von OrientOS
 
-Stand: Phase 1–3 (bootfähiger Kern, verdrängender Scheduler, Ring 3, ELF-Lader,
-capability-basierte ABI). Dieses Dokument beschreibt **den gebauten
-Zustand**, nicht Absichten. Alles, was hier steht, ist im Code nachprüfbar; wo
-etwas noch fehlt, steht es ausdrücklich als „noch nicht".
+Dieses Dokument beschreibt **den gebauten Zustand**, nicht Absichten. Alles,
+was hier steht, ist im Code nachprüfbar; wo etwas noch fehlt, steht es
+ausdrücklich als „noch nicht".
 
 ---
 
-## 1. Leitgedanke
+## 0. Die Teilung seit dem 25.08.2026: Kernel und System
+
+**OrientOS schreibt seinen Kernel nicht mehr selbst.**
+
+| | Repository | Sprache | Rolle |
+|---|---|---|---|
+| **Osum** | eigenes Repo, hier eingebunden als `vendor/osum` (festgenagelt über `vendor/osum/COMMIT`) | Firn + Assembler | **Der Kernel.** Start, Speicher, Adressräume, Prozesse, Dateisystem, Treiber, die beiden ABIs, das Userland darauf. |
+| **OrientOS** | dieses Repo | Rust (Reste), Shell, TOML, Doku | **Das System darum herum.** Marken (`brands/*.toml`), Userland und Paketformat (`PACKAGING.md`), die Assistenten-Schnittstelle (`ASSISTENT.md`), das Verpacken zum bootfähigen Produkt (`build.sh`, Limine) und die **Abnahme des Gesamtsystems** (`test.sh`). |
+
+Die Regel dazwischen ist dieselbe, die dieses Repo schon für den
+Firn-Übersetzer benutzt: **festgenagelter Commit, kein eingechecktes
+Abbild, kein Kopieren ohne Herkunft.** `vendor/osum/hole-osum.sh` baut
+den Kernel aus dem genannten Commit — mit **Osums eigenem**
+Firn-Übersetzer, nicht mit dem dieses Repos.
+
+**Der alte Rust-Kernel** unter `kernel/src` und `libs/` ist nicht
+gelöscht. Er bleibt die Vorlage für alles, was noch nicht nach Firn
+portiert ist, und wird bei jedem Testlauf gebaut und gemessen
+(`./build.sh --kernel rust`). Die Abschnitte 1 bis 10 dieses Dokuments
+beschreiben **ihn** — sie sind damit ab sofort die Beschreibung der
+**Vorlage**, nicht des Produkts. Was davon im Produkt gilt, was portiert
+wurde und was noch aussteht, steht in
+**[KERNELWECHSEL.md](KERNELWECHSEL.md)**.
+
+---
+
+## 1. Leitgedanke (Rust-Kernel — die Vorlage)
 
 OrientOS ist ein **modularer Monolith**: ein einziges Kernel-Binary (Performance,
 keine IPC-Kosten auf jedem Systemaufruf), aber mit Modulgrenzen, die so scharf

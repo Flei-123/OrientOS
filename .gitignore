@@ -13,3 +13,9 @@
 /vendor/firn/.bau/
 /vendor/firn/.gebaut
 /build/firn/
+
+# Der festgenagelte Osum-Kernel wird gebaut, nicht eingecheckt.
+# Eingecheckt ist nur vendor/osum/COMMIT und das Bauskript.
+/vendor/osum/osum.mb
+/vendor/osum/osum.mb.elf
+/vendor/osum/.gebaut

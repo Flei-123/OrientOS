@@ -1,7 +1,22 @@
 #!/usr/bin/env bash
-# osum — Bauen von Kernel und bootfaehigem ISO-Abbild.
+# OrientOS — Bauen des bootfaehigen ISO-Abbilds.
 #
-#   ./build.sh                 Release-Build + ISO
+# ZWEI KERNELQUELLEN, und das ist seit dem Kernelwechsel der wichtigste
+# Schalter dieser Datei (Begruendung und Stand: KERNELWECHSEL.md):
+#
+#   --kernel osum   VOREINSTELLUNG. Der Kernel kommt aus dem Osum-Repo,
+#                   festgenagelt ueber vendor/osum/COMMIT. Er ist in Firn
+#                   geschrieben, wird mit SEINEM eigenen Firn-Uebersetzer
+#                   gebaut und ueber das Multiboot-Protokoll von Limine
+#                   gestartet — BIOS und UEFI. Ergebnis: build/<slug>.iso
+#   --kernel rust   Der alte Kernel dieses Repos (kernel/src, libs/).
+#                   Er ist NICHT das Produkt mehr, sondern die Vorlage fuer
+#                   das, was noch nicht nach Firn portiert ist (Kanaele,
+#                   Ports, Namensraeume, Rahmenpufferkonsole, arch-Grenze).
+#                   Er bleibt messbar, bis sein Ersatz nachweislich laeuft.
+#                   Ergebnis: build/<slug>-rust.iso
+#
+#   ./build.sh                 Release-Build + ISO (Osum-Kernel)
 #   ./build.sh --debug         Debug-Build
 #   ./build.sh --features test-pagefault
 #   ./build.sh --no-posix      Gegenprobe: Kernel ohne POSIX-Schicht
@@ -9,6 +24,7 @@
 #                              uebersetzen (Nachweis der Warnungsfreiheit)
 #   ./build.sh --brand xoffi   mit einer anderen Marke bauen (brands/xoffi.toml).
 #                              Gleicher Quelltext, anderes Produkt — BRANDING.md
+#   ./build.sh --cmdline "..." Kommandozeile fuer den Osum-Kernel
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -21,6 +37,11 @@ EXTRA=()
 OWN_CRATES=(osum osum-mem osum-abi-native osum-abi-posix)
 FRESH=0
 BRAND="${BRAND:-}"
+KERNELQUELLE=osum
+# Was der Osum-Kernel auf der Kommandozeile bekommt. Die Woerter sind in
+# seinem kmain.fi/mode_of dokumentiert; `caps` schaltet die
+# Capability-Runde zu.
+OSUM_CMDLINE="osum nokbd nosched noproc nofs noring3"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -29,6 +50,8 @@ while [[ $# -gt 0 ]]; do
         --no-posix) EXTRA+=(--no-default-features); shift ;;
         --fresh) FRESH=1; shift ;;
         --brand) BRAND="$2"; shift 2 ;;
+        --kernel) KERNELQUELLE="$2"; shift 2 ;;
+        --cmdline) OSUM_CMDLINE="$2"; shift 2 ;;
         -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
         *) echo "unbekannte Option: $1" >&2; exit 1 ;;
     esac
@@ -39,6 +62,72 @@ done
 # shellcheck source=brand.sh
 source ./brand.sh
 echo ">> Marke: ${OS_NAME} (${SLUG}${BRAND:+, brands/$BRAND.toml})"
+
+# ------------------------------------------------------- der Osum-Kernel
+#
+# Der kurze Weg: kein cargo, kein build-std, kein Startdateisystem. Der
+# Kernel ist ein fertiges Multiboot-Abbild aus einem anderen Repo, und
+# alles, was hier passiert, ist Verpacken — genau die Rolle, die OrientOS
+# nach dem Kernelwechsel hat.
+if [[ "$KERNELQUELLE" == osum ]]; then
+    ./vendor/osum/hole-osum.sh
+    KERNEL=vendor/osum/osum.mb
+    test -f "$KERNEL" || { echo "Osum-Abbild fehlt: $KERNEL" >&2; exit 1; }
+
+    ROOT=build/isoroot
+    rm -rf "$ROOT"
+    mkdir -p "$ROOT/boot/limine" "$ROOT/EFI/BOOT"
+    cp "$KERNEL" "$ROOT/boot/osum"
+
+    # Limine, Protokoll multiboot1. DAS IST DER UEFI-PFAD: Osums
+    # Multiboot-Kopf verlangt seit seinem Commit c4427fa einen linearen
+    # Rahmenpuffer (Flag-Bit 2). Ohne den bricht Limine unter UEFI mit
+    # "multiboot1: Cannot use text mode with UEFI" ab; mit ihm bootet
+    # dasselbe Abbild ueber SeaBIOS und ueber OVMF.
+    {
+        echo "# Erzeugt von build.sh --kernel osum. Nicht von Hand aendern."
+        echo "timeout: 0"
+        echo "verbose: yes"
+        echo
+        echo "/${OS_NAME}"
+        echo "    protocol: multiboot1"
+        echo "    path: boot():/boot/osum"
+        echo "    cmdline: ${OSUM_CMDLINE}"
+    } > "$ROOT/boot/limine/limine.conf"
+
+    cp vendor/limine/limine-bios.sys \
+       vendor/limine/limine-bios-cd.bin \
+       vendor/limine/limine-uefi-cd.bin "$ROOT/boot/limine/"
+    cp vendor/limine/BOOTX64.EFI "$ROOT/EFI/BOOT/"
+
+    xorriso -as mkisofs -quiet -R -r -J \
+        -b boot/limine/limine-bios-cd.bin \
+        -no-emul-boot -boot-load-size 4 -boot-info-table \
+        -hfsplus -apm-block-size 2048 \
+        --efi-boot boot/limine/limine-uefi-cd.bin \
+        -efi-boot-part --efi-boot-image \
+        --protective-msdos-label \
+        "$ROOT" -o "build/${SLUG}.iso"
+    if [[ ! -x vendor/limine/limine ]]; then
+        make -s -C vendor/limine >/dev/null
+    fi
+    vendor/limine/limine bios-install "build/${SLUG}.iso" >/dev/null
+
+    echo ">> Kernel: Osum $(cut -c1-8 vendor/osum/COMMIT) (Firn), Kommandozeile: ${OSUM_CMDLINE}"
+    echo ">> fertig: build/${SLUG}.iso ($(( $(stat -c%s "build/${SLUG}.iso") / 1024 )) KiB), Kernel $(( $(stat -c%s "$KERNEL") / 1024 )) KiB"
+    exit 0
+fi
+
+if [[ "$KERNELQUELLE" != rust ]]; then
+    echo "unbekannte Kernelquelle: $KERNELQUELLE (osum|rust)" >&2
+    exit 1
+fi
+
+# ------------------------------------------------------- der Rust-Kernel
+#
+# NICHT MEHR DAS PRODUKT. Er bleibt gebaut und gemessen, solange er Dinge
+# kann, die Osum noch nicht kann — siehe KERNELWECHSEL.md, Abschnitt
+# "Was noch in Rust steht".
 
 # build-std steht bewusst hier und nicht in .cargo/config.toml, damit
 # Host-Tests (cargo test) nicht ebenfalls ein zweites `core` bauen.
@@ -170,14 +259,14 @@ xorriso -as mkisofs -quiet -R -r -J \
     --efi-boot boot/limine/limine-uefi-cd.bin \
     -efi-boot-part --efi-boot-image \
     --protective-msdos-label \
-    "$ROOT" -o build/${SLUG}.iso
+    "$ROOT" -o build/${SLUG}-rust.iso
 
 # BIOS-Bootsektor eintragen (das Host-Tool wird bei Bedarf gebaut).
 if [[ ! -x vendor/limine/limine ]]; then
     make -s -C vendor/limine >/dev/null
 fi
-vendor/limine/limine bios-install build/${SLUG}.iso >/dev/null
+vendor/limine/limine bios-install build/${SLUG}-rust.iso >/dev/null
 
-SIZE_K=$(( $(stat -c%s build/${SLUG}.iso) / 1024 ))
+SIZE_K=$(( $(stat -c%s build/${SLUG}-rust.iso) / 1024 ))
 KSIZE_K=$(( $(stat -c%s "$KERNEL") / 1024 ))
-echo ">> fertig: build/${SLUG}.iso (${SIZE_K} KiB), Kernel ${KSIZE_K} KiB"
+echo ">> fertig: build/${SLUG}-rust.iso (${SIZE_K} KiB), Kernel ${KSIZE_K} KiB"

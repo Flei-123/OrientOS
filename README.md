@@ -1,18 +1,41 @@
 # OrientOS — Betriebssystem von Grund auf
 
-**Kernel: `osum` · OS: `OrientOS` · Sprache: [Firn](LANGUAGE.md) — noch teils Rust (`no_std`) · Ziel: `x86_64-osum-none`**
+**OS: `OrientOS` · Kernel: [`osum`](KERNELWECHSEL.md) — eigenes Repo, in [Firn](LANGUAGE.md) · Ziel: `x86_64-osum-none`**
 
-> **Sprachwechsel im Gange.** osum wird **Firn-only**. Der Umbau läuft modulweise: die serielle Konsole, der Bitmap-Rahmenverwalter und der ELF-Prüfteil sind bereits in Firn, der Rest folgt. Stand und Begründung: [LANGUAGE.md](LANGUAGE.md).
+> **Kernelwechsel am 25.08.2026.** OrientOS schreibt seinen Kernel nicht
+> mehr selbst. Er kommt aus dem **Osum-Repo** — in Firn, mit eigener
+> Historie, festgenagelt über `vendor/osum/COMMIT`, gebaut mit **Osums
+> eigenem** Firn-Übersetzer. OrientOS ist das **System darum herum**:
+> Marken, Userland, Paketformat, Assistenten-Schnittstelle und die
+> Abnahme des Gesamtsystems. Was verglichen wurde, bevor etwas ersetzt
+> wurde, was portiert ist und was noch aussteht:
+> **[KERNELWECHSEL.md](KERNELWECHSEL.md)**.
 
-Kein Linux-Fork, kein übernommener Fremdcode. Der Kernel bootet auf BIOS **und**
-UEFI, baut seine eigenen Seitentabellen, hat einen funktionierenden Heap, prüft
-sich beim Start mit 166 eingebauten Zusagen selbst, **verdrängt** Kernel-Threads
-per Zeitgeber, lädt ein statisch gebundenes ELF64 aus einem Startdateisystem und
-führt es **wirklich in Ring 3** aus — jeder Zugriff dort läuft über Handles mit
-Rechten, nicht über Umgebungsautorität.
+Kein Linux-Fork, kein übernommener Fremdcode.
 
-> Alles hier ist reproduzierbar: `./test.sh` baut, bootet und prüft in 19
-> Schritten. Was noch fehlt, steht ehrlich in
+**Der Kernel (Osum, Firn)** bootet über Multiboot auf BIOS **und** UEFI,
+gibt jedem Prozess einen **eigenen Adressraum**, plant sie mit
+Verdrängung, läuft auf **mehreren Prozessoren**, liest seine Hardware
+über PCI, spricht **NVMe über DMA**, hat ein **eigenes Dateisystem**,
+lädt ELF64-Programme **von der Platte** und trägt darauf eine
+POSIX-Schicht mit den Systemaufrufnummern von Linux, eine libc in Firn,
+eine Shell mit Röhren und Umlenkung und 23 Werkzeuge. Daneben — und das
+ist das Stück, das aus dem alten Rust-Kernel gerettet wurde — eine
+**capability-basierte ABI**: jeder Zugriff über ein Handle mit Rechten,
+kein Erben, keine Umgebungsautorität.
+
+**Der alte Rust-Kernel** (`kernel/src`, `libs/`) ist **nicht gelöscht**.
+Er ist die Vorlage für das, was noch nicht nach Firn portiert ist
+(SMEP/SMAP, die arch-Grenze, die Rahmenpufferkonsole, Boot-Module,
+Kanäle/Ports/Namensräume) und wird bei jedem Testlauf weiter gebaut,
+gebootet und gemessen. Er verschwindet Modul für Modul — jedes, wenn
+sein Ersatz nachweislich läuft, und keines vorher.
+
+> Alles hier ist reproduzierbar: `./test.sh` baut, bootet und prüft in 27
+> Schritten — davon zwei, die den **Osum-Kernel** aus dem Produkt-ISO
+> starten (BIOS und UEFI) und seine Capability-Zusagen aus Ring 3
+> nachlesen. Was noch fehlt, steht ehrlich in
+> [KERNELWECHSEL.md § 4](KERNELWECHSEL.md),
 > [ARCHITECTURE.md § 10](ARCHITECTURE.md) und [ROADMAP.md](ROADMAP.md).
 
 ---
@@ -25,11 +48,17 @@ rustup toolchain install nightly && rustup default nightly
 rustup component add rust-src llvm-tools
 sudo apt install qemu-system-x86 xorriso mtools ovmf nasm python3
 
-# 2. Bauen und in QEMU starten
-./build.sh          # Kernel + Userland + Initramfs + bootfähiges build/orientos.iso
-./run-qemu.sh       # startet, serielle Ausgabe im Terminal (Strg-C beendet)
+# 2. Das PRODUKT bauen und starten (Osum-Kernel)
+./build.sh          # holt Osum aus vendor/osum, packt build/orientos.iso
+./run-osum.sh       # startet es über SeaBIOS, serielle Ausgabe im Terminal
+./run-osum.sh --uefi                       # dasselbe Abbild über OVMF
+./run-osum.sh --cmdline "osum nokbd nosched nofs noring3 caps"   # Capabilities
 
-# 3. Alles prüfen (Host-Tests + 14 echte QEMU-Boots)
+# 3. Den alten Rust-Kernel bauen und starten (die Vorlage)
+./build.sh --kernel rust
+./run-qemu.sh
+
+# 4. Alles prüfen (Host-Tests + echte QEMU-Boots, beide Kernel)
 ./test.sh
 ```
 
@@ -37,7 +66,9 @@ sudo apt install qemu-system-x86 xorriso mtools ovmf nasm python3
 
 | Befehl | Wirkung |
 |---|---|
-| `./build.sh` | Release-Build + Userland + `build/initramfs.img` + ISO (`build/orientos.iso`) + Symbolkarte (`build/osum.map`) |
+| `./build.sh` | **Produkt-ISO mit dem Osum-Kernel** (`build/orientos.iso`) — holt ihn aus `vendor/osum/`, verpackt ihn mit Limine (Multiboot, BIOS + UEFI) |
+| `./build.sh --kernel rust` | der alte Rust-Kernel + Userland + `build/initramfs.img` + `build/orientos-rust.iso` + Symbolkarte |
+| `./run-osum.sh [--uefi] [--cmdline "…"]` | startet das Produkt-ISO; Rückgabe 0, wenn der Kernel sich sauber mit 21 beendet |
 | `./build.sh --debug` | Debug-Build |
 | `./build.sh --no-posix` | Gegenprobe: Kernel ohne POSIX-Schicht (`--no-default-features`) |
 | `./run-qemu.sh` | interaktiver Start, serielle Ausgabe auf stdout |

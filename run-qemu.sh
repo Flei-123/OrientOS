@@ -61,7 +61,11 @@ BUILD_ARGS=()
 [[ $NOPOSIX -eq 1 ]] && BUILD_ARGS+=(--no-posix)
 # IMMER neu bauen: sonst startet ein Lauf womoeglich das ISO des vorherigen
 # Laufs (z. B. das --no-posix-Abbild) und prueft die falsche Konfiguration.
-./build.sh "${BUILD_ARGS[@]}" || exit 1
+# --kernel rust: DIESES Skript misst den alten Rust-Kernel. Jeder seiner
+# --test-*-Schalter ist ein cargo-Feature von kernel/Cargo.toml; mit dem
+# Osum-Kernel gaebe es sie nicht. Der Osum-Kernel wird mit ./run-osum.sh
+# gestartet.
+./build.sh --kernel rust "${BUILD_ARGS[@]}" || exit 1
 
 # Eigene Kopie des Abbilds je Lauf. Laufen mehrere Pruefungen gleichzeitig
 # (z. B. zwei test.sh nebeneinander), baut sonst der eine Lauf build/${SLUG}.iso
@@ -70,10 +74,10 @@ BUILD_ARGS=()
 # Beim interaktiven Lauf (exec, kein Aufraeumen moeglich) bleibt es beim
 # gemeinsamen Abbild.
 source ./brand.sh
-ISO="build/${SLUG}.iso"
+ISO="build/${SLUG}-rust.iso"
 if [[ "$MODE" == check ]]; then
-    ISO="build/${SLUG}.$$.iso"
-    cp -f "build/${SLUG}.iso" "$ISO" || exit 1
+    ISO="build/${SLUG}-rust.$$.iso"
+    cp -f "build/${SLUG}-rust.iso" "$ISO" || exit 1
     trap 'rm -f "$ISO"' EXIT
 fi
 

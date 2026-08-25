@@ -1,0 +1,14 @@
+# Marke: XoffiOS — zweite Marke, gleicher Quelltext.
+#
+# Bauen:  ./build.sh --brand xoffi
+#
+# Es gibt KEINEN eigenen Zweig und keinen Fork. Was sich zwischen den Marken
+# unterscheidet, steht in dieser Datei und spaeter in Daten (welche Pakete im
+# Abbild liegen, Erscheinungsbild, Paketquelle) — nie in Code. Faellt hier ein
+# Feld weg, greift die Voreinstellung aus kernel/Cargo.toml.
+
+os-name   = "XoffiOS"
+slug      = "xoffi"
+publisher = "FleiTec"
+web       = "https://xoffi.fleitec.com"
+feed      = "https://xoffi.fleitec.com/pakete"

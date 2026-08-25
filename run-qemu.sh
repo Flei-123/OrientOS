@@ -64,15 +64,16 @@ BUILD_ARGS=()
 ./build.sh "${BUILD_ARGS[@]}" || exit 1
 
 # Eigene Kopie des Abbilds je Lauf. Laufen mehrere Pruefungen gleichzeitig
-# (z. B. zwei test.sh nebeneinander), baut sonst der eine Lauf build/orientos.iso
+# (z. B. zwei test.sh nebeneinander), baut sonst der eine Lauf build/${SLUG}.iso
 # neu, waehrend der andere es gerade bootet — geprueft wuerde dann der falsche
 # Kernel. Die Kopie wird am Ende wieder weggeraeumt.
 # Beim interaktiven Lauf (exec, kein Aufraeumen moeglich) bleibt es beim
 # gemeinsamen Abbild.
-ISO="build/orientos.iso"
+source ./brand.sh
+ISO="build/${SLUG}.iso"
 if [[ "$MODE" == check ]]; then
-    ISO="build/orientos.$$.iso"
-    cp -f build/orientos.iso "$ISO" || exit 1
+    ISO="build/${SLUG}.$$.iso"
+    cp -f "build/${SLUG}.iso" "$ISO" || exit 1
     trap 'rm -f "$ISO"' EXIT
 fi
 
@@ -163,7 +164,9 @@ if [[ "$MODE" == check ]]; then
             fail=1
         fi
     }
-    check "Kernel meldet sich"            'osum v.* Kernel von OrientOS'
+    # Marke NICHT hartkodieren: der Boot-Banner kommt aus kcore::branding,
+    # also muss die Pruefung aus derselben Quelle kommen (brand.sh).
+    check "Kernel meldet sich"            "${KERNEL_PKG} v.* Kernel von ${OS_NAME}"
     check "Bootloader nennt sich"         'Bootloader  : \S+ \S+'
     check "HHDM-Fenster bekannt"          'HHDM-Fenster: virt = phys \+ 0x[0-9a-f]+'
     check "Kernelabbild vermessen"        'gesamt [0-9]+ KiB geladenes Abbild \([0-9]+ Seiten'

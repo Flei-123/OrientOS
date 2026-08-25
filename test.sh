@@ -3,6 +3,10 @@
 # Exitcode 0 = alles bestanden.
 set -uo pipefail
 cd "$(dirname "$0")"
+
+# Markenaufloesung (brand_feld, OS_NAME, SLUG) — dieselbe Quelle wie build.sh.
+# shellcheck source=brand.sh
+source ./brand.sh
 FAIL=0
 # Die Grundschritte stehen hier, die Nachweise der einzelnen Baustellen als
 # eigene Dateien in tests/step-*.sh (jede Datei ruft `step` und `run` selbst).
@@ -90,6 +94,39 @@ branding_check() {
     return 0
 }
 run branding_check
+
+step "Marken: brands/ ist vollstaendig und eindeutig"
+brands_check() {
+    # Eine Marke ohne os-name/slug wuerde erst beim Bauen auffallen, und ein
+    # doppelter slug wuerde ein Abbild ueberschreiben. Beides hier abfangen.
+    local n=0 slugs=""
+    shopt -s nullglob
+    for f in brands/*.toml; do
+        n=$((n+1))
+        local on sl
+        on=$(brand_feld "$f" os-name); sl=$(brand_feld "$f" slug)
+        if [[ -z "$on" || -z "$sl" ]]; then
+            echo "  $f: os-name oder slug fehlt"; return 1
+        fi
+        if [[ ! "$sl" =~ ^[a-z][a-z0-9-]*$ ]]; then
+            echo "  $f: slug \"$sl\" taugt nicht als Dateiname"; return 1
+        fi
+        case " $slugs " in *" $sl "*) echo "  slug doppelt vergeben: $sl"; return 1 ;; esac
+        slugs="$slugs $sl"
+        echo "  $f -> $on ($sl)"
+    done
+    [[ $n -ge 1 ]] || { echo "  keine Markendatei in brands/"; return 1; }
+    # Die Bauskripte duerfen den Markennamen nicht hartkodieren, sonst faerbt
+    # jede Zweitmarke den Testlauf rot, obwohl alles richtig ist.
+    local os
+    os=$(brand_feld kernel/Cargo.toml os-name)
+    if grep -n "$os" build.sh run-qemu.sh | grep -vE '^\S+:[0-9]+:[[:space:]]*#'; then
+        echo "  Markenname in einem Bauskript hartkodiert (gehoert nach brand.sh)"; return 1
+    fi
+    echo "  $n Marke(n), Bauskripte ohne hartkodierten Namen"
+    return 0
+}
+run brands_check
 
 step "Architekturgrenze und Codehygiene"
 arch_leak() {

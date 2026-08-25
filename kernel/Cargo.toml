@@ -9,6 +9,7 @@ license.workspace = true
 # env!("BRANDING_OS_NAME") an kcore::branding weiter.
 [package.metadata.branding]
 os-name = "OrientOS"
+slug      = "orientos"
 
 [[bin]]
 name = "osum"

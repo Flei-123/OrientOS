@@ -1,0 +1,18 @@
+# Marke: OrientOS — die Standardmarke.
+#
+# Eine Markendatei beschreibt ALLES, was am Produkt austauschbar ist. Der
+# Quelltext kennt keinen dieser Werte; er liest sie ueber kcore::branding.
+#
+# Bauen:  ./build.sh --brand orientos     (oder einfach ./build.sh)
+#
+# Pflichtfelder: os-name, slug. Alles andere ist freiwillig.
+
+os-name   = "OrientOS"
+slug      = "orientos"
+publisher = "FleiTec"
+web       = "https://orientos.org"
+feed      = "https://orientos.org/pakete"
+
+# kernel-name ist absichtlich NICHT gesetzt: der Kernel heisst in jeder Marke
+# osum, so wie NT in jeder Windows-Ausgabe NT heisst. Wer ihn doch umbenennen
+# will, setzt ihn hier — dann heisst nur die Marke anders, nicht das Repo.

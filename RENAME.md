@@ -1,5 +1,11 @@
 # Umbenennen von Kernel und Betriebssystem
 
+> **Zuerst pruefen, ob du das hier ueberhaupt brauchst.** Fuer eine
+> **Zweitmarke** (gleicher Quelltext, anderes Produkt) ist
+> [BRANDING.md](BRANDING.md) der richtige Weg: `./build.sh --brand xoffi`
+> laesst den Baum unangetastet. `rename.sh` ist fuer die **endgueltige**
+> Umbenennung des Projekts — es fasst Verzeichnisse, Cargo-Namen und Doku an.
+
 Der Name ist eine **Konfiguration, keine Eigenschaft des Codes**. Wer sich den
 endgültigen Namen offenhalten will, soll das ohne Refactoring tun können.
 Deshalb gilt in diesem Projekt:

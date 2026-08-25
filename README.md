@@ -55,7 +55,7 @@ sudo apt install qemu-system-x86 xorriso mtools ovmf nasm python3
 | `./run-qemu.sh --test-elf` | ELF64 aus dem Startdateisystem laden, Müll definiert abweisen |
 | `./run-qemu.sh --test-handles` | Handle-Negativtests: falscher Index, alte Generation, fehlendes Recht |
 | `./test.sh` | alles zusammen, 21 Schritte |
-| `./rename.sh <kernel> <os>` | benennt Kernel und OS im ganzen Baum um (siehe [RENAME.md](RENAME.md)) |
+| `./rename.sh <kernel> <os>` | benennt Kernel und OS im ganzen Baum um (siehe [BRANDING.md](BRANDING.md) · [RENAME.md](RENAME.md)) |
 | `cargo test --target x86_64-unknown-linux-gnu -p osum-mem -p osum-abi-native -p osum-abi-posix` | **151 Host-Tests** der hardwarefreien Logik |
 
 ---

@@ -53,12 +53,18 @@ sonst laesst sich in keinem Satz mehr sagen, welche Ebene gemeint ist.
 
 ### Zweitmarke
 
-Eine Variante **XoffiOS** ist vorgesehen. Sie wird **kein** eigener Zweig:
-ein Quellbaum, zwei Builds. Dafuer bekommt `kernel/src/kcore/branding.rs`
-zusaetzlich einen `option_env!`-Vorrang, wie ihn `brand.rs` in FreeViewer hat
--- dann laufen zwei Marken nebeneinander, ohne dass `./rename.sh` den Baum
-anfasst. Unterschiede zwischen Marken gehoeren in **Daten** (welche Pakete im
-Abbild liegen, Erscheinungsbild, Paketquelle), nie in Code.
+Eine Variante **XoffiOS** ist **gebaut und geprueft**: kein eigener Zweig, kein
+Fork, sondern ein Quellbaum und zwei Builds.
+
+```sh
+./build.sh                    # -> build/orientos.iso
+./build.sh --brand xoffi      # -> build/xoffi.iso, gleicher Quelltext
+```
+
+Markendateien liegen in `brands/`, die Reihenfolge der Quellen und alle Felder
+stehen in [BRANDING.md](BRANDING.md). Der Kernel heisst in jeder Marke `osum`.
+Unterschiede zwischen Marken gehoeren in **Daten** (welche Pakete im Abbild
+liegen, Erscheinungsbild, Paketquelle), nie in Code.
 
 ---
 

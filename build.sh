@@ -7,6 +7,8 @@
 #   ./build.sh --no-posix      Gegenprobe: Kernel ohne POSIX-Schicht
 #   ./build.sh --fresh         eigene Crates vorher wegwerfen und WIRKLICH neu
 #                              uebersetzen (Nachweis der Warnungsfreiheit)
+#   ./build.sh --brand xoffi   mit einer anderen Marke bauen (brands/xoffi.toml).
+#                              Gleicher Quelltext, anderes Produkt — BRANDING.md
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -18,6 +20,7 @@ EXTRA=()
 # im Cache, sonst dauert jeder Testlauf unnoetig lange.
 OWN_CRATES=(osum osum-mem osum-abi-native osum-abi-posix)
 FRESH=0
+BRAND="${BRAND:-}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -25,10 +28,17 @@ while [[ $# -gt 0 ]]; do
         --features) FEATURE_ARGS+=(--features "$2"); shift 2 ;;
         --no-posix) EXTRA+=(--no-default-features); shift ;;
         --fresh) FRESH=1; shift ;;
+        --brand) BRAND="$2"; shift 2 ;;
         -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
         *) echo "unbekannte Option: $1" >&2; exit 1 ;;
     esac
 done
+
+# Marke aufloesen (setzt BRAND, OS_NAME, SLUG). Muss VOR cargo laufen: BRAND
+# geht als Umgebungsvariable an kernel/build.rs.
+# shellcheck source=brand.sh
+source ./brand.sh
+echo ">> Marke: ${OS_NAME} (${SLUG}${BRAND:+, brands/$BRAND.toml})"
 
 # build-std steht bewusst hier und nicht in .cargo/config.toml, damit
 # Host-Tests (cargo test) nicht ebenfalls ein zweites `core` bauen.
@@ -160,14 +170,14 @@ xorriso -as mkisofs -quiet -R -r -J \
     --efi-boot boot/limine/limine-uefi-cd.bin \
     -efi-boot-part --efi-boot-image \
     --protective-msdos-label \
-    "$ROOT" -o build/orientos.iso
+    "$ROOT" -o build/${SLUG}.iso
 
 # BIOS-Bootsektor eintragen (das Host-Tool wird bei Bedarf gebaut).
 if [[ ! -x vendor/limine/limine ]]; then
     make -s -C vendor/limine >/dev/null
 fi
-vendor/limine/limine bios-install build/orientos.iso >/dev/null
+vendor/limine/limine bios-install build/${SLUG}.iso >/dev/null
 
-SIZE_K=$(( $(stat -c%s build/orientos.iso) / 1024 ))
+SIZE_K=$(( $(stat -c%s build/${SLUG}.iso) / 1024 ))
 KSIZE_K=$(( $(stat -c%s "$KERNEL") / 1024 ))
-echo ">> fertig: build/orientos.iso (${SIZE_K} KiB), Kernel ${KSIZE_K} KiB"
+echo ">> fertig: build/${SLUG}.iso (${SIZE_K} KiB), Kernel ${KSIZE_K} KiB"

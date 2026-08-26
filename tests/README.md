@@ -20,6 +20,7 @@ und ob die Dokumente dasselbe sagen wie der Baum.
 | Datei | Schritte |
 |---|---|
 | `test.sh` selbst | Herkunft · kein Rust mehr, und die eine Vorlage mit Begründung |
+| `step-05-patches.sh` | die Berichtigungen am festgenagelten Kernel: begründet, passend, **je Patch einzeln** noch nötig |
 | `step-10-marken.sh` | ein Quellbaum, zwei Produkte |
 | `step-20-produkt.sh` | ISO, Userland-Modul, CRC32, Multiboot-Kopf |
 | `step-30-boot.sh` | Boot über SeaBIOS **und** OVMF |
@@ -27,6 +28,15 @@ und ob die Dokumente dasselbe sagen wie der Baum.
 | `step-50-schutz.sh` | Capabilities aus Ring 3 · SMEP/SMAP im Produkt |
 | `step-60-elf-korpus.sh` | 53 kaputte ELF-Abbilder durch den Lader |
 | `step-70-doku.sh` | die Dokumente gegen den Baum |
+
+`step-05-patches.sh` ist am 26.08.2026 dazugekommen und misst etwas, das
+es vorher nicht gab: **Patches auf den festgenagelten Kernel.** Osums
+Merge-Commit `c5fe12f` übersetzt nicht — zwei Stellen sind im Merge
+verlorengegangen. OrientOS berichtigt sie beim Auspacken
+(`vendor/osum/patches/`), statt den Nagel zu verschieben. Der Schritt
+nimmt jeden Patch **einzeln** wieder heraus und verlangt, dass firnc den
+Kernel dann ablehnt: so fällt auf, wenn eine Berichtigung überflüssig
+geworden ist, statt dass sie jahrelang mitgeschleppt wird.
 
 `tests/firn-elf/faelle/` ist Datenbestand, kein Schritt: 53 von Hand
 gebaute ELF64-Köpfe, jeder mit genau **einem** Fehler, erzeugt von

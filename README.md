@@ -108,13 +108,17 @@ alles Austauschbare, der Quelltext kennt keinen dieser Werte
   keine Anwendungen darin ausser dem Terminal und einem Testfenster:
   kein Dateimanager, keine Themen, keine Hintergrundbilder, keine
   Einstellungen.
-- **Keine Benutzer.** Kein `uid`/`gid`, kein `chmod`, kein Anmelden —
-  alles laeuft mit allen Rechten.
-- **Kein `init`, keine Dienste.** Der Kernel startet die Shell unmittelbar.
-- **Kein VFS.** Nur OFS; FAT32, ext4 und andere Dateisysteme fehlen, und
-  fremde Platten sind damit unlesbar.
-- **Keine Paketverwaltung.** Das Format ist entworfen
-  ([PACKAGING.md](PACKAGING.md)), aber nicht gebaut.
+- **Kein ext4.** FAT32 liest und schreibt der Kernel seit K14, ext4 nicht:
+  im Kernelbaum steht dazu keine Zeile.
+- **`firnc` liegt nicht im Produkt.** Osum uebersetzt seit K16 auf sich
+  selbst, aber `vendor/osum/hole-osum.sh` baut nur die Programme aus
+  `kernel/user/*.fi` — darunter `fas` und `firun`, nicht `firnc`. Auf
+  einem gebooteten OrientOS laesst sich heute ein `.s` assemblieren, aber
+  keine `.fi` uebersetzen.
+- **Die Paketverwaltung laeuft auf dem Wirt.** Format, Store,
+  Generationen und eine signierte Quelle stehen ([PAKETE.md](PAKETE.md));
+  das gebootete System liest den Store und startet Pakete, kann aber
+  nicht installieren, entfernen oder zurueckrollen.
 - **Kein Auslagern**, kein `mmap` auf Dateien, **kein USB**, **kein Ton**,
   **keine Energieverwaltung** (ACPI kann bisher nur abschalten: keine
   P-States, keine Profile, kein Akkustand, keine Helligkeit, kein
@@ -263,7 +267,9 @@ osum (eigenes Repo, Firn)                orientos (dieses Repo)
 ├── kernel/user/  Shell, 25 Werkz. │     ├── brands/*.toml        Marken
 ├── lib/libc/     libc in Firn     └──►  ├── userland/PROGRAMME   was ins ISO kommt
 ├── vendor/firn/COMMIT (eigener          ├── userland/dateien/    was OrientOS beisteuert
-│                       Übersetzer)      ├── PACKAGING.md         Pakete
+│                       Übersetzer)      ├── PACKAGING.md         Entwurf: Pakete
+├── assets/apps/  .prog-Bündel (K15)      ├── PAKETE.md            gebautes Format
+                                         ├── pkg/opkg.py          die Paketverwaltung
 └── test.sh       15 Abschnitte,         ├── ASSISTENT.md         Schnittstelle
                   >1100 Zusagen          ├── build.sh             Kernel + Userland → ISO
                                          └── test.sh              Abnahme des Systems
@@ -309,14 +315,18 @@ Ehrlich und vollständig in [KERNELWECHSEL.md § 4](KERNELWECHSEL.md) und
 * **Kanäle, Ports, Namensräume, `ProcessSpawn`, Speicherobjekte** der
   nativen ABI antworten `NotSupported` (−9). Portiert ist das
   Handle-Modell darunter, nicht die Objekte daran.
-* **Vom Verteilmodell** ([PACKAGING.md](PACKAGING.md)) ist nichts gebaut:
-  das Wurzeldateisystem des ISOs ist eine feste Liste, kein Store mit
-  Inhalts-Hashes.
+* **Vom Verteilmodell** ist der Wirtsteil gebaut, der Systemteil nicht:
+  Store, Generationen, Zurueckrollen und eine signierte Quelle laufen als
+  `pkg/opkg.py` auf dem Wirt ([PAKETE.md](PAKETE.md)), und das ISO traegt
+  das Ergebnis (`/store`, `/apps`, `/system`). Ein `/bin/opkg` in Firn
+  gibt es nicht.
 * **Das Modul ist eine RAM-Platte.** Änderungen überleben den Lauf nicht.
   Für ein System, das sich installiert, fehlen ein Schreibpfad auf eine
   echte Platte und ein Partitionstabellen-Leser.
-* Kein Fenstersystem, keine Namensauflösung, kein USB, kein SATA/AHCI,
-  kein Journal, keine Benutzer/Rechte, keine dynamische Bindung.
+* Keine Namensauflösung, kein USB, kein SATA/AHCI, kein Journal, keine
+  dynamische Bindung. (Fenstersystem, Benutzer und Rechte hat der Kernel
+  seit K10 bzw. K13 — diese Aufzählung stand bis zum 26.08.2026 auf dem
+  Stand von `7a53ac3`, siehe [ROADMAP.md](ROADMAP.md) § 10.)
 * **Getestet wird in QEMU**, nicht auf echter Hardware.
 
 ---
@@ -330,7 +340,8 @@ Ehrlich und vollständig in [KERNELWECHSEL.md § 4](KERNELWECHSEL.md) und
 | [ROADMAP.md](ROADMAP.md) | wohin es geht, nach Abhängigkeit sortiert |
 | [LANGUAGE.md](LANGUAGE.md) | das Logbuch der Reibungspunkte zwischen Rust und einem Kernel — Geschichte, und weiterhin Anforderungen an Firn |
 | [BRANDING.md](BRANDING.md) · [RENAME.md](RENAME.md) · [NAMEN.md](NAMEN.md) | Marken, Umbenennen, Namensfindung |
-| [PACKAGING.md](PACKAGING.md) · [FILESYSTEM.md](FILESYSTEM.md) | Verteilmodell und Dateisystem-Entwurf |
+| [PACKAGING.md](PACKAGING.md) · [FILESYSTEM.md](FILESYSTEM.md) | Verteilmodell und Dateisystem — der **Entwurf** |
+| [PAKETE.md](PAKETE.md) · [docs/RUNDE-PAKETE.md](docs/RUNDE-PAKETE.md) | das **gebaute** Paketformat, seine Abweichungen vom Entwurf, und die Zahlen |
 | [ASSISTENT.md](ASSISTENT.md) | die Schnittstelle für einen Assistenten (statt Bildschirmfotos) |
 | [NETZWERK.md](NETZWERK.md) | Umleitschicht, Kernel/Userspace-Grenze, Tor/WireGuard |
 | [userland/README.md](userland/README.md) | wie das Userland ins ISO kommt und was daraus werden soll |

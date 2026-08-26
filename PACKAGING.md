@@ -1,10 +1,19 @@
 # Software-Verteilung in OrientOS
 
 Entwurfsentscheidung, festgelegt. Dieses Dokument beschreibt das **Ziel** und
-begründet es; vom Verteilmodell selbst (Store, Generationen, drei Datentöpfe)
-ist noch **nichts** gebaut — dafür fehlt das Dateisystem. Was der Kernel als
-Unterbau mitbringt, steht in § 7 und ist seit Phase 3 mehr als eine
-Absichtserklärung.
+begründet es. Was der Kernel als Unterbau mitbringt, steht in § 7 und ist seit
+Phase 3 mehr als eine Absichtserklärung.
+
+> **NACHTRAG VOM 26.08.2026.** Bis zu diesem Tag stand hier, vom
+> Verteilmodell sei „noch **nichts** gebaut — dafür fehlt das
+> Dateisystem". Das Dateisystem steht seit Osums Runde K14, und das
+> Modell ist seitdem gebaut: `pkg/opkg.py`, Format und Abweichungen vom
+> Entwurf in [PAKETE.md](PAKETE.md), Zahlen in
+> [docs/RUNDE-PAKETE.md](docs/RUNDE-PAKETE.md). Dieses Dokument bleibt
+> der **Entwurf** und wird nicht nachträglich passend gemacht: wo der
+> gebaute Stand abweicht — `/apps/<name>.prog/` statt eines Verweises,
+> ein verkürzter Store-Name, kein Bootmenü mit Generationen —, steht das
+> in PAKETE.md § 1 und § 5 mit dem Grund daneben.
 
 ---
 

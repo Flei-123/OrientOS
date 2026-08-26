@@ -141,8 +141,8 @@ Hoechstleistung**.
 
 | | Was | Stand |
 |---|---|---|
-| 6.1 | **Paketverwaltung** — Format ist entworfen ([PACKAGING.md](PACKAGING.md)): unveraenderliche, inhaltsadressierte Pakete, drei Datentoepfe, Systemgenerationen. Gebaut ist nichts davon. Netz, Dateisystem und Pruefsummen stehen bereits. | offen |
-| 6.2 | **Paketquelle** — ein Ort, von dem installiert wird; Signaturen | offen |
+| 6.1 | **Paketverwaltung** — unveraenderliche, inhaltsadressierte Pakete, drei Datentoepfe, Systemgenerationen | **gebaut** (26.08.2026, Zweig `pkg`). Format `.opkg` und die Abweichungen vom Entwurf: [PAKETE.md](PAKETE.md). Werkzeug `pkg/opkg.py` mit `bauen zeigen installieren entfernen liste aktualisieren generationen zurueck aufraeumen pruefen baum verweise`. Gemessen (`tests/step-80-pakete.sh`, 35 Zusagen, 0 Fehler): zweimal gebaut ergibt Oktett fuer Oktett dasselbe Paket (237 075 Oktette); ein Paket mit beschaedigten Daten, beschaedigten Metadaten **oder** veraendertem Hash im Kopf wird abgelehnt, das unversehrte angenommen; nach Installieren und Entfernen ist der Baum Oktett fuer Oktett der von vorher (23 Eintraege verglichen, dazwischen 16 veraendert); eine Generation zurueck stellt `apps/` Eintrag fuer Eintrag wieder her (13 Eintraege). **Offen bleibt:** `opkg` laeuft auf dem Wirt, nicht auf Osum — das gebootete System liest den Store und startet Pakete, installiert aber nicht |
+| 6.2 | **Paketquelle** — ein Ort, von dem installiert wird; Signaturen | **gebaut** (26.08.2026). Ein Verzeichnis mit den `.opkg`-Dateien, einem `INDEX` und einer Ed25519-Signatur darueber. Ed25519 steht ZWEIMAL da — eigene Umsetzung nach RFC 8032 und die Bibliothek des Wirts —, beide rechnen bei jedem Pruefen, und bei Uneinigkeit bricht das Werkzeug ab. Gemessen: veraenderter Index abgelehnt, unveraenderter angenommen, ein Paket das nicht zum signierten Index passt abgelehnt. **Offen:** der oeffentliche Schluessel entsteht bei jedem Bau neu und ist damit noch keine Herkunft, sondern nur ein Verfahren |
 | 6.3 | **Browser** — entsteht im Firn-Repo: HTML-Baumbau und DOM (94,89 % der html5lib-Tests), Layout mit Flexbox (31,72 % der Web Platform Tests), Zeichnen in Arbeit. Danach: JS an den DOM binden, HTTP, Oberflaeche. | in Arbeit |
 | 6.4 | **Der Firn-Uebersetzer laeuft auf Osum selbst** — der eigentliche Pruefstein. Ein System, auf dem man sein eigenes System bauen kann, ist erwachsen; alles davor ist Kreuzuebersetzen von aussen. | **fertig** (K16). Osum hat auf sich selbst ein Firn-Programm uebersetzt, gebunden und ausgefuehrt, und das Ergebnis ist **Oktett fuer Oktett** dasselbe, was derselbe Uebersetzer auf Linux aus derselben Quelle macht: Assemblertext **14 909 Oktette zeichengleich**, ELF-Datei **8192 Oktette zeichengleich**. Dazu ein eigener Assembler und Binder in Firn, `kernel/user/fas.fi`, 2423 Zeilen — moeglich, weil der Uebersetzer nur einen kleinen Ausschnitt von x86-64 benutzt: ueber 1 533 513 Zeilen Assemblertext gemessen **58** Mnemoniken, **96** Paare aus Mnemonik und Operandenform, 8 Direktiven, 4 Speicherausdruecke, kein Indexregister, kein Massstab, kein Segment. `fas` bindet **54 von 54** Programmen des Userlands; 16 davon gegen `as`+`ld` gehalten, 16-mal gleiche Ausgabe. `.fi` ist doppelklickbar (`kernel/ftype.fi`, `kernel/user/firun.fi`, 242 Z.). Gemessen: `tools/k16/run.sh` **64 Zusagen, 0 Fehler** |
 | 6.4a | **…aber `firnc` liegt noch nicht im OrientOS-Produkt.** Das ist die ehrliche Trennung zwischen „Osum kann es" und „das Produkt hat es" | **offen, und leicht zu uebersehen.** `vendor/osum/hole-osum.sh` baut die 69 Programme aus `kernel/user/*.fi`; darunter sind `fas` und `firun`, **nicht** aber `firnc` — der entsteht in K16 durch Querbauen von Firns `bin/firnc1.fi` gegen `kernel/user/user.ld` und braucht dafuer das Firn-Repo. Solange das nicht in `hole-osum.sh` steht, kann man auf einem gebooteten OrientOS ein `.s` assemblieren, aber keine `.fi` uebersetzen |
@@ -162,7 +162,7 @@ Hoechstleistung**.
 |---|---|---|
 | 8.1 | **SMEP/SMAP** — Ring 0 fuehrt keinen Nutzercode aus und fasst Nutzerdaten nur im `stac`-Fenster an. Auf JEDEM Kern (CR4 ist pro Prozessor), zurueckgelesen statt behauptet. Gegenproben: `smapraw` gibt mit dem Bit einen #PF und ohne es das Oktett. | **fertig** (26.08.2026, Osum `kernel/guard.fi`) |
 | 8.2 | **Speicherverwuerfelung (KASLR)**, Schutzseiten, nicht ausfuehrbarer Stapel | offen |
-| 8.3 | **Signierte Pakete und signierter Start** | offen |
+| 8.3 | **Signierte Pakete und signierter Start** | **halb** — signierte Paketquelle steht (6.2, Ed25519 ueber den Index, zwei Umsetzungen). Signierter Start ist offen, und er ist die schwierigere Haelfte: er braucht eine Vertrauenskette, die vor dem Kernel anfaengt |
 | 8.4 | **Dauerlauf** — Tage statt Minuten, mit Blick auf Fragmentierung und Lecks | offen |
 
 ---
@@ -199,8 +199,9 @@ gibt. Dem Merge von `k15-ui` sind zwei Stellen abhanden gekommen:
 |---|---|---|
 | `kernel/kmain.fi` | EINE schliessende Klammer in `mode_of` | `'fn' is only allowed at top level, not inside a function body` — 13 Funktionen stehen dadurch im Rumpf von `mode_of` |
 | `kernel/sys.fi` | die K15-Naht (1800..1806) liegt in `k13_call` statt in `dispatch` | `unknown name 'a4'` — `k13_call` nimmt a0..a3. Und uebersetzt waere der Zweig **tot**: `is_k13` zaehlt 1800..1806 nicht auf |
+| `tools/osum/mkfs.py` | `load()` ruft `Fs(blocks, inodes)` — die Signatur ist `(blocks, version, inodes)` | kein Abbruch, sondern etwas Schlimmeres: jedes Abbild mit mehr als 128 Inodes wird mit falscher Geometrie gelesen. `data_start` steht dann auf 34 statt 130, also **auf der Inodetabelle**. Lesen geht (ein Inode traegt absolute Blocknummern), Schreiben wuerde die Tabelle ueberschreiben. Aufgefallen ist es erst, als die Paketrunde ein Abbild mit 512 Inodes brauchte |
 
-Beides sind Merge-Verluste und keine Absicht: der Elternteil `78f8e86`
+Die ersten beiden sind Merge-Verluste und keine Absicht: der Elternteil `78f8e86`
 hat den `kmain`-Block vollstaendig, der Elternteil `fcb5c30` hat die Naht
 in `dispatch`. Berichtigt wird es **hier** und nicht im Kernelrepo — ein
 verschobener Nagel ist ein anderer Stand und entwertet die Messungen von

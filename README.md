@@ -102,7 +102,7 @@ alles Austauschbare, der Quelltext kennt keinen dieser Werte
 | Externe Bibliotheken im Kernel | **0** |
 | Systemaufrufe | 72 |
 | Programme in Ring 3 | 31 gebaut, **26 im Produkt-ISO** |
-| Zusagen der Kernel-Abnahme (Osum `./test.sh`) | **1180**, in 15 Abschnitten |
+| Zusagen der Kernel-Abnahme (Osum `./test.sh`) | **1181**, in 15 Abschnitten, 0 Fehler |
 | Zusagen der System-Abnahme (hier, `./test.sh`) | **151**, in 11 Schritten, jede mit Gegenprobe |
 
 Alles nachpruefbar: `./test.sh` baut, bootet und misst. Jede Zusage hat

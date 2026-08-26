@@ -1,44 +1,91 @@
 # OrientOS — Betriebssystem von Grund auf
 
-**OS: `OrientOS` · Kernel: [`osum`](KERNELWECHSEL.md) — eigenes Repo, in [Firn](LANGUAGE.md) · Ziel: `x86_64-osum-none`**
+**OS: `OrientOS` · Kernel: `osum` (Firn, eigenes Repo) · Ziel: `x86_64-osum-none`**
 
-> **Kernelwechsel am 25.08.2026.** OrientOS schreibt seinen Kernel nicht
-> mehr selbst. Er kommt aus dem **Osum-Repo** — in Firn, mit eigener
-> Historie, festgenagelt über `vendor/osum/COMMIT`, gebaut mit **Osums
-> eigenem** Firn-Übersetzer. OrientOS ist das **System darum herum**:
-> Marken, Userland, Paketformat, Assistenten-Schnittstelle und die
-> Abnahme des Gesamtsystems. Was verglichen wurde, bevor etwas ersetzt
-> wurde, was portiert ist und was noch aussteht:
-> **[KERNELWECHSEL.md](KERNELWECHSEL.md)**.
+Kein Linux-Fork, kein uebernommener Fremdcode. Der Kernel ist in
+[Firn](LANGUAGE.md) geschrieben, einer eigenen Sprache; OrientOS ist das
+System darum herum.
 
-Kein Linux-Fork, kein übernommener Fremdcode.
+## Was es kann
 
-**Der Kernel (Osum, Firn)** bootet über Multiboot auf BIOS **und** UEFI,
-gibt jedem Prozess einen **eigenen Adressraum**, plant sie mit
-Verdrängung, läuft auf **mehreren Prozessoren**, liest seine Hardware
-über PCI, spricht **NVMe über DMA**, hat ein **eigenes Dateisystem**,
-lädt ELF64-Programme **von der Platte** und trägt darauf eine
-POSIX-Schicht mit den Systemaufrufnummern von Linux, eine libc in Firn,
-eine Shell mit Röhren und Umlenkung und 23 Werkzeuge. Daneben — und das
-ist das Stück, das aus dem alten Rust-Kernel gerettet wurde — eine
-**capability-basierte ABI**: jeder Zugriff über ein Handle mit Rechten,
-kein Erben, keine Umgebungsautorität.
+**Starten.** Multiboot ueber Limine, auf BIOS **und** UEFI, aus demselben
+Abbild.
 
-**Der alte Rust-Kernel** (`kernel/src`, `libs/`) ist **nicht gelöscht**.
-Er ist die Vorlage für das, was noch nicht nach Firn portiert ist
-(SMEP/SMAP, die arch-Grenze, die Rahmenpufferkonsole, Boot-Module,
-Kanäle/Ports/Namensräume) und wird bei jedem Testlauf weiter gebaut,
-gebootet und gemessen. Er verschwindet Modul für Modul — jedes, wenn
-sein Ersatz nachweislich läuft, und keines vorher.
+**Prozesse.** Jeder Prozess hat einen **eigenen Adressraum**; `fork`,
+`execve`, `wait4`. Der Scheduler verdraengt nach Zeitscheibe und laeuft
+auf **mehreren Prozessoren** (SMP ueber ACPI/MADT, APIC, Spinlocks).
 
-> Alles hier ist reproduzierbar: `./test.sh` baut, bootet und prüft in 27
-> Schritten — davon zwei, die den **Osum-Kernel** aus dem Produkt-ISO
-> starten (BIOS und UEFI) und seine Capability-Zusagen aus Ring 3
-> nachlesen. Was noch fehlt, steht ehrlich in
-> [KERNELWECHSEL.md § 4](KERNELWECHSEL.md),
-> [ARCHITECTURE.md § 10](ARCHITECTURE.md) und [ROADMAP.md](ROADMAP.md).
+**Hardware.** PCI-Erkennung, APIC und IOAPIC, **NVMe ueber DMA** (gemessen
+140.799 KiB/s gegen 5.910 KiB/s bei ATA PIO), PS/2-Tastatur, serielle
+Schnittstelle, **Rahmenpuffer** 800x600x32 mit Textkonsole 100x37,
+**virtio-net**.
 
----
+**Dateien.** Ein eigenes Dateisystem, **OFS** — Superblock, Blockbitmap,
+Inodes, Verzeichnisse, direkte und indirekte Bloecke, `getdents64`.
+Schreibend, auf RAM-Platte, ATA oder NVMe.
+
+**Programme.** ELF64-Lader: der Kernel liest `/bin/sh` **von der Platte**
+und startet es. Darauf eine **POSIX-Schicht** mit den Systemaufrufnummern
+von Linux (72 Aufrufe), eine libc in Firn, eine **Shell** mit Roehren,
+Umlenkung, Exit-Code und Auftragssteuerung, und **31 Werkzeuge**
+(`ls -l`, `cat`, `cp`, `mv`, `rm`, `grep`, `sort`, `wc`, `ps`, `kill`,
+`ping`, `wget` ...).
+
+**Was Unix-Programme voraussetzen.** Signale mit eigenen
+Behandlungsroutinen in Ring 3 (`sigaction`, `sigreturn`), Terminals und
+Pseudoterminals mit Zeilendisziplin und Prozessgruppen (Strg-C beendet
+wirklich), Echtzeituhr und monotone Uhr, `getrandom`.
+
+**Netz.** Ein eigener TCP/IP-Stack in Firn — Ethernet, ARP, IPv4, ICMP,
+UDP, TCP mit Zustandsautomat — unter virtio-net, mit Steckdosen in
+Ring 3. Gemessen gegen den echten Linux-Kern: 6432 KiB/s ueber saubere
+Leitung, und bei 20 % kuenstlichem Paketverlust uebertraegt er weiter
+korrekt.
+
+**Rechte.** Eine **capability-basierte ABI**: jeder Zugriff laeuft ueber
+ein Handle mit Rechten — Slot und Generation, zehn Rechtebits, acht
+Objektarten. Kein Erben, keine Umgebungsautoritaet.
+
+**Marken.** Ein Quelltext, mehrere Produkte: `brands/*.toml` beschreibt
+alles Austauschbare, der Quelltext kennt keinen dieser Werte
+(`./build.sh --brand <name>`).
+
+## Was es nicht kann
+
+- **Keine Oberflaeche.** Es gibt einen Rahmenpuffer und eine Textkonsole,
+  aber keinen Fensterserver, keine Maus und keine skalierbaren Schriften.
+- **Keinen Editor.** Dateien lassen sich lesen und loeschen, aber auf dem
+  System selbst nicht schreiben oder aendern.
+- **Keine Benutzer.** Kein `uid`/`gid`, kein `chmod`, kein Anmelden —
+  alles laeuft mit allen Rechten.
+- **Kein `init`, keine Dienste.** Der Kernel startet die Shell unmittelbar.
+- **Kein VFS.** Nur OFS; FAT32, ext4 und andere Dateisysteme fehlen, und
+  fremde Platten sind damit unlesbar.
+- **Keine Paketverwaltung.** Das Format ist entworfen
+  ([PACKAGING.md](PACKAGING.md)), aber nicht gebaut.
+- **Kein Auslagern**, kein `mmap` auf Dateien, **kein USB**, **kein Ton**.
+- **Nur x86-64.** Firn selbst uebersetzt auch nach aarch64, der Kernel
+  nicht.
+- **SMEP/SMAP** werden nicht gesetzt.
+- **Keine fremden Programme.** Es laeuft, was in Firn geschrieben und fuer
+  Osum uebersetzt wurde. Linux-Binaerdateien laufen nicht; der Weg dahin
+  waere die Umsetzung der Linux-Systemaufrufnummern auf die eigenen.
+
+## Kennzahlen
+
+| | |
+|---|---|
+| Kernel | 32.570 Zeilen Firn + 1.336 Zeilen Assembler |
+| Rust im Kernel | **0** |
+| Externe Bibliotheken im Kernel | **0** |
+| Systemaufrufe | 72 |
+| Programme in Ring 3 | 31 |
+| Zusagen der Kernel-Abnahme | **1126**, in 14 Abschnitten, 0 Fehler |
+
+Alles nachpruefbar: `./test.sh` baut, bootet und misst. Jede Zusage hat
+eine **Gegenprobe** — denselben Kernel mit abgeschalteter Eigenschaft, wo
+die Messung zusammenbrechen muss. Ein gruener Test ohne Gegenprobe zaehlt
+in diesem Projekt nicht.
 
 ## Schnellstart
 
@@ -54,11 +101,8 @@ sudo apt install qemu-system-x86 xorriso mtools ovmf nasm python3
 ./run-osum.sh --uefi                       # dasselbe Abbild über OVMF
 ./run-osum.sh --cmdline "osum nokbd nosched nofs noring3 caps"   # Capabilities
 
-# 3. Den alten Rust-Kernel bauen und starten (die Vorlage)
-./build.sh --kernel rust
-./run-qemu.sh
 
-# 4. Alles prüfen (Host-Tests + echte QEMU-Boots, beide Kernel)
+# 3. Alles pruefen (Host-Tests + echte QEMU-Boots)
 ./test.sh
 ```
 
@@ -67,7 +111,7 @@ sudo apt install qemu-system-x86 xorriso mtools ovmf nasm python3
 | Befehl | Wirkung |
 |---|---|
 | `./build.sh` | **Produkt-ISO mit dem Osum-Kernel** (`build/orientos.iso`) — holt ihn aus `vendor/osum/`, verpackt ihn mit Limine (Multiboot, BIOS + UEFI) |
-| `./build.sh --kernel rust` | der alte Rust-Kernel + Userland + `build/initramfs.img` + `build/orientos-rust.iso` + Symbolkarte |
+| `./build.sh --kernel rust` | baut die Rust-Fassung, solange sie im Baum liegt (siehe Verzeichnisse) |
 | `./run-osum.sh [--uefi] [--cmdline "…"]` | startet das Produkt-ISO; Rückgabe 0, wenn der Kernel sich sauber mit 21 beendet |
 | `./build.sh --debug` | Debug-Build |
 | `./build.sh --no-posix` | Gegenprobe: Kernel ohne POSIX-Schicht (`--no-default-features`) |
@@ -406,59 +450,25 @@ llvm-addr2line -e target/x86_64-osum-none/release/osum -f -C 0xffffffff800275dc
 
 ```
 orientos/
-├── build.sh  run-qemu.sh  test.sh      Bauen, Starten, Prüfen
-├── tests/step-16..19.sh                je ein Nachweis (test.sh hängt sie an)
-├── x86_64-osum-none.json              eigenes Target
-├── limine.conf                         Bootmenü + Modul „initramfs“
-├── kernel/
-│   ├── linker-x86_64.ld                higher-half bei -2 GiB
-│   └── src/
-│       ├── main.rs                     kmain — der ganze Bootweg an einer Stelle
-│       ├── kcore/                      Typen und Traits, architekturneutral
-│       │   ├── arch_iface.rs           ← die arch-Grenze
-│       │   ├── sched.rs                Scheduler-Trait, Threads, Zeitscheiben, Prioritäten
-│       │   ├── preempt.rs              Tickbuchung, getrennte Wechselzähler
-│       │   ├── user.rs                 was unprivilegiert läuft (nicht wie)
-│       │   ├── elf.rs                  ELF64-Prüfung und Ladeaufträge
-│       │   ├── initramfs.rs            Archivformat „IRFS0002“ (CRC32 je Eintrag)
-│       │   └── mem.rs  print.rs  panic.rs  branding.rs
-│       ├── arch/x86_64/                ← einzige Stelle mit x86-Details
-│       │   ├── gdt.rs idt.rs interrupts.rs paging.rs pic.rs timer.rs
-│       │   ├── context.rs              kooperativer Kontextwechsel (naked_asm)
-│       │   ├── preempt.rs              IRQ0-Einsprung mit vollem Registersatz (naked_asm)
-│       │   ├── user.rs                 Privilegwechsel, Systemaufrufpfad, Per-CPU-Block
-│       │   └── serial.rs cpu.rs msr.rs port.rs selftest.rs
-│       ├── mm/                         Frames, Adressräume, Heap, Selbsttests
-│       ├── drivers/                    Framebuffer-Konsole + eigener 8×16-Font
-│       ├── boot/limine.rs              einzige Datei, die das Bootprotokoll kennt
-│       └── abi/                        native.rs + posix.rs (Feature-gated)
-├── userland/                           hello.asm, user.ld, mkinitramfs.py, mkbroken.py
-├── libs/
-│   ├── osum-mem/                      Bitmap-Allocator, Heap, Regionen — host-getestet
-│   ├── osum-abi-native/               capability-basierte ABI + Handle-Tabelle
-│   └── osum-abi-posix/                abtrennbare POSIX-Übersetzung
-└── vendor/limine/                      Bootloader-Binaries (offline nutzbar)
+├── build.sh  run-osum.sh  test.sh      Bauen, Starten, Pruefen
+├── brands/orientos.toml  xoffi.toml    ein Quelltext, mehrere Produkte
+├── limine.conf                         Bootmenue
+├── x86_64-osum-none.json               eigenes Ziel
+├── vendor/
+│   ├── osum/COMMIT                     DER KERNEL: fester Stand aus dem Osum-Repo
+│   ├── firn/COMMIT                     der Uebersetzer, ebenso festgenagelt
+│   └── limine/                         Bootlader, offline nutzbar
+├── userland/                           hello.asm, mkinitramfs.py, user.ld
+├── tests/                              je Datei ein Nachweis, test.sh haengt sie an
+└── kernel/  libs/                      die Rust-Fassung, solange ihre offenen
+                                        Punkte nicht nach Firn portiert sind
+                                        (SMEP/SMAP, arch-Grenze, Boot-Module)
 ```
 
----
-
-## Kennzahlen
-
-Alle Zahlen sind gemessen, nicht geschätzt — die Befehle stehen daneben.
-
-| | | gemessen mit |
-|---|---|---|
-| Rust-Zeilen (`kernel/` + `libs/`) | 18 290 | `find kernel/src libs -name '*.rs' -exec cat {} + \| wc -l` |
-| Externe Crates | **2** (`limine`, `spin`; `bitflags` transitiv) | `Cargo.lock` |
-| Geladene Kernelgröße | **289,4 KiB** (`.text` 168,6 + `.rodata` 33,0 + `.data` 6,6 + `.bss` 80,8 + Requests 0,4); auf Seiten gerundet 296 KiB = 74 Seiten | `size -A target/x86_64-osum-none/release/osum` |
-| Startdateisystem | **2464 B**, 3 Einträge (`hello`, `kaputt.elf`, `liesmich.txt`) | `stat -c%s build/initramfs.img` |
-| Host-Tests | **151**, alle grün (75 `osum-mem` + 55 `osum-abi-native` + 21 `osum-abi-posix`) | `cargo test --target x86_64-unknown-linux-gnu -p ...` |
-| Prüfmerkmale je QEMU-Boot | **38** | `run-qemu.sh --check` |
-| Selbsttest-Zusagen im Kernel | **170** | Boot-Log, Zeile „Selbsttestbilanz" |
-| Schritte in `./test.sh` | **21** (davon 15 echte QEMU-Boots) | `./test.sh` |
-| Compilerwarnungen | **0** — erzwungen im Bausystem (`[workspace.lints.rust] warnings = "deny"`), geprüft an einem echten Neuübersetzungs-Log | `build/cargo-build-fresh.log` |
-| Nightly-Features | 4, einzeln begründet | ARCHITECTURE.md § 9 |
-| Produktname im Quelltext | **0 Stellen** ausser `branding.rs` | `./test.sh` Schritt 14 |
+Der Kernel selbst liegt **nicht** hier, sondern im eigenen Osum-Repo.
+`vendor/osum/COMMIT` haelt fest, gegen welchen Stand gebaut wird — sonst
+waere bei jedem Fehler unklar, ob er aus dem System oder aus dem Kernel
+kommt.
 
 ---
 
@@ -478,5 +488,5 @@ Alle Zahlen sind gemessen, nicht geschätzt — die Befehle stehen daneben.
 | [ROADMAP.md](ROADMAP.md) | Phasen 1–9, inklusive aarch64/Mobil als eigenes Ökosystem |
 | [PACKAGING.md](PACKAGING.md) | unveränderliche content-addressed Apps, drei Datentöpfe, Systemgenerationen |
 | [FILESYSTEM.md](FILESYSTEM.md) | VFS → FAT32 → ext4 (lesend) → eigenes Dateisystem |
-| [LANGUAGE.md](LANGUAGE.md) | Logbuch: wo Rust im Kernel im Weg steht |
+| [LANGUAGE.md](LANGUAGE.md) | Firn: warum eine eigene Sprache, und was sie dem Kernel abverlangt |
 | [RENAME.md](RENAME.md) | Kernel und OS in unter 15 Minuten umbenennen |

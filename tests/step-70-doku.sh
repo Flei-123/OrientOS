@@ -90,25 +90,43 @@ doku_check() {
     # --- 5. Jeder genannte Pfad existiert
     local fehlend
     fehlend=$(python3 - <<'PY'
-import re, pathlib, sys
-# Pfade in Backticks, die wie Pfade aussehen: mit / oder mit bekannter
-# Endung. Absichtlich ohne Zeilennummern -- die verrotten, Pfade nicht.
+import re, pathlib
+# WELCHE PFADE GEPRUEFT WERDEN, und warum nicht alle.
+#
+# Die Dokumente dieses Repos nennen aus gutem Grund Pfade, die es HIER
+# nicht gibt: die des Osum-Repos (`kernel/…`, `lib/…`, `tools/…`,
+# `docs/…`) liegen in einem anderen Repository, und blosse DATEINAMEN
+# ohne Verzeichnis (`Cargo.toml`, `mkfs.py`, `acpi.fi`, `osum.sh` — das
+# ist in NAMEN.md eine Domain!) sind Namen, keine Pfade.
+#
+# Geprueft wird deshalb genau das, was ein Leser HIER anklicken koennen
+# muss: ein Pfad, dessen erster Bestandteil ein Verzeichnis dieses Repos
+# ist, oder eine Datei im Wurzelverzeichnis mit .md-Endung.
+#
+# UND: ein solcher Pfad darf fehlen, WENN er in tests/GELOESCHT.md steht.
+# Das ist keine Ausnahme, sondern der Punkt — wer etwas loescht, sagt
+# dort, wo es jetzt steht. Wer das vergisst, faellt hier durch.
+lokal = {'tests', 'userland', 'brands', 'vendor', 'vorlage', 'assets'}
 muster = re.compile(r'`([A-Za-z0-9_./-]+\.(?:md|sh|py|toml|fi|rs|conf|json|ld|asm|img|txt))`')
-# Dateien, die in einem anderen Repo liegen (Osum) oder erst gebaut werden.
-fremd = ('kernel/', 'lib/', 'tools/', 'docs/ROUND', 'docs/OSUM', 'vendor/osum/osum.mb',
-         'vendor/osum/mkfs.py', 'vendor/osum/bin', 'vendor/firn/firnc', 'build/')
+geloescht = pathlib.Path('tests/GELOESCHT.md').read_text(encoding='utf-8')
 fehlt = set()
-for md in sorted(pathlib.Path('.').glob('*.md')):
-    if md.name == 'GAUNTLET.md':
-        continue          # automatisch erzeugtes Protokoll, zitiert Fremdbefunde
+for md in sorted(pathlib.Path('.').glob('*.md')) + [pathlib.Path('tests/README.md'),
+                                                    pathlib.Path('userland/README.md')]:
+    if md.name == 'GAUNTLET.md' or not md.exists():
+        continue          # GAUNTLET.md: automatisch erzeugtes Protokoll
     for m in muster.finditer(md.read_text(encoding='utf-8', errors='replace')):
         p = m.group(1)
-        if p.startswith(fremd) or '/' not in p and not pathlib.Path(p).suffix:
+        teile = p.split('/')
+        if len(teile) == 1:
+            if not p.endswith('.md'):
+                continue
+        elif teile[0] not in lokal:
             continue
-        if p.startswith(fremd):
+        if pathlib.Path(p).exists():
             continue
-        if not pathlib.Path(p).exists():
-            fehlt.add(f'{md.name}: {p}')
+        if f'`{p}`' in geloescht:
+            continue
+        fehlt.add(f'{md.name}: {p}')
 for z in sorted(fehlt):
     print(z)
 PY
@@ -122,15 +140,24 @@ PY
     # GEGENPROBE: die Pruefung muss anschlagen.
     local tmp
     tmp=$(mktemp -d)
-    printf 'Probe: `kernel/src/gibtsnicht.rs`\n' > "$tmp/PROBE.md"
-    cp tests/step-70-doku.sh "$tmp/" 2>/dev/null
+    mkdir -p "$tmp/tests"
+    printf 'Probe: `tests/gibtsnicht.sh`\n' > "$tmp/PROBE.md"
+    : > "$tmp/tests/GELOESCHT.md"
     if (cd "$tmp" && python3 - <<'PY' | grep -q .
 import re, pathlib
+lokal = {'tests', 'userland', 'brands', 'vendor', 'vorlage', 'assets'}
 muster = re.compile(r'`([A-Za-z0-9_./-]+\.(?:md|sh|py|toml|fi|rs|conf|json|ld|asm|img|txt))`')
+geloescht = pathlib.Path('tests/GELOESCHT.md').read_text()
 for md in sorted(pathlib.Path('.').glob('*.md')):
     for m in muster.finditer(md.read_text()):
-        if not pathlib.Path(m.group(1)).exists():
-            print(m.group(1))
+        p = m.group(1)
+        t = p.split('/')
+        if len(t) == 1 and not p.endswith('.md'):
+            continue
+        if len(t) > 1 and t[0] not in lokal:
+            continue
+        if not pathlib.Path(p).exists() and f'`{p}`' not in geloescht:
+            print(p)
 PY
     ); then
         ok "Gegenprobe: ein erfundener Pfad laesst die Pruefung anschlagen"
@@ -169,8 +196,10 @@ PY
     done
 
     # --- 8. userland/ sagt, was daraus geworden ist
-    if grep -qF 'PROGRAMME' userland/README.md && ! grep -qF 'hello.asm' userland/README.md; then
-        ok "userland/README.md beschreibt die neue Rolle (PROGRAMME), nicht mehr hello.asm"
+    if grep -qF 'userland/PROGRAMME' userland/README.md \
+       && grep -qiE 'gelöscht|geloescht' userland/README.md \
+       && ! grep -qE '^\| .hello\.asm. \|' userland/README.md; then
+        ok "userland/README.md beschreibt die neue Rolle und nennt hello.asm nur als Geschichte"
     else
         nok "userland/README.md beschreibt noch das geloeschte Startdateisystem"
     fi

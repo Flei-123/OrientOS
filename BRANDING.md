@@ -27,7 +27,7 @@ Beide Abbilder liegen nebeneinander, aus demselben Quelltext, ohne dass eine
 Datei im Baum angefasst wurde. Zum Starten dieselbe Marke angeben:
 
 ```sh
-BRAND=xoffi ./run-qemu.sh --check
+BRAND=xoffi ./run-osum.sh --check
 ```
 
 Gegenprobe, dass es wirklich wirkt — die Zeile kommt aus `kcore::branding`:
@@ -111,7 +111,7 @@ Statt `"osum laeuft"` schreibt man `"{} laeuft", branding::KERNEL_NAME`.
 irgendwo sonst in `kernel/src` auftaucht — die Regel ist geprueft, nicht nur
 aufgeschrieben.
 
-Dasselbe gilt fuer die Testskripte: `run-qemu.sh` prueft den Boot-Banner gegen
+Dasselbe gilt fuer die Testskripte: `run-osum.sh` prueft den Boot-Banner gegen
 `$OS_NAME` aus `brand.sh`, nicht gegen einen festen Namen. Sonst wuerde jede
 Zweitmarke den Testlauf rot faerben, obwohl alles richtig ist.
 

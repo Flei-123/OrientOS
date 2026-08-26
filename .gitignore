@@ -21,3 +21,8 @@
 /vendor/osum/bin/
 /vendor/osum/mkfs.py
 /vendor/osum/.gebaut
+
+# Es gibt in diesem Repo kein cargo mehr (KERNELWECHSEL.md). Der Eintrag
+# bleibt als Wache stehen: faende sich hier je wieder ein target/, waere
+# das ein Rueckfall in den geloeschten Kernel.
+/target/

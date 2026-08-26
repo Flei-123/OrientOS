@@ -36,8 +36,11 @@ ZUSAGEN=0
 # kommen.
 EXTRA=(tests/step-*.sh)
 [[ -e "${EXTRA[0]}" ]] || EXTRA=()
-BASE_STEPS=$(grep -c '^step "' "$0")
-TOTAL=$((BASE_STEPS + ${#EXTRA[@]}))
+# Die Schritte werden GEZAEHLT, nicht geschaetzt: eine Datei unter tests/
+# darf mehr als einen Schritt enthalten, und eine Zahl, die niemand
+# nachzaehlt, ist irgendwann falsch (der Lauf endete schon einmal mit
+# "11/9").
+TOTAL=$(cat "$0" ${EXTRA+"${EXTRA[@]}"} | grep -c '^step "')
 NR=0
 step() { NR=$((NR + 1)); echo; echo "################ $NR/$TOTAL $* ################"; }
 run()  { if "$@"; then echo "  => bestanden"; else echo "  => FEHLGESCHLAGEN"; FAIL=1; fi }

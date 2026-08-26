@@ -87,7 +87,8 @@ Hoechstleistung**.
 
 | | Was | Stand |
 |---|---|---|
-| 7.1 | **aarch64** — Firn uebersetzt bereits nach ARM (296 von 300 Faellen auf beiden Maschinen identisch), der Kernel nicht. Es fehlt die Architekturgrenze: x86-Details liegen ueberall statt an einer Stelle. | offen |
+| 7.1 | **Die Architekturgrenze** — x86-Details liegen im Kernel ueberall statt an einer Stelle. Der Rust-Kernel dieses Repos HATTE diese Grenze (Traits plus ein Testschritt, der x86-Begriffe ausserhalb von `arch/` verbot); sie ist **nicht** nach Firn portiert worden, weil das eine Umbauarbeit an jedem Modul waere und keine Portierung. Die Anforderung steht als unuebersetzte Vorlage im Baum: `vorlage/arch_iface.rs`. Der eigentliche Inhalt ist nicht der Trait-Text, sondern die Regel. Siehe [KERNELWECHSEL.md](KERNELWECHSEL.md) § 4.1. | offen, mit Vorlage |
+| 7.1b | **aarch64** — Firn uebersetzt bereits nach ARM (296 von 300 Faellen auf beiden Maschinen identisch), der Kernel nicht. Setzt 7.1 voraus. | offen |
 | 7.2 | **Die Geraetewirklichkeit auf ARM** — kein PCI-Erkennungsweg wie beim PC, sondern Geraetebaum, und jeder SoC ist anders. Der eigentliche Aufwand. | offen |
 | 7.3 | **Der Browser als App auf Android** — der schnellste Weg, das Ergebnis in die Hand zu bekommen. Android ist Linux plus Bionic; eine APK darf native Bibliotheken enthalten. Also: Browserkern nach `aarch64-linux-android` uebersetzen, als `.so` einpacken, duenne Huelle fuer Zeichenflaeche und Beruehrung. Voraussetzung: der Browser ist fertig genug und laesst sich als Bibliothek herausloesen — beim Bauen von Anfang an mitdenken. | offen |
 
@@ -95,10 +96,26 @@ Hoechstleistung**.
 
 | | Was | Stand |
 |---|---|---|
-| 8.1 | **SMEP/SMAP** — die Schutzbits sind bis heute nicht gesetzt | offen |
+| 8.1 | **SMEP/SMAP** — Ring 0 fuehrt keinen Nutzercode aus und fasst Nutzerdaten nur im `stac`-Fenster an. Auf JEDEM Kern (CR4 ist pro Prozessor), zurueckgelesen statt behauptet. Gegenproben: `smapraw` gibt mit dem Bit einen #PF und ohne es das Oktett. | **fertig** (26.08.2026, Osum `kernel/guard.fi`) |
 | 8.2 | **Speicherverwuerfelung (KASLR)**, Schutzseiten, nicht ausfuehrbarer Stapel | offen |
 | 8.3 | **Signierte Pakete und signierter Start** | offen |
 | 8.4 | **Dauerlauf** — Tage statt Minuten, mit Blick auf Fragmentierung und Lecks | offen |
+
+---
+
+## 9 — Was der Kernelwechsel offengelassen hat
+
+Der Wechsel auf den Osum-Kernel ist am 26.08.2026 mit dem Schnitt
+abgeschlossen worden ([KERNELWECHSEL.md](KERNELWECHSEL.md) § 7). Zwei
+Punkte sind dabei **bewusst** nicht portiert worden, und beide stehen
+hier, damit sie nicht in einer Fussnote verschwinden.
+
+| | Was | Stand |
+|---|---|---|
+| 9.1 | **Die Architekturgrenze** — dieselbe Sache wie 7.1, von der anderen Seite: nicht „wir wollen ARM", sondern „der Rust-Kernel konnte etwas, das der Firn-Kernel nicht kann". Vorlage: `vorlage/arch_iface.rs`, 378 Zeilen, nicht uebersetzt. | offen, mit Vorlage |
+| 9.2 | **Kanaele, Ports, Namensraeume, `ProcessSpawn`, Speicherobjekte** der nativen ABI. Die Nummern (ab 2000), die Fehlerwerte und die Bedeutungen sind portiert und stehen in Osums `sys.fi`; die Objekte dahinter fehlen und antworten `NotSupported` (−9). `NotSupported` und nicht `ENOSYS`: der Aufruf EXISTIERT in dieser ABI, dieser Kernel bietet ihn nur nicht an. | offen |
+| 9.3 | **Ein markenabhaengiges Userland.** Zwei Marken unterscheiden sich bisher nur im Namen. `userland/PROGRAMME.<marke>` waere der naechste Schritt — der Quelltext bliebe derselbe. | offen |
+| 9.4 | **Ein Schreibpfad auf eine echte Platte.** Das Boot-Modul ist eine RAM-Platte; Aenderungen ueberleben den Lauf nicht. Osum kann ATA und NVMe, aber es fehlen Partitionstabellen-Leser und Installationsweg. | offen |
 
 ---
 
@@ -108,6 +125,9 @@ Hoechstleistung**.
 2. **Keine Behauptung ohne Messung.** Jede Zusage hat eine **Gegenprobe** — denselben Kernel mit abgeschalteter Eigenschaft, wo die Messung zusammenbrechen muss. Ein gruener Test ohne Gegenprobe zaehlt nicht.
 3. **Nichts wird geloescht, bevor der Ersatz nachweislich laeuft.**
 4. **Was fehlt, steht da.** Luecken werden benannt, nicht weggeschrieben.
+5. **Was geloescht wird, bleibt in der Historie.** `git rm`, nie `rm`. Ein
+   geloeschter Kernel ist nicht vergessen, er ist nur nicht mehr im Weg —
+   und `./test.sh` prueft nach, dass die Historie ihn noch kennt.
 
 ## Verwandte Entwurfsdokumente
 

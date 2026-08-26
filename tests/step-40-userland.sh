@@ -30,10 +30,15 @@ userland_check() {
         rm -f "$log"; return 1
     fi
 
-    local crc
+    local crc crc_k
     crc=$(python3 -c 'import zlib,sys;print("%08x"%zlib.crc32(open(sys.argv[1],"rb").read()))' \
           "build/${SLUG}-userland.img")
-    if grep -qaF "crc=0x$crc  want=0x$crc  ok=1" "$log"; then
+    # OHNE FUEHRENDE NULLEN, denn so schreibt der Kernel sie: `serial.hex`
+    # gibt die Ziffern aus, die die Zahl hat, und nicht acht Stueck. Das
+    # ist einmal aufgefallen, als die Summe zufaellig mit einer Null
+    # anfing (0x04ed509d) und der Vergleich gegen "04ed509d" fiel.
+    crc_k=$(printf '%x' "0x$crc")
+    if grep -qaF "crc=0x$crc_k  want=0x$crc_k  ok=1" "$log"; then
         ok "der Kernel rechnet dieselbe Pruefsumme wie der Wirt (0x$crc)"
     else
         nok "die Pruefsumme des Moduls stimmt im Kernel nicht"
@@ -50,15 +55,21 @@ userland_check() {
         || nok "/bin/sh ist nicht gestartet"
 
     # Was die SHELL gesagt hat, und nichts anderes.
-    local prog n
+    local prog n fehlt="" zeile
     n=0
-    for prog in sh ls cat echo wc grep uname; do
-        if grep -qaE "^\./ \.\./ .*\b$prog\b" "$log" || grep -qa " $prog " "$log"; then
+    # GENAU die Zeile, die `ls /bin` geschrieben hat, und keine andere:
+    # ein Programmname, der irgendwo sonst im Protokoll auftaucht, ist
+    # kein Beleg dafuer, dass die Datei im Abbild liegt.
+    zeile=$(grep -a '^\./ \.\./ ' "$log" | tail -1)
+    for prog in sh ls cat cp mv rm wc grep sort uname date df ping wget; do
+        if grep -qE "(^| )$prog( |$)" <<<"$zeile"; then
             n=$((n+1))
+        else
+            fehlt="$fehlt $prog"
         fi
     done
-    [[ $n -ge 7 ]] && ok "'ls /bin' zeigt die Werkzeuge des Produkts ($n von 7 geprueft)" \
-                   || nok "'ls /bin' zeigt nur $n von 7 erwarteten Werkzeugen"
+    [[ -z "$fehlt" ]] && ok "'ls /bin' zeigt alle $n geprueften Werkzeuge des Produkts" \
+                      || nok "'ls /bin' zeigt$fehlt nicht (von 14 geprueften)"
     grep -qa '^osum$' "$log" \
         && ok "'uname' antwortet aus Ring 3" \
         || nok "'uname' hat nicht geantwortet"
@@ -95,7 +106,7 @@ userland_check() {
     fi
     # Und das Modul ist am Ende des Laufs noch dasselbe: der Bereich war
     # im Rahmenverwalter wirklich reserviert.
-    if grep -qaF "mod: recheck crc=0x$crc  same=1" "$log"; then
+    if grep -qaF "mod: recheck crc=0x$crc_k  same=1" "$log"; then
         ok "nach dem ganzen Lauf ist das Modul unveraendert — sein Speicher gehoerte ihm"
     else
         nok "das Modul hat sich waehrend des Laufs veraendert"

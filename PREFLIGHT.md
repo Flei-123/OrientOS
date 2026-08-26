@@ -1,5 +1,16 @@
 # PREFLIGHT — Zustand des Projekts (Stand nach Runde 3)
 
+> **ÜBERHOLT AM 26.08.2026.** Dieses Dokument beschreibt Arbeit am
+> **Rust-Kernel** dieses Repos. Der ist gelöscht — der Kernel kommt aus
+> dem Osum-Repo ([KERNELWECHSEL.md](KERNELWECHSEL.md)). Alles, was hier
+> `run-qemu.sh`, `cargo`, `kernel/src` oder `Cargo.toml` nennt, gibt es
+> nicht mehr; wo die Dinge jetzt stehen, sagt
+> [tests/GELOESCHT.md](tests/GELOESCHT.md). Das Dokument bleibt als
+> **Protokoll** stehen: was damals geplant und gemessen wurde, ist Teil
+> der Geschichte dieses Projekts und wird nicht nachträglich
+> umgeschrieben.
+
+
 **Dieses Projekt ist gebaut, kompiliert warnungsfrei und bootet nachweislich.**
 Nicht neu anfangen, nichts wegwerfen, keine funktionierende Datei löschen.
 Wer den Boot kaputt macht, hat einen Totalausfall produziert, keinen Fortschritt.

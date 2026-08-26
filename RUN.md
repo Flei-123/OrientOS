@@ -1,5 +1,27 @@
 # RUN — OrientOS bauen, starten, prüfen
 
+> **ÜBERHOLT AM 26.08.2026.** Dieses Dokument beschreibt Arbeit am
+> **Rust-Kernel** dieses Repos. Der ist gelöscht — der Kernel kommt aus
+> dem Osum-Repo ([KERNELWECHSEL.md](KERNELWECHSEL.md)). Alles, was hier
+> `run-qemu.sh`, `cargo`, `kernel/src` oder `Cargo.toml` nennt, gibt es
+> nicht mehr; wo die Dinge jetzt stehen, sagt
+> [tests/GELOESCHT.md](tests/GELOESCHT.md). Das Dokument bleibt als
+> **Protokoll** stehen: was damals geplant und gemessen wurde, ist Teil
+> der Geschichte dieses Projekts und wird nicht nachträglich
+> umgeschrieben.
+
+**Der heute gueltige Weg, in vier Zeilen:**
+
+```sh
+./build.sh                              # build/orientos.iso (Kernel + Userland-Modul)
+./run-osum.sh                           # Boot ueber SeaBIOS, serielle Ausgabe im Terminal
+./run-osum.sh --uefi                    # dasselbe Abbild ueber OVMF
+./run-osum.sh --script 'ls /bin;exit'   # ein Shell-Skript hineinreichen
+```
+
+Alles Weitere steht in [README.md](README.md) unter „Skripte".
+
+
 Kernel `osum`, Betriebssystem `OrientOS`, Rust `no_std`, Ziel `x86_64-osum-none`.
 Alle Befehle laufen im Projektwurzelverzeichnis, alle Pfade sind relativ.
 

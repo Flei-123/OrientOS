@@ -58,7 +58,9 @@ boot_check() {
             nok "Boot ueber UEFI fehlgeschlagen — genau das ging vor dem Kernelwechsel nicht"
             tail -15 build/boot-uefi.log | sed 's/^/         /'
         fi
-        for muster in '^firn kernel r62' '^mmap: [0-9]+ entries' '^mod: base=' '^kernel: done'; do
+        # Ohne Zeilenanfang: die UEFI-Firmware schreibt Steuerzeichen auf
+        # dieselbe serielle Leitung, und die stehen dann vor der Zeile.
+        for muster in 'firn kernel r62' 'mmap: [0-9]+ entries' 'mod: base=' 'kernel: done'; do
             grep -qaE "$muster" "$ulog" \
                 && ok "UEFI: /$muster/" \
                 || nok "UEFI: /$muster/ fehlt"

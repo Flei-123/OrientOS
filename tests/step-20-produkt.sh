@@ -110,10 +110,14 @@ PY
     else
         nok "Multiboot-Kopf: flags=$1 pruefsumme=$2 mode_type=$3 — ohne Bit 2 bricht Limine unter UEFI ab"
     fi
-    if [[ $(( $1 & 8 )) -ne 0 ]]; then
-        ok "und Bit 3: der Kern nimmt Boot-Module entgegen"
+    # Bit 0 des KOPFES verlangt, dass der Lader Module auf Seitengrenzen
+    # legt. (Das Bit, das sagt "es gibt Module", steht nicht im Kopf,
+    # sondern in der Informationsstruktur, die der Lader uebergibt — Bit
+    # 3 dort. Das misst der Bootschritt am laufenden Kern.)
+    if [[ $(( $1 & 1 )) -ne 0 ]]; then
+        ok "und Bit 0: der Kern verlangt seitenausgerichtete Boot-Module"
     else
-        nok "Flag-Bit 3 fehlt — der Kern wuerde das Modul gar nicht sehen"
+        nok "Flag-Bit 0 fehlt — die Module laegen krumm im Speicher"
     fi
     return $RC
 }

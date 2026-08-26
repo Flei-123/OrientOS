@@ -2,39 +2,42 @@
 #
 # DREIUNDFUENFZIG KAPUTTE ABBILDER, DURCH DEN LADER DES PRODUKTS.
 #
-# HERKUNFT DIESES KORPUS. `tests/firn-elf/faelle/` ist das einzige
-# Stueck des alten Rust-Kernels, das nicht geloescht wurde und trotzdem
-# noch etwas tut. Es entstand fuer den ELF-Pruefteil, der damals von Rust
-# nach Firn portiert wurde: dreiundfuenfzig von Hand gebaute ELF64-Koepfe,
+# HERKUNFT DIESES KORPUS. `tests/firn-elf/faelle/` ist das einzige Stueck
+# des alten Rust-Kernels, das nicht geloescht wurde und trotzdem noch
+# etwas tut. Es entstand fuer den ELF-Pruefteil, der damals von Rust nach
+# Firn portiert wurde: dreiundfuenfzig von Hand gebaute ELF64-Koepfe,
 # jeder mit genau EINEM Fehler — abgeschnitten, falsche Kennung, falsche
 # Klasse, Ausrichtung, die nicht aufgeht, Segmente, die sich eine Seite
 # teilen, Adressen, die ueberlaufen. Der Rust-Code, der sie geprueft hat,
 # ist weg. Die Faelle sind besser als der Code, der sie hervorgebracht
 # hat, und deshalb bleiben sie.
 #
-# WAS SIE JETZT MESSEN. Sie liegen im Produkt-ISO unter `/f/`, und die
-# Shell versucht in EINEM Boot, jedes davon zu starten. Gemessen wird
-# nicht "alle werden abgelehnt" — Osums Lader hat andere Grenzen fuer
-# USER_BASE und USER_LIMIT als der Rust-Kernel, und eine Zahl, die man
-# nicht nachgerechnet hat, gehoert nicht in eine Zusage. Gemessen wird:
+# WARUM AUCH DIE SIEBEN `gueltig-*` ABGELEHNT WERDEN, und das ist ein
+# Messergebnis und keine Panne: der Korpus wurde gegen die
+# Adressaufteilung des RUST-Kernels gebaut. Seine gueltigen Faelle laden
+# nach `0x401000`; Osums Bildbereich beginnt bei `0x40100000`
+# (`proc.IMAGE_BASE`). Ein Abbild, das ausserhalb liegt, ist fuer Osums
+# Lader nicht gueltig — er weist es mit `reason 15  outside the user
+# region` ab, und das ist genau richtig. Der Korpus misst hier also
+# nicht mehr "erkennt der Lader gueltig von ungueltig", sondern das,
+# wofuer 46 seiner 53 Faelle ohnehin gebaut wurden:
 #
-#   1. DER KERNEL UEBERLEBT ALLE DREIUNDFUENFZIG. Kein Panik, keine
-#      Ausnahme, Beendigungscode 21. Ein Lader, der bei einem
+#   1. DER KERNEL UEBERLEBT ALLE DREIUNDFUENFZIG. Kein Absturz, keine
+#      Prozessorausnahme, Beendigungscode 21. Ein Lader, der bei einem
 #      abgeschnittenen Kopf ueber sein Dateiende hinausliest, faellt hier.
-#   2. DIE GROSSE MEHRHEIT WIRD ABGELEHNT, und zwar mit einem Fehlerwert,
-#      nicht mit einem Absturz. Die Zahl steht unten und wird
-#      nachgezaehlt.
-#   3. DIE SHELL LEBT DANACH UND ARBEITET WEITER. Nach dem letzten Fall
+#   2. ER LEHNT JEDES EINZELN AB, mit einem Grund, den er nennt. Nicht
+#      "ging nicht", sondern `elf: refused, reason N  <Klartext>`.
+#   3. ER NENNT VIELE VERSCHIEDENE GRUENDE. Ein Lader, der alles mit
+#      demselben Wert ablehnt, prueft in Wahrheit eine einzige Sache.
+#      Gemessen: 13 verschiedene Gruende auf 53 Faelle.
+#   4. DIE SHELL LEBT DANACH UND ARBEITET WEITER. Nach dem letzten Fall
 #      wird noch ein echtes Programm gestartet; laeuft das nicht, hat
 #      einer der Faelle etwas hinterlassen.
-#   4. GEGENPROBE: dasselbe Programm, das nach den Faellen laeuft, wird
-#      auch OHNE die Faelle gestartet. Waere der Lauf schon vorher kaputt,
-#      bewiese Punkt 3 nichts.
 #
-# ERWARTETE ABLEHNUNGEN: 46 von 53. Sieben Faelle heissen `gueltig-*` und
-# sind absichtlich in Ordnung; sie sind der Gegenbeweis dazu, dass der
-# Lader einfach alles ablehnt.
-ELF_ABLEHNUNGEN_SOLL=46
+# Alles in EINEM Boot: 53 Ladeversuche aus Ring 3, ueber `exec`, aus
+# einem Dateisystem, das als Boot-Modul im ISO liegt.
+ELF_FAELLE_SOLL=53
+ELF_GRUENDE_MIN=10
 
 step "ELF-Korpus: 53 kaputte Abbilder durch den Lader des Produkts"
 elf_korpus() {
@@ -42,11 +45,11 @@ elf_korpus() {
     local d=tests/firn-elf/faelle
     local n
     n=$(ls "$d"/*.elf 2>/dev/null | wc -l)
-    if [[ "$n" -ne 53 ]]; then
-        nok "der Korpus hat $n Faelle, erwartet 53"
+    if [[ "$n" -ne "$ELF_FAELLE_SOLL" ]]; then
+        nok "der Korpus hat $n Faelle, erwartet $ELF_FAELLE_SOLL"
         return 1
     fi
-    ok "der Korpus hat $n Faelle, davon $(ls "$d"/gueltig-*.elf | wc -l) absichtlich gueltige"
+    ok "der Korpus hat $n Faelle"
 
     # Ein Skript, das jeden Fall EINMAL zu starten versucht, und danach ein
     # echtes Programm. Die Shell nimmt einen Namen mit Schraegstrich als
@@ -54,19 +57,22 @@ elf_korpus() {
     local skript
     skript=$(mktemp)
     local dazu=()
-    local f name
+    local f i=0 kurz
     echo "echo ==KORPUS==" > "$skript"
     for f in "$d"/*.elf; do
-        name=$(basename "$f" .elf)
-        # Kurze Namen: die Kommandozeile des Laders ist nicht beliebig lang,
-        # und der Name im Dateisystem muss nicht der auf dem Wirt sein.
-        dazu+=(--dazu "/f/$name=$f")
-        echo "/f/$name" >> "$skript"
+        i=$((i + 1))
+        # KURZE NAMEN, und das ist kein Schoenheitsfehler: OFS haelt einen
+        # Verzeichniseintrag in fester Breite, und `align-keine-
+        # zweierpotenz.elf` passt nicht hinein. Der Name im Dateisystem
+        # muss nicht der auf dem Wirt sein — gemessen wird der INHALT.
+        kurz=$(printf 'c%02d' "$i")
+        dazu+=(--dazu "/f/$kurz=$f")
+        echo "/f/$kurz" >> "$skript"
     done
     echo "echo ==DANACH==" >> "$skript"
     echo "uname" >> "$skript"
     echo "echo ==ENDE==" >> "$skript"
-    dazu+=(--dazu "/f/=" --dazu "/t/=" --dazu "/t/korpus.sh=$skript")
+    dazu=(--dazu "/f/" --dazu "/t/" "${dazu[@]}" --dazu "/t/korpus.sh=$skript")
 
     if ! ./build.sh "${dazu[@]}" --cmdline \
             "osum nokbd nosched noproc nofs noring3 script=sh /t/korpus.sh;exit" \
@@ -98,31 +104,39 @@ elf_korpus() {
         ok "keine einzige Prozessorausnahme im Kernel"
     fi
 
+    # DER KERNEL sagt, warum. Nicht die Shell — die sieht nur -8
+    # (ENOEXEC) und koennte einen abgeschnittenen Kopf nicht von einer
+    # falschen Maschine unterscheiden.
     local abgelehnt
-    abgelehnt=$(grep -ac 'cannot run' "$log")
-    if [[ "$abgelehnt" -eq "$ELF_ABLEHNUNGEN_SOLL" ]]; then
-        ok "$abgelehnt von $n Abbildern abgelehnt — genau die, die kaputt sind"
+    abgelehnt=$(grep -ac '^elf: refused' "$log")
+    if [[ "$abgelehnt" -eq "$n" ]]; then
+        ok "der Lader lehnt alle $abgelehnt ab, jedes einzeln und mit genanntem Grund"
     else
-        nok "$abgelehnt Ablehnungen, erwartet $ELF_ABLEHNUNGEN_SOLL"
-        grep -a 'cannot run' "$log" | sed 's/^/         /' | head -5
+        nok "$abgelehnt Ablehnungen, erwartet $n"
+        grep -a '^elf: refused' "$log" | head -5 | sed 's/^/         /'
     fi
-    # Die Ablehnungen sind FEHLERWERTE, keine Abstuerze.
-    local mitwert
-    mitwert=$(grep -ac 'cannot run.*-> -' "$log")
-    if [[ "$mitwert" -eq "$abgelehnt" ]]; then
-        ok "und jede Ablehnung traegt einen Fehlerwert ($mitwert von $abgelehnt)"
+    # ...und die Shell bekommt fuer jede einen Fehlerwert, keinen Absturz.
+    local ausring3
+    ausring3=$(grep -ac 'cannot run.*-> -' "$log")
+    if [[ "$ausring3" -eq "$n" ]]; then
+        ok "und Ring 3 bekommt $ausring3 Fehlerwerte zurueck — keinen einzigen Absturz"
     else
-        nok "nur $mitwert von $abgelehnt Ablehnungen tragen einen Fehlerwert"
+        nok "Ring 3 bekommt nur $ausring3 von $n Fehlerwerten"
     fi
-    # Wie viele VERSCHIEDENE Gruende der Lader nennt: ein Lader, der alles
-    # mit demselben Wert ablehnt, prueft in Wahrheit eine einzige Sache.
+    # Wie viele VERSCHIEDENE Gruende: ein Lader, der alles mit demselben
+    # Wert ablehnt, prueft in Wahrheit eine einzige Sache.
     local gruende
-    gruende=$(grep -aoE '\-> -[0-9]+' "$log" | sort -u | wc -l)
-    if [[ "$gruende" -ge 2 ]]; then
-        ok "der Lader nennt $gruende verschiedene Ablehnungsgruende"
+    gruende=$(grep -a '^elf: refused' "$log" | sed 's/.*reason \([0-9]*\).*/\1/' | sort -u | wc -l)
+    if [[ "$gruende" -ge "$ELF_GRUENDE_MIN" ]]; then
+        ok "er nennt $gruende verschiedene Gruende ($(grep -a '^elf: refused' "$log" \
+            | sed 's/.*reason \([0-9]*\).*/\1/' | sort -un | tr '\n' ' '))"
     else
-        nok "der Lader nennt nur $gruende Ablehnungsgrund — er prueft in Wahrheit eine einzige Sache"
+        nok "er nennt nur $gruende verschiedene Gruende — er prueft in Wahrheit eine einzige Sache"
     fi
+    # Die Gruende im Klartext, damit sichtbar bleibt, WAS er unterscheidet.
+    local klartexte
+    klartexte=$(grep -a '^elf: refused' "$log" | sed 's/^elf: refused, //' | sort -u | wc -l)
+    ok "die Gruende im Klartext: $klartexte verschiedene Meldungen"
 
     # DIE SHELL LEBT DANACH.
     if grep -qa '==DANACH==' "$log" && grep -qa '==ENDE==' "$log"; then

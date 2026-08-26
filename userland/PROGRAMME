@@ -23,6 +23,7 @@ bloecke: 6144
 sh
 ls
 cat
+echo
 cp
 mv
 rm

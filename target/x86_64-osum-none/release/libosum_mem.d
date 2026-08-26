@@ -1,1 +1,0 @@
-/root/jarvis/projects/u_DiS4in7esMF1/orientos/target/x86_64-osum-none/release/libosum_mem.rlib: /root/jarvis/projects/u_DiS4in7esMF1/orientos/libs/osum-mem/src/heap.rs /root/jarvis/projects/u_DiS4in7esMF1/orientos/libs/osum-mem/src/lib.rs /root/jarvis/projects/u_DiS4in7esMF1/orientos/libs/osum-mem/src/region.rs

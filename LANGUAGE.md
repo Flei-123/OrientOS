@@ -1,22 +1,31 @@
 # Logbuch: der Weg von Rust nach Firn
 
-> **ÜBERHOLT AM 25.08.2026 — und zwar auf die gute Art.** Der Weg, den
-> dieses Dokument beschreibt, ist nicht gescheitert; er ist **abgekürzt**
-> worden. Statt 18 000 Zeilen Rust modulweise nach Firn zu übersetzen,
-> benutzt OrientOS jetzt den Kernel, der in Firn bereits fertig dasteht:
-> **Osum**, eigenes Repository, eingebunden über `vendor/osum/COMMIT`.
-> Der Migrationsstand in M-00 unten war am 25.08.2026 bei 5 % — er ist
-> jetzt gegenstandslos, weil nicht mehr dieser Baum migriert wird.
+> **ÜBERHOLT AM 25.08.2026, ERLEDIGT AM 26.08.2026 — und zwar auf die
+> gute Art.** Der Weg, den dieses Dokument beschreibt, ist nicht
+> gescheitert; er ist **abgekürzt** worden. Statt 18 000 Zeilen Rust
+> modulweise nach Firn zu übersetzen, benutzt OrientOS den Kernel, der in
+> Firn bereits fertig dasteht: **Osum**, eigenes Repository, eingebunden
+> über `vendor/osum/COMMIT`.
+>
+> **Der Migrationsstand in M-00 unten ist Geschichte, keine Angabe.** Am
+> 25.08.2026 stand er bei 5 %. Am 26.08.2026 wurde der Rust-Kernel
+> gelöscht — 18 521 Zeilen Rust und 1 206 Zeilen C, nachdem jeder offene
+> Punkt abgearbeitet war. **Der heutige Stand ist: 0 Zeilen Rust in
+> diesem Repo** (plus 378 Zeilen unübersetzte Vorlage), 0 Zeilen Firn in
+> diesem Repo — Firn steht vollständig in Osum, 32 800 Zeilen.
 >
 > **Was jetzt gilt, steht in [KERNELWECHSEL.md](KERNELWECHSEL.md):** der
 > Abgleich Modul für Modul, was portiert wurde (UEFI-Boot,
-> Capability-Handles) und was noch in Rust steht (SMEP/SMAP,
-> arch-Grenze, Rahmenpufferkonsole, Boot-Module, Kanäle/Ports/Namensräume).
+> Capability-Handles, SMEP/SMAP, Boot-Module), was gelöscht wurde und was
+> offen bleibt (die arch-Grenze; Kanäle/Ports/Namensräume).
 >
 > **Warum dieses Dokument trotzdem stehen bleibt:** es ist das Logbuch
 > der Reibungspunkte zwischen Rust und einem Kernel, und jeder Eintrag
 > darin ist eine Anforderung an Firn. Diese Einträge (M-02 abwärts,
-> L-*) gelten unverändert. Nur die **Zahlen** in M-00 sind Geschichte.
+> L-*) gelten unverändert — sie sind der Grund, warum es Firn gibt, und
+> sie werden nicht dadurch falsch, dass der Rust-Code weg ist. Nur die
+> **Zahlen** in M-00 sind Geschichte, und sie stehen dort ausdrücklich
+> als solche.
 
 **Entschieden (21.08.2026): osum wird Firn-only.** Kein Rust, kein übernommener
 Fremdcode. Dieses Dokument hieß bis dahin „wo Rust im Kernel im Weg steht" und
@@ -48,16 +57,20 @@ Also rund **5 %** nach drei Runden. Der Rest wären etwa 18 000 Zeilen
 Übersetzungsarbeit gewesen — mit dem Ergebnis eines Kernels, der
 **weniger** kann als der, der daneben schon fertig in Firn steht.
 
-**Der Stand seit dem 25.08.2026:**
+Diese beiden Zahlen sind **Geschichte**. Sie beschreiben den 25.08.2026
+und werden nicht nachgeführt; wer den heutigen Stand sucht, findet ihn in
+der Tabelle darunter.
+
+**Der Stand seit dem 26.08.2026:**
 
 | | |
 |---|---|
 | **Kernel** | kommt aus dem **Osum-Repo**, festgenagelt über `vendor/osum/COMMIT`. 15 495 Zeilen Firn im Kern, 3 592 im Userland, 1 234 libc, 1 204 Assembler. |
 | **Übersetzer des Kernels** | Osums eigener Nagel (dort `vendor/firn/COMMIT`) — ein **anderer** Commit als der dieses Repos. Zwei Projekte, zwei Nägel. |
-| **Firn in diesem Repo** | `kernel/firn/serial.fi`, `bitmap.fi`, `elf.fi` (922 Zeilen) — gehören zum **Rust-Kernel**, der als Vorlage stehen bleibt. |
-| **Noch in Rust** | 18 017 Zeilen in `kernel/src`, `libs/`. Nicht mehr das Produkt, sondern die Vorlage für das, was noch nicht portiert ist — Liste in [KERNELWECHSEL.md](KERNELWECHSEL.md) § 4. |
-| **Übersetzer dieses Repos** | weiter festgenagelt auf `vendor/firn/COMMIT` — `4536a191` (23.08.2026) |
-| **Aufrufrichtung** | unverändert: nur **Rust → Firn**, siehe M-02 |
+| **Firn in diesem Repo** | **keines mehr.** `kernel/firn/serial.fi`, `bitmap.fi`, `elf.fi` (922 Zeilen) gehörten zum Rust-Kernel und sind mit ihm gelöscht; ihre Gegenstücke stehen in Osum (`serial.fi`, `mem.fi`, `elf.fi`). |
+| **Noch in Rust** | **0 Zeilen.** Am 26.08.2026 gelöscht (18 521 Zeilen). Eine Datei bleibt als **unübersetzte Vorlage** stehen: `vorlage/arch_iface.rs`, 378 Zeilen, mit Begründung im Kopf — es gibt in diesem Repo kein `cargo` und kein `Cargo.toml` mehr, sie ist Text und kein Code. Warum: [KERNELWECHSEL.md](KERNELWECHSEL.md) § 4.1. |
+| **Übersetzer dieses Repos** | `vendor/firn/COMMIT` — wird hier nicht mehr zum Übersetzen gebraucht, seit kein Firn-Modul mehr in diesem Baum liegt. Osum nagelt seinen eigenen fest. |
+| **Aufrufrichtung** | gegenstandslos: es gibt keine Sprachgrenze mehr in diesem Repo. Der Eintrag M-02 bleibt trotzdem gültig — er beschreibt, was Firn fehlte, nicht was OrientOS tut. |
 
 **Was der Wechsel an diesem Dokument NICHT ändert.** Die Reibungspunkte
 M-02 und L-* sind Erfahrungen mit Rust im Kernel; sie bleiben gültig und

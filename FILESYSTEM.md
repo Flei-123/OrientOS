@@ -161,7 +161,7 @@ Sonderfallcode.
 
 | Phase | Voraussetzung dafür |
 |---|---|
-| Initramfs (Phase 3) ✔ **gebaut** | nichts — liegt im Speicher. Format `IRFS0002` (Kopf + Tabelle fester Breite, CRC32 je Eintrag), gepackt von `userland/mkinitramfs.py`, als Limine-Modul in der ISO, gelesen von `kernel/src/kcore/initramfs.rs`. Bewusst **kein** cpio/tar: beide transportieren POSIX-Metadaten (Modus, uid/gid, Pfade), die dieser Kern nicht kennt, und sind stromorientiert statt wahlfrei. 7 Negativfälle im Boot-Log |
+| Initramfs (Phase 3) ✔ **gebaut** | nichts — liegt im Speicher. Format `IRFS0002` (Kopf + Tabelle fester Breite, CRC32 je Eintrag), gepackt von `vendor/osum/mkfs.py` (bis zum Kernelwechsel: `userland/mkinitramfs.py`, siehe [tests/GELOESCHT.md](tests/GELOESCHT.md)), als Limine-Modul in der ISO, gelesen von `kernel/src/kcore/initramfs.rs`. Bewusst **kein** cpio/tar: beide transportieren POSIX-Metadaten (Modus, uid/gid, Pfade), die dieser Kern nicht kennt, und sind stromorientiert statt wahlfrei. 7 Negativfälle im Boot-Log |
 | VFS + FAT32 (Phase 4) | Blockgeräte-Trait, also AHCI/NVMe |
 | ext4 lesend (Phase 4) | VFS steht |
 | eigenes FS (Phase 8) | alles darüber steht, und es gibt einen Testkorpus samt Absturzsimulation |

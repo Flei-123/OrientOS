@@ -1,10 +1,18 @@
 # OrientOS — Betriebssystem von Grund auf
 
-**OS: `OrientOS` · Kernel: `osum` (Firn, eigenes Repo) · Ziel: `x86_64-osum-none`**
+**OS: `OrientOS` · Kernel: `osum` (Firn, [eigenes Repo](KERNELWECHSEL.md)) · Produkt: `build/orientos.iso`, bootet ueber BIOS und UEFI**
 
 Kein Linux-Fork, kein uebernommener Fremdcode. Der Kernel ist in
 [Firn](LANGUAGE.md) geschrieben, einer eigenen Sprache; OrientOS ist das
 System darum herum.
+
+> **Der Kernelwechsel ist am 26.08.2026 abgeschlossen.** Der alte
+> Rust-Kernel dieses Repos ist **geloescht** — 18.521 Zeilen Rust und
+> 1.206 Zeilen C, nachdem jeder offene Punkt abgearbeitet war. Eine
+> einzige Datei bleibt als unuebersetzte **Vorlage** stehen
+> (`vorlage/arch_iface.rs`, mit Begruendung im Kopf). Was verglichen
+> wurde, was portiert ist, was noch fehlt und was genau weggefallen ist:
+> **[KERNELWECHSEL.md](KERNELWECHSEL.md)**.
 
 ## Was es kann
 
@@ -42,6 +50,18 @@ Ring 3. Gemessen gegen den echten Linux-Kern: 6432 KiB/s ueber saubere
 Leitung, und bei 20 % kuenstlichem Paketverlust uebertraegt er weiter
 korrekt.
 
+**Der Kernel schuetzt sich vor dem Userland.** **SMEP und SMAP** stehen in
+CR4, sobald der Prozessor sie meldet — auf **jedem** Kern, denn CR4 ist
+pro Prozessor. Ring 0 fuehrt damit keinen Nutzercode aus, und Nutzerdaten
+fasst er nur im `stac`-Fenster an. Gemessen wird nicht die Behauptung,
+sondern das zurueckgelesene Register: `guard: cr4=0x300020 smep=1 smap=1`.
+
+**Ein ISO mit Userland.** Der Lader legt ein OFS-Dateisystem als
+**Boot-Modul** neben den Kern; der Kernel rechnet dessen CRC32 nach und
+mountet es als Wurzelplatte. Deswegen laeuft `/bin/sh` in einem ISO, das
+gar keine Platte hat. Was darin liegt, stellt **dieses** Repo zusammen
+(`userland/PROGRAMME`).
+
 **Rechte.** Eine **capability-basierte ABI**: jeder Zugriff laeuft ueber
 ein Handle mit Rechten — Slot und Generation, zehn Rechtebits, acht
 Objektarten. Kein Erben, keine Umgebungsautoritaet.
@@ -66,7 +86,6 @@ alles Austauschbare, der Quelltext kennt keinen dieser Werte
 - **Kein Auslagern**, kein `mmap` auf Dateien, **kein USB**, **kein Ton**.
 - **Nur x86-64.** Firn selbst uebersetzt auch nach aarch64, der Kernel
   nicht.
-- **SMEP/SMAP** werden nicht gesetzt.
 - **Keine fremden Programme.** Es laeuft, was in Firn geschrieben und fuer
   Osum uebersetzt wurde. Linux-Binaerdateien laufen nicht; der Weg dahin
   waere die Umsetzung der Linux-Systemaufrufnummern auf die eigenen.
@@ -75,12 +94,15 @@ alles Austauschbare, der Quelltext kennt keinen dieser Werte
 
 | | |
 |---|---|
-| Kernel | 32.570 Zeilen Firn + 1.336 Zeilen Assembler |
+| Kernel (Osum, festgenagelter Commit) | 32.800 Zeilen Firn + 1.336 Zeilen Assembler |
 | Rust im Kernel | **0** |
+| Rust in DIESEM Repo | **0** (+ 378 Zeilen Vorlage, nicht uebersetzt) |
+| C in diesem Repo (ausser dem Bootlader) | **0** |
 | Externe Bibliotheken im Kernel | **0** |
 | Systemaufrufe | 72 |
-| Programme in Ring 3 | 31 |
-| Zusagen der Kernel-Abnahme | **1126**, in 14 Abschnitten, 0 Fehler |
+| Programme in Ring 3 | 31 gebaut, **26 im Produkt-ISO** |
+| Zusagen der Kernel-Abnahme (Osum `./test.sh`) | **1180**, in 15 Abschnitten |
+| Zusagen der System-Abnahme (hier, `./test.sh`) | siehe unten |
 
 Alles nachpruefbar: `./test.sh` baut, bootet und misst. Jede Zusage hat
 eine **Gegenprobe** — denselben Kernel mit abgeschalteter Eigenschaft, wo
@@ -91,18 +113,17 @@ in diesem Projekt nicht.
 
 ```sh
 # 1. Voraussetzungen (Debian/Ubuntu)
-rustup toolchain install nightly && rustup default nightly
-rustup component add rust-src llvm-tools
-sudo apt install qemu-system-x86 xorriso mtools ovmf nasm python3
+sudo apt install qemu-system-x86 xorriso mtools ovmf python3 binutils build-essential git
+#    ...dazu rustc/cargo: Osums Firn-Übersetzer (Stufe 0) ist in Rust geschrieben.
+#    In DIESEM Repo wird kein Rust übersetzt.
 
-# 2. Das PRODUKT bauen und starten (Osum-Kernel)
-./build.sh          # holt Osum aus vendor/osum, packt build/orientos.iso
+# 2. Das Produkt bauen und starten
+./build.sh          # Kernel aus vendor/osum + Userland-Modul -> build/orientos.iso
 ./run-osum.sh       # startet es über SeaBIOS, serielle Ausgabe im Terminal
-./run-osum.sh --uefi                       # dasselbe Abbild über OVMF
-./run-osum.sh --cmdline "osum nokbd nosched nofs noring3 caps"   # Capabilities
+./run-osum.sh --uefi                     # dasselbe Abbild über OVMF
+./run-osum.sh --script 'ls /bin;exit'    # ein Shell-Skript hineinreichen
 
-
-# 3. Alles pruefen (Host-Tests + echte QEMU-Boots)
+# 3. Alles prüfen (echte QEMU-Boots, BIOS und UEFI, Shell in Ring 3)
 ./test.sh
 ```
 
@@ -110,383 +131,168 @@ sudo apt install qemu-system-x86 xorriso mtools ovmf nasm python3
 
 | Befehl | Wirkung |
 |---|---|
-| `./build.sh` | **Produkt-ISO mit dem Osum-Kernel** (`build/orientos.iso`) — holt ihn aus `vendor/osum/`, verpackt ihn mit Limine (Multiboot, BIOS + UEFI) |
-| `./build.sh --kernel rust` | baut die Rust-Fassung, solange sie im Baum liegt (siehe Verzeichnisse) |
-| `./run-osum.sh [--uefi] [--cmdline "…"]` | startet das Produkt-ISO; Rückgabe 0, wenn der Kernel sich sauber mit 21 beendet |
-| `./build.sh --debug` | Debug-Build |
-| `./build.sh --no-posix` | Gegenprobe: Kernel ohne POSIX-Schicht (`--no-default-features`) |
-| `./run-qemu.sh` | interaktiver Start, serielle Ausgabe auf stdout |
-| `./run-qemu.sh --check` | bootet, prüft **38 Merkmale** im Log, **Exitcode** 0/1 (für CI) |
-| `./run-qemu.sh --uefi` | Boot über OVMF statt SeaBIOS |
-| `./run-qemu.sh --test-pagefault` | löst absichtlich `#PF` aus und prüft die Meldung |
-| `./run-qemu.sh --test-doublefault` | löst einen **echten** `#DF` aus (nicht `int 8`) |
-| `./run-qemu.sh --test-panic` | prüft Panic-Handler und Backtrace |
-| `./run-qemu.sh --test-rodata` | Schreibversuch auf `.rodata` muss `#PF` auslösen |
-| `./run-qemu.sh --test-nx` | Sprung in Daten muss `#PF` mit Instruktionsabruf auslösen |
-| `./run-qemu.sh --test-gp` | nicht kanonische Adresse muss `#GP` geben, nicht `#PF` |
-| `./run-qemu.sh --test-ud` | `ud2` muss als `#UD` gemeldet werden |
-| `./run-qemu.sh --test-preempt` | Zählschleifen **ohne** `yield` werden verdrängt, Prioritäten verteilen die Ticks |
-| `./run-qemu.sh --test-ring3` | Programm in Ring 3 (`CPL=3`) + Negativtest auf eine Kerneladresse |
-| `./run-qemu.sh --test-elf` | ELF64 aus dem Startdateisystem laden, Müll definiert abweisen |
-| `./run-qemu.sh --test-handles` | Handle-Negativtests: falscher Index, alte Generation, fehlendes Recht |
-| `./test.sh` | alles zusammen, 21 Schritte |
-| `./rename.sh <kernel> <os>` | benennt Kernel und OS im ganzen Baum um (siehe [BRANDING.md](BRANDING.md) · [RENAME.md](RENAME.md)) |
-| `cargo test --target x86_64-unknown-linux-gnu -p osum-mem -p osum-abi-native -p osum-abi-posix` | **151 Host-Tests** der hardwarefreien Logik |
+| `./build.sh` | **Produkt-ISO** (`build/orientos.iso`): holt den festgenagelten Osum-Kernel **und** seine Programme, stellt aus `userland/PROGRAMME` ein OFS-Dateisystem zusammen, rechnet dessen CRC32 und packt beides mit Limine (Multiboot, BIOS + UEFI) |
+| `./build.sh --brand xoffi` | zweite Marke, gleicher Quelltext ([BRANDING.md](BRANDING.md)) |
+| `./build.sh --cmdline "…"` | eigene Kommandozeile für den Kernel |
+| `./build.sh --ohne-userland` | **Gegenprobe:** ISO ohne das Boot-Modul |
+| `./build.sh --kaputte-summe` | **Gegenprobe:** falsche CRC32 im Aufruf — der Kernel muss das Modul liegen lassen |
+| `./run-osum.sh [--uefi] [--script "…"]` | startet das Produkt-ISO; Rückgabe 0, wenn der Kernel sich sauber mit 21 beendet |
+| `./run-osum.sh --cpu qemu64` | **Gegenprobe:** ein Prozessor ohne SMEP/SMAP |
+| `./test.sh` | die Abnahme des Gesamtsystems |
+| `./rename.sh <kernel> <os>` | benennt Kernel und OS im ganzen Baum um ([RENAME.md](RENAME.md)) |
+| `./vendor/osum/hole-osum.sh` | baut Kernel + Programme aus `vendor/osum/COMMIT` |
 
 ---
 
-## Was der Kernel wirklich tut
+## Was das Produkt wirklich tut
 
-Echter Boot vom 13.08.2026, **unveraendert** aus `build/boot.log` kopiert
-(erzeugt mit `./run-qemu.sh --check`; nur die lange Memory-Map-Tabelle ist
-nach drei Eintraegen gekuerzt). Zeitabhaengige Zahlen (Tickstaende,
-Schlafdauer, Schleifendurchlaeufe) schwanken zwischen zwei Laeufen; alles
-andere ist reproduzierbar:
+Echter Boot vom 26.08.2026, **unverändert** aus `./run-osum.sh --script
+'ls /bin;uname;df;exit'` kopiert; nur die `elf:`-Zeilen des Laders sind
+weggelassen, weil es je gestartetem Programm vier sind.
 
 ```text
-================================================================
-[osum] boot       osum v0.1.0 — Kernel von OrientOS
-[osum] boot       Architektur : x86_64 (Basisseite 4096 B)
-[osum] boot       ABI         : osum-native + posix (abwaehlbar)
-[osum] boot       Konfiguration: Bauart release, POSIX ja, Fehler-Selbsttest keine (normaler Boot)
-[osum] boot       CPU         : QEMU TCG CPU version 2.5+
-[osum] boot       Bootloader  : Limine 9.6.7
-[osum] boot       Stapel      : 64 KiB angefordert, gewaehrt
-[osum] mm         HHDM-Fenster: virt = phys + 0xffff800000000000
-[osum] mm         Kernelabbild: phys 0x000000001fba6000 -> virt 0xffffffff80000000
-[osum] mm           .text  0xffffffff80000000..0xffffffff8002b000  (172 KiB, R+X)
-[osum] mm           .rodata0xffffffff8002b000..0xffffffff80034000  (36 KiB, R)
-[osum] mm           .data  0xffffffff80034000..0xffffffff8004a000  (88 KiB, R+W, NX)
-[osum] mm           gesamt 296 KiB geladenes Abbild (74 Seiten a 4096 B)
-[osum] video      Framebuffer : 1280x800 @ 32 bpp -> Textkonsole 160x50
-[osum] cpu        GDT + TSS geladen, Datensegmente flach
-[osum] cpu        IDT: 256 Tore, Ausnahmen 0..21 belegt
-[osum] cpu        schwerste Ausnahme laeuft auf eigenem Notfallstapel (0xffffffff8003ad40)
-[osum] cpu        NX aktiv, CR0.WP aktiv
-[osum] irq        8259A-PIC (umgeleitet auf 0x20) initialisiert, alle Leitungen maskiert
-[osum] trap       #BP Breakpoint bei RIP=0xffffffff80010b01 — setze fort
-[osum] cpu        Selbsttest: #BP ausgeloest und sauber fortgesetzt
-[osum] mm         Memory-Map (21 Eintraege):
-[osum] mm           0x000000001000..0x000000052000    324 KiB  bootloader-reclaimable
-[osum] mm           0x000000052000..0x00000009f000    308 KiB  usable
-[osum] mm           0x00000009fc00..0x0000000a0000      1 KiB  reserved
-[osum] mm         ... (weitere Eintraege der Memory-Map ausgelassen)
-[osum] mm         Memory-Map  : 21 Regionen, 77 Frames unter 1 MiB gesperrt, 0 Frames wegen Ueberschneidung nachreserviert
-[osum] mm         Speicher    : 12 GiB gesamt, davon 507 MiB nutzbar
-[osum] mm         Frames      : 131039 verwaltet, 129712 frei (506 MiB)
-[osum] mm         Frame-Bitmap: 16 KiB bei phys 0x000000100000
-[osum] mm         Vor Umschaltung geprueft: 5/5 Pflichtbereiche im neuen Adressraum erreichbar
-[osum] mm         Abbild nachgeprueft: 74 Seiten virt->phys korrekt (.text RX, .rodata R, .data RW), HHDM-Raender ok
-[osum] mm         Eigener Adressraum aktiv (CR3 = 0x000000104000)
-[osum] mm           HHDM   : 3 GiB als 2026 grosse Seiten
-[osum] mm           Abbild : 74 Seiten mit getrennten Rechten
-[osum] mm           Stapel : 0 Seiten vom Bootloader uebernommen
-[osum] mm         Selbsttest Paging: map 0xffffff0010000000 -> 0x00000010d000, schreiben/lesen ok, translate ok, unmap ok
-[osum] mm         Selbsttest MapError: 23/23 Fehlerfaelle nachweisbar ausgeloest (Misaligned 10, AlreadyMapped 3, NotMapped 4, OutOfFrames 4, ParentHugePage 2)
-[osum] mm         Selbsttest Grenzfaelle: 13/13 Zusagen erfuellt (translate mit Versatz, 2-MiB-Seite abbilden/uebersetzen/aufloesen, Tabellengrenze, Ruecknahme halber Teilbaeume), 7 Frames als Tabellen im Probebaum
-[osum] mm         Selbsttest Adressrechnung: 8/8 Zusagen erfuellt (Ausrichtung, Ueberlauf, Kanonizitaet, HHDM-Fenster, Rechte, Fehlertexte)
-[osum] mm         Selbsttest Memory-Map: 6/6 Zusagen erfuellt (4 kaputte Karten abgewiesen, zerrissene Karte: 257 Frames nachreserviert)
-[osum] mm         Selbsttest Frames: 26/26 Zusagen erfuellt, 129693 frei
-[osum] mm           Frame-Fehlerpfade: 4 abgewiesene Rueckgaben, 22 erschoepfte Anforderungen, Tiefstand 0 frei
-[osum] mm           Frame-Buchhaltung: 1346 belegt + 129693 frei = 131039 verwaltet, stimmig: ja
-[osum] heap       Kernel-Heap : 1024 KiB bei virt 0xffffff0000000000 (eigener Free-List-Allocator)
-[osum] heap       Testallokation: Box@0xffffff0000000010 = 0xdeadbeef
-[osum] heap       Testallokation: Vec mit 1024 Elementen, Summe 357389824, String "OrientOS lebt"
-[osum] heap       belegt 8272 B von 1048576 B
-[osum] heap       nach Freigabe: belegt 0 B von 1048576 B
-[osum] heap         Heap-Wachstum: 2166784 B abgebildet (vorher 1048576 B), 1 Erweiterung(en), 5 abgelehnt, Grenze 16777216 B, Spielraum 14610432 B
-[osum] heap         Heap-Wachstumsfehler nachweisbar: Groesse 0 ok, ueber der Grenze ok, Frame-Allocator besetzt ok (Frame-Allocator gerade gesperrt)
-[osum] heap       Selbsttest Heap: 13/13 Zusagen erfuellt, 0 B belegt, 1 Loecher
-[osum] heap         Heap-Fehlerpfade: 16781312 B Anforderung abgewiesen (groesstes Loch 2166784 B), Zustand unveraendert: ja
-[osum] heap         Heap-Randfaelle: Groesse 0 ok, Loch wiederverwendet ok, alle 8 Zeiger im Fenster 0xffffff0000000000..0xffffff0000211000 ok
-[osum] abi        osum-native: Version=1, Handles=1, altes Handle -> BadHandle
-[osum] abi        Ausgabe eines Aufrufers ueber Handle: "POSIX-Uebersetzung auf ein Handle"
-[osum] abi        Ausgabe eines Aufrufers ueber Handle: "POSIX open(2) auf ein Capability-Handle"
-[osum] posix      Uebersetzer: open(2) auf Namensraumknoten -> fd 0, write -> 39 B, unbekannter Name -> -2 (erwartet -2)
-[osum] posix      Uebersetzer: write(fd 0) -> 33 B ueber Handle, close(2), danach write -> -9 (erwartet -9), fork(2) -> -38 (erwartet -38)
-[osum] abi        posix-Schicht aktiv: read(2) auf unbekannten Fd -> -9 (erwartet -9 = -EBADF)
-[osum] irq        Zeitgeber laeuft mit 100 Hz, Interrupts frei (IF gesetzt)
-[osum] irq        Tick 1 — 1 s Laufzeit, 100 Ticks gezaehlt
-[osum] irq        Tick 2 — 2 s Laufzeit, 200 Ticks gezaehlt
-[osum] irq        Tick 3 — 3 s Laufzeit, 300 Ticks gezaehlt
-[osum] irq        Tick 4 — 4 s Laufzeit, 400 Ticks gezaehlt
-[osum] irq        Tick 5 — 5 s Laufzeit, 500 Ticks gezaehlt
-[osum] sched      Thread A (Kennung 1): Durchlauf 1/3
-[osum] sched      Thread B (Kennung 2): Durchlauf 1/3
-[osum] sched      Thread A (Kennung 1): Durchlauf 2/3
-[osum] sched      Thread B (Kennung 2): Durchlauf 2/3
-[osum] sched      Thread A (Kennung 1): Durchlauf 3/3
-[osum] sched      Thread B (Kennung 2): Durchlauf 3/3
-[osum] sched      Threadwechsel: 16 Wechsel, zurueck in kmain (2 Threads a 16 KiB Stapel, Spur 121212, 5/5 Zusagen)
-[osum] sched      Thread W (Kennung 1): blockiert bis zum Wecken
-[osum] sched      Thread S (Kennung 2): schlaeft 3 Ticks
-[osum] sched      Thread S: nach 3 Ticks aufgewacht
-[osum] sched      Thread S: weckt Thread W (Kennung 1)
-[osum] sched      Thread W: geweckt, laeuft weiter
-[osum] sched      Schlafen/Wecken: 3 Ticks geschlafen (>= 3), 1 Zeitweckung(en), 3 Leerlaufwarten, Wartender geweckt: ja, 8/8 Zusagen
-[osum] sched      Leerlauf-Thread: 3 Einlastung(en), 3 Tick(s) im Leerlauf, eigener Stapel 8192 B, Wachzone unversehrt
-[osum] sched      Stapelnutzung: hoechstens 576 von 16384 B je Thread benutzt, Wachzonen unversehrt
-[osum] sched      Thread V (Kennung 1): blockiert ohne Wecker
-[osum] sched      Verklemmungsschutz: run() kehrte nach 2 Wechseln zurueck, 1 Thread(s) blockiert, Meldung gesetzt, 3/3 Zusagen
-[osum] sched      Praeemption : aktiv, Zeitscheibe 1 Tick(s) je Prioritaetsstufe, voller Registersatz im Zeitgebereinsprung
-[osum] sched      praeemptive Wechsel: 30, kooperative Wechsel: 3 (nur die 3 Abmeldungen)
-[osum] sched      ohne yield: 30 Wechsel zwischen 3 Threads (reine Zaehlschleifen, kein einziges yield)
-[osum] sched      Thread 1: Prio 3, 30 Ticks, 35228346 Schleifendurchlaeufe
-[osum] sched      Thread 2: Prio 2, 20 Ticks, 24767718 Schleifendurchlaeufe
-[osum] sched      Thread 3: Prio 1, 10 Ticks, 12275670 Schleifendurchlaeufe
-[osum] sched      Prioritaet wirkt: Thread 1 (Prio 3) 30 Ticks > Thread 2 (Prio 2) 20 Ticks > Thread 3 (Prio 1) 10 Ticks
-[osum] sched      Leerlauf unter Verdraengung: 5 Einlastung(en), 5 Tick(s) auf den Leerlauf-Thread gebucht, 5 Tick(s) gewartet
-[osum] sched      Verdraengungssperre: 4 Tick(s) im geschuetzten Abschnitt, 0 Wechsel darin, 1 nachgeholt nach dem Ende
-[osum] sched      Verdraengung: 30 erzwungene Wechsel in 60 Ticks, 8/8 Zusagen
-[osum] init       Initramfs   : 3 Eintraege, 2464 B
-[osum] init         Eintrag 0: hello          1064 B
-[osum] init         Eintrag 1: kaputt.elf     1064 B
-[osum] init         Eintrag 2: liesmich.txt   130 B
-[osum] elf          gueltiges Abbild             -> angenommen (ok)
-[osum] elf          leere Datei                  -> Datei kuerzer als der Kopf (ok)
-[osum] elf          falsche Kennung              -> falsche Kennung am Dateianfang (ok)
-[osum] elf          32-Bit-Klasse                -> keine 64-Bit-Datei (ok)
-[osum] elf          falsche Bytereihenfolge      -> falsche Bytereihenfolge (ok)
-[osum] elf          fremde Architektur           -> falsche Zielarchitektur (ok)
-[osum] elf          Tabelle ausserhalb           -> Programmkopftabelle ausserhalb der Datei (ok)
-[osum] elf          Segment ausserhalb der Datei -> Segment ausserhalb der Datei (ok)
-[osum] elf          Segment im Kernelbereich     -> Segment ausserhalb des unprivilegierten Bereichs (ok)
-[osum] elf          Dateilaenge > Speicherlaenge -> unstimmige Segmentangaben (ok)
-[osum] elf          Ausrichtung krumm            -> unstimmige Ausrichtungsangabe (ok)
-[osum] elf          Datei-/Speicherlage unpassend -> unstimmige Ausrichtungsangabe (ok)
-[osum] elf          dynamisch gebunden           -> dynamisch gebunden, verlangt einen Binder (ok)
-[osum] elf          Einsprung ausserhalb         -> Einsprungadresse in keinem Segment (ok)
-[osum] elf          Segmente ueberlappen         -> Segmente ueberlappen sich (ok)
-[osum] elf          Segmente in einer Seite      -> zwei Segmente laegen in derselben Seite (ok)
-[osum] elf        ELF-Negativtest: 16/16 Faelle wie erwartet abgewiesen
-[osum] init         gueltiges Archiv             -> angenommen (ok)
-[osum] init         leerer Bereich               -> kuerzer als der Archivkopf (ok)
-[osum] init         falsche Kennung              -> falsche Kennung am Archivanfang (ok)
-[osum] init         falsche Gesamtlaenge         -> Laengenangabe passt nicht zum Bereich (ok)
-[osum] init         zu viele Eintraege           -> unplausible Eintragszahl (ok)
-[osum] init         Eintrag ausserhalb           -> Eintrag zeigt aus dem Archiv heraus (ok)
-[osum] init         leerer Name                  -> unbrauchbarer Name (ok)
-[osum] init         verfaelschte Daten           -> Pruefsumme passt nicht zu den Daten (ok)
-[osum] init         Daten mit passender Summe    -> angenommen (ok)
-[osum] init         zweimal derselbe Name        -> zwei Eintraege mit demselben Namen (ok)
-[osum] init       Archiv-Negativtest: 10/10 Faelle wie erwartet abgewiesen
-[osum] elf          Abbild geladen und abgeraeumt -> 6 Seiten abgebildet, 6 zurueckgegeben, 6 Zwischentabelle(n) bleiben, Einsprung nicht mehr abgebildet (ok)
-[osum] elf        ELF-Lader   : hello, 2 Segmente geladen, Einsprung 0x0000000000401000
-[osum] elf          Segment 0: 0x401000 1 KiB RX (73 B aus der Datei, 0 B genullt)
-[osum] elf          Segment 1: 0x402000 1 KiB RW (37 B aus der Datei, 19 B genullt)
-[osum] elf          Stapel: 0x00007ffffffff000 abwaerts, 4 Seiten, insgesamt 6 Seiten abgebildet
-[osum] elf          nachgeprueft: Einsprungseite und Stapelseite abgebildet, Code stimmt mit der Datei ueberein
-[osum] elf          kaputt.elf aus dem Archiv    -> Segment ausserhalb des unprivilegierten Bereichs (ok)
-[osum] elf          liesmich.txt als Programm    -> falsche Kennung am Dateianfang (ok)
-[osum] elf          Abbild zu gross              -> Abbild belegt zu viele Seiten, 256 Datenseiten zurueckgegeben, 2 Zwischentabelle(n) bleiben (ok)
-[osum] elf        ELF-Ladetest: 5/5 Faelle wie erwartet
-[osum] user       Systemaufrufpfad: eingerichtet
-[osum] user       CPU-Schutz  : Schnellaufruf ja, Ausfuehrsperre ja, Zugriffssperre ja, Per-CPU-Basis ja
-[osum] user       Abbildung   : Programm 0x0000000000800000 (272 B, RX), Stapel 0x00007fffffefc000..0x00007ffffff00000 (RW, NX), 5 Seiten
-[osum] user       Prozess     : pid 1 unprivilegiert, 1 Handle uebergeben (Ausgabe, nur Schreibrecht), 1 Handle(s) in der Tafel
-[osum] trap       #BP aus Ring 3: CS=0x0023 (CPL=3), RSP=0x00007ffffff00000, RIP=0x0000000000800004 — setze fort
-[osum] abi        Ausgabe eines Aufrufers ueber Handle: "Gruesse aus Ring 3"
-[osum] user       Zeiger 0xffffffff80000000 (+8 B) aus Ring 3 abgewiesen: nicht im eigenen Bereich
-[osum] user       Ring 3      : CS=0x0023 (RPL=3), CPL=3, Stapel=0x00007ffffff00000, 4 Systemaufruf(e), Ende 0
-[osum] user       Abmeldung   : pid 1 beendet mit Code 0, danach 0 Handle(s) in seiner Tafel
-[osum] user       Ring-3-Zugriff auf Kerneladresse 0xffffffff80000000: sauber abgewiesen (Schutzverletzung, Userspace)
-[osum] trap       #PF aus Ring 3: CS=0x0023 (CPL=3), RSP=0x00007ffffff00000, RIP=0x000000000080006a, Lesezugriff, Schutzverletzung
-[osum] user       Negativtest : Programm nach 0 Systemaufruf(en) abgeraeumt, Kernel laeuft weiter
-[osum] user       Ring-3-Zugriff auf 0x0000000000800070: sauber abgewiesen (#GP allgemeine Schutzverletzung, Userspace), Programm abgeraeumt
-[osum] user       Schutzwall  : privilegierte Instruktion -> abgewiesen, Programm abgeraeumt, Kernel laeuft (ok)
-[osum] user       Ring-3-Zugriff auf 0x0000000000800000: sauber abgewiesen (Schutzverletzung, Userspace), Programm abgeraeumt
-[osum] trap       #PF aus Ring 3: CS=0x0023 (CPL=3), RSP=0x00007ffffff00000, RIP=0x0000000000800087, Schreibzugriff, Schutzverletzung
-[osum] user       Schutzwall  : Schreiben auf die eigene Codeseite -> abgewiesen, Programm abgeraeumt, Kernel laeuft (ok)
-[osum] user       Ring-3-Zugriff auf Kerneladresse 0xffffffff80000000: sauber abgewiesen (Schutzverletzung, Userspace)
-[osum] trap       #PF aus Ring 3: CS=0x0023 (CPL=3), RSP=0x00007ffffff00000, RIP=0xffffffff80000000, Lesezugriff, Schutzverletzung
-[osum] user       Schutzwall  : Sprung in den Kernelbereich -> abgewiesen, Programm abgeraeumt, Kernel laeuft (ok)
-[osum] user       Ring-3-Zugriff auf 0x0000000000600000: sauber abgewiesen (Seite nicht praesent, Userspace), Programm abgeraeumt
-[osum] trap       #PF aus Ring 3: CS=0x0023 (CPL=3), RSP=0x00007ffffff00000, RIP=0x00000000008000aa, Lesezugriff, Seite nicht praesent
-[osum] user       Schutzwall  : Zeiger auf eine nicht abgebildete Seite -> abgewiesen, Programm abgeraeumt, Kernel laeuft (ok)
-[osum] trap       Zeitbudget von Ring 3 erschoepft (RIP=0x00000000008000ba) — Programm wird abgeraeumt
-[osum] user       Schutzwall  : Rechenschleife ohne Systemaufruf -> vom Zeitgeber unterbrochen und abgeraeumt (ok)
-[osum] user       Schutzwall  : 5/5 Uebergriffe aus Ring 3 abgewehrt
-[osum] trap       #BP aus Ring 3: CS=0x0023 (CPL=3), RSP=0x00007ffffffff000, RIP=0x0000000000800052 — setze fort
-[osum] abi        Ausgabe eines Aufrufers ueber Handle: "hallo aus der unprivilegierten Ebene."
-[osum] user       Aus dem Archiv: Einsprung 0x0000000000401000, CS=0x0023 (CPL=3), Stapel=0x00007ffffffff000, 3 Systemaufruf(e), pid 7 abgemeldet
-[osum] user       Ring 3 verdraengt: 15 Unterbrechung(en) durch den Zeitgeber, danach fortgesetzt, CS=0x0023 (RPL=3), Ende 0
-[osum] user       Ring 3 verdraengt: Zaehlthread kam auf 12428335 Durchlaeufe, 32 erzwungene und 2 freiwillige Wechsel, Ticks 16/16, 4/4 Zusagen
-[osum] user       Abgeraeumt  : 5 Seiten zurueckgegeben, 55 B aus Ring 3 ausgegeben, 6 Zugriff(e) abgewiesen
-[osum] abi        Aufruf handle_write aus unprivilegiertem Prozess 8 "gast" abgewiesen: BadHandle
-[osum] abi        Aufruf handle_write aus unprivilegiertem Prozess 9 "nackt" abgewiesen: BadHandle
-[osum] abi        Aufruf handle_write aus unprivilegiertem Prozess 10 "kurzlebig" abgewiesen: BadHandle
-[osum] abi        Handle-Negativtest: 3/3 abgewiesen (ungueltiger Index ok, veraltete Generation ok, fehlendes Recht ok)
-[osum] abi        Capability-Negativtest: 12/12 abgewiesen — fremdes Handle ok, ohne Uebergabe kein Zugriff ok, keine Rechteausweitung ok, Duplizieren ohne Recht ok, Uebergabe ohne Recht ok
-[osum] abi        Capability-Negativtest: unbekannte Aufrufnummer ok, Generation geraten (0 Treffer bei 4096 Versuchen), Benutzung nach Schliessen ok, Handle nach Prozessende ok
-[osum] abi        Prozessprobe: spawn ohne fork, Kind "dienst" mit 1 explizit uebergebenen Handle(n); Kanal: 22 B gesendet, 22 B empfangen ("hallo aus dem Erzeuger"), Schreiben ohne Recht -> RightsDenied
-[osum] abi        Portprobe (Signals-Ersatz): 7/7 — Bindung eingerichtet ok, Ereignis zugestellt ok, Frist 0 blockiert nicht ok, Ende der Gegenseite ok
-[osum] abi        Port-Negativtest: binden ohne MANAGE abgewiesen ok, beobachten ohne WAIT abgewiesen ok, warten auf Nicht-Port abgewiesen ok
-[osum] abi        Ausgabe eines Aufrufers ueber Handle: "handle unterwegs"
-[osum] abi        Uebergabeprobe: Handle per Kanal umgezogen ok (Sender 0x7f6c280a00000011 -> Empfaenger 0x8b1dce4a00000002), beim Sender ungueltig ok, ohne Platz keine Zustellung ok
-[osum] abi        Uebergabe-Negativtest: ohne TRANSFER-Recht abgewiesen ok, dasselbe Handle doppelt abgewiesen ok
-[osum] abi        Ausgabe eines Aufrufers ueber Handle: "Ausgabe ueber einen aufgeloesten Namen"
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Aufruf namespace_open aus unprivilegiertem Prozess 13 "namenlos" abgewiesen: InvalidArgs
-[osum] abi        Namensraumprobe: 11/11 — Name aufgeloest und benutzt ok (38 B ueber "konsole" geschrieben), Unterknoten ok
-[osum] abi        Namensraum-Negativtest: Pfadtrenner abgewiesen ok, unbekannter Name abgewiesen ok, keine Rechteausweitung beim Aufloesen ok, Einhaengen ohne CREATE abgewiesen ok
-[osum] abi        Namensraum-Negativtest: Einhaengen ohne DUPLICATE abgewiesen ok, kein Knoten abgewiesen ok, Name doppelt abgewiesen ok, Name zu lang abgewiesen ok, ohne Knotenhandle kein Name ok
-[osum] abi        Prozesse    : 14 in der Tafel, 13 per spawn erzeugt, 132 Aufrufe, 90 abgewiesen (davon 67 aus unprivilegierten Prozessen), 24 Objekte
-[osum] abi        Prozesse    : 14, davon beendet 12, Speicherobjekte 0 B; Namen: 0:systemkern, 1:ring3, 2:probe, 3:probe, 4:probe, 5:probe, 6:probe, 7:hello, 8:gast, 9:nackt, 10:kurzlebig, 11:dienst, 12:empfaenger, 13:namenlos
-[osum] boot       Selbsttestbilanz: 170/170 bestanden (#BP 1/1, Paging 3/3, MapError 36/36, Frames 26/26, Heap 13/13, Praeemption 8/8, ELF 31/31, Ring3 14/14, Handles 38/38)
-[osum] boot       Startbilanz : 129147 Frames frei (1892 belegt), Heap 6288 / 2166784 B belegt, 650 Ticks
-[osum] boot       Startvorgang abgeschlossen. osum laeuft.
-================================================================
+firn kernel r62, profile kernel
+mb: flags=0x126d  cmd=osum nokbd nosched noproc nofs noring3 modfs modcrc=5d92f65d script=ls /bin;uname;df;exit
+idt: 48 gates, vector 8 IST
+pic: master 0x20, slave 0x28
+pit: 100 Hz, divisor 11931
+kernel end: 0x225040
+mmap: 9 entries, 523771 KiB usable, top=0x1ffdf000
+frames: 131072 covered, 129721 free
+heap: 0x552000  size=262144
+frame test: ok
+heap test: ok
+mod: base=0x252000  bytes=3145728  blocks=6144  crc=0x5d92f65d  want=0x5d92f65d  ok=1
+pci: 00:00.0 8086:29c0 class=06:00:00 host-bridge
+pci: 00:01.0 1234:1111 class=03:00:00 vga  bar0=0xfd000000/0x1000000
+pci: 00:02.0 8086:10d3 class=02:00:00 network  bar0=0xfeb80000/0x20000  irq=11  msi  msix
+pci: 00:1f.2 8086:2922 class=01:06:01 ahci  bar5=0xfebd5000/0x1000  irq=10  msi
+pci: devices=6
+apic: id=0  hz=62537300  ioapic=24  tick=100  window=2
+guard: cr4=0x300020  smep=1  smap=1  cpu=1/1
+ticks: 20  traps=20
+osum: from module 0x252000  blocks=6144
+osum: mount=1
+osum: bin .:2 ..:2 sh:1 ls:1 cat:1 cp:1 mv:1 rm:1 mkdir:1 rmdir:1 touch:1 head:1
+      tail:1 wc:1 grep:1 sort:1 uniq:1 true:1 false:1 sleep:1 ps:1 kill:1 uname:1
+      date:1 df:1 hello:1 ping:1 wget:1
+sh: ready, osum
+osum$ ls /bin
+./ ../ sh ls cat cp mv rm mkdir rmdir touch head tail wc grep sort uniq true false
+sleep ps kill uname date df hello ping wget
+osum$ uname
+osum
+osum$ df
+blocks total=6144 free=2442 used=3702 size=512
+inodes total=128 used=31
+osum$ exit
+sh: bye
+osum: kstack deepest=13520 of 16384
+osum: sh exit=0
+osum: frames_free=129653 of 129653
+osum: syscalls=144 forks=0 execves=0 pipes=0 maps=0 opens=1
+smp: online=1 of 1  failed=0
+guard: aps=0  windows=253
+mod: recheck crc=0x5d92f65d  same=1
+kernel: done
+--- Beendigungscode 21 ---
 ```
 
-Die drei Nachweise, auf die es in dieser Phase ankommt, im Klartext:
+**Die vier Zeilen, auf die es ankommt:**
 
-* **Verdrängung ist echt:** `praeemptive Wechsel: 30, kooperative Wechsel: 3` —
-  die drei Threads sind reine Zählschleifen und rufen nie `yield`. Die
-  Tickverteilung 30 : 20 : 10 folgt exakt den Prioritätsstufen 3 : 2 : 1.
-* **Ring 3 ist echt:** `CS=0x0023 (RPL=3), CPL=3` und ein Stapel bei
-  `0x00007ffffff00000` — beides an einem echten Ausnahmerahmen der Hardware
-  abgelesen, nicht vom Kernel behauptet. Der Zugriff auf `0xffffffff80000000`
-  endet in einem gemeldeten `#PF`, und der Kernel läuft weiter.
-* **Capabilities sind echt:** falscher Index, veraltete Generation und
-  fehlendes Recht werden **einzeln** abgewiesen; 4096 geratene Generationen
-  ergeben 0 Treffer.
+* `mod: … crc=0x5d92f65d want=0x5d92f65d ok=1` — der Kernel hat das
+  Boot-Modul gefunden und **selbst nachgerechnet**, dass es heil
+  ankam. Der Wirt hat dieselbe Summe in die Kommandozeile geschrieben.
+* `osum: from module … blocks=6144` — die **Wurzelplatte ist das Modul**.
+  Ein ISO hat keine Platte; was ein Multiboot-Lader weiterreichen kann,
+  ist ein Modul. Deswegen hat dieses Produkt überhaupt ein Userland.
+* `guard: cr4=0x300020 smep=1 smap=1` — Bit 20 und Bit 21 in CR4, aus dem
+  Register **zurückgelesen**. Ring 0 führt keinen Nutzercode aus und
+  fasst Nutzerdaten nur im `stac`-Fenster an (`windows=253` sagt, wie oft
+  es aufging).
+* `mod: recheck … same=1` — nach dem ganzen Lauf ist das Modul noch
+  dasselbe. Hätte der Rahmenverwalter seinen Speicher hergegeben, stünde
+  hier eine andere Summe.
 
-### Fehlerfälle sind nachweisbar, nicht behauptet
+---
 
-```
-$ ./run-qemu.sh --test-doublefault
-[osum] test       loese absichtlich einen Double Fault aus ...
-=============== CPU-AUSNAHME ===============
-Ausnahme : #DF Double Fault
-IST-Stapel: 0xffffffff8003ad10 (eigener Stack, deshalb lebt der Kernel noch)
-Kein Weiterlaufen moeglich — CPU wird angehalten.
-```
+## Wie die beiden Repos zusammenhängen
 
 ```
-$ ./run-qemu.sh --test-pagefault
-Ausnahme : #PF Page Fault
-Adresse  : 0xffffff4000000000 (CR2)
-Ursache  : Seite nicht praesent, Schreibzugriff, ausgeloest im Kernel
-=============== KERNEL PANIC ===============
-Backtrace (Frame-Pointer, Adressen via addr2line aufloesbar):
-  #0  ip=0xffffffff800275dc
-  #1  ip=0xffffffff8000c23d
-  #2  ip=0xffffff4000000000
-Backtrace: 3 Frame(s) aufgeloest
+osum (eigenes Repo, Firn)                orientos (dieses Repo)
+├── kernel/*.fi   der Kern       ──┐     ├── vendor/osum/COMMIT   ← festgenagelt
+├── kernel/user/  Shell, 25 Werkz. │     ├── brands/*.toml        Marken
+├── lib/libc/     libc in Firn     └──►  ├── userland/PROGRAMME   was ins ISO kommt
+├── vendor/firn/COMMIT (eigener          ├── userland/dateien/    was OrientOS beisteuert
+│                       Übersetzer)      ├── PACKAGING.md         Pakete
+└── test.sh       15 Abschnitte,         ├── ASSISTENT.md         Schnittstelle
+                  >1100 Zusagen          ├── build.sh             Kernel + Userland → ISO
+                                         └── test.sh              Abnahme des Systems
 ```
 
-Backtrace-Adressen auflösen:
+**Eingecheckt ist nur der Hash.** Kein Kernelabbild, kein Programm, kein
+`mkfs.py` — `vendor/osum/hole-osum.sh` baut alles aus dem genannten
+Commit, und `test.sh` prüft nach, dass im Repo wirklich nichts Gebautes
+liegt. Die beiden Repos nageln **unterschiedliche** Firn-Commits fest,
+und das soll so bleiben: zwei Projekte, zwei Nägel, keine stille
+Vermischung.
+
+---
+
+## Ein Quellbaum, zwei Produkte
+
+`brands/*.toml` beschreibt alles, was am Produkt austauschbar ist;
+`brands/STANDARD` nennt die Standardmarke. Der Kernel heißt in **jeder**
+Marke `osum` — so wie NT in jeder Windows-Ausgabe NT heißt.
 
 ```sh
-llvm-addr2line -e target/x86_64-osum-none/release/osum -f -C 0xffffffff800275dc
-# oder in build/osum.map nachschlagen
+./build.sh                 # build/orientos.iso, Bootmenü "/OrientOS"
+./build.sh --brand xoffi   # build/xoffi.iso,    Bootmenü "/XoffiOS"
 ```
+
+`test.sh` baut die zweite Marke wirklich und liest nach, dass ihr
+Bootmenü den anderen Namen trägt — und dass eine **erfundene** Marke
+abbricht, statt still auf die Standardmarke zurückzufallen. Einzelheiten:
+[BRANDING.md](BRANDING.md).
 
 ---
 
-## Verzeichnisse
+## Was noch fehlt
 
-```
-orientos/
-├── build.sh  run-osum.sh  test.sh      Bauen, Starten, Pruefen
-├── brands/orientos.toml  xoffi.toml    ein Quelltext, mehrere Produkte
-├── limine.conf                         Bootmenue
-├── x86_64-osum-none.json               eigenes Ziel
-├── vendor/
-│   ├── osum/COMMIT                     DER KERNEL: fester Stand aus dem Osum-Repo
-│   ├── firn/COMMIT                     der Uebersetzer, ebenso festgenagelt
-│   └── limine/                         Bootlader, offline nutzbar
-├── userland/                           hello.asm, mkinitramfs.py, user.ld
-├── tests/                              je Datei ein Nachweis, test.sh haengt sie an
-└── kernel/  libs/                      die Rust-Fassung, solange ihre offenen
-                                        Punkte nicht nach Firn portiert sind
-                                        (SMEP/SMAP, arch-Grenze, Boot-Module)
-```
+Ehrlich und vollständig in [KERNELWECHSEL.md § 4](KERNELWECHSEL.md) und
+[ROADMAP.md](ROADMAP.md). Die Kurzfassung:
 
-Der Kernel selbst liegt **nicht** hier, sondern im eigenen Osum-Repo.
-`vendor/osum/COMMIT` haelt fest, gegen welchen Stand gebaut wird — sonst
-waere bei jedem Fehler unklar, ob er aus dem System oder aus dem Kernel
-kommt.
+* **Keine Architekturgrenze.** Osum ist x86-64-only, obwohl Firn auch
+  aarch64 kann. Der Rust-Kernel hatte diese Grenze als Traits samt einem
+  Testschritt, der sie erzwang; das ist **nicht** portiert, weil es eine
+  Umbauarbeit an jedem Modul wäre. Die Vorlage steht als
+  `vorlage/arch_iface.rs` im Baum — nicht gebaut, mit Begründung im Kopf.
+* **Kanäle, Ports, Namensräume, `ProcessSpawn`, Speicherobjekte** der
+  nativen ABI antworten `NotSupported` (−9). Portiert ist das
+  Handle-Modell darunter, nicht die Objekte daran.
+* **Vom Verteilmodell** ([PACKAGING.md](PACKAGING.md)) ist nichts gebaut:
+  das Wurzeldateisystem des ISOs ist eine feste Liste, kein Store mit
+  Inhalts-Hashes.
+* **Das Modul ist eine RAM-Platte.** Änderungen überleben den Lauf nicht.
+  Für ein System, das sich installiert, fehlen ein Schreibpfad auf eine
+  echte Platte und ein Partitionstabellen-Leser.
+* Kein Fenstersystem, keine Namensauflösung, kein USB, kein SATA/AHCI,
+  kein Journal, keine Benutzer/Rechte, keine dynamische Bindung.
+* **Getestet wird in QEMU**, nicht auf echter Hardware.
 
 ---
 
-## Grundregeln
-
-1. **Kein Linux-Code, kein Fork.** Nachbauen aus Spezifikationen ja, übernehmen nein.
-2. **x86-Details ausschließlich unter `arch/x86_64/`** — nachgeprüft in `test.sh` Schritt 15.
-3. **POSIX ist abtrennbar** und wird in jedem Testlauf ohne sich selbst gebootet.
-4. **Keine Crate ohne Begründung**, keine `todo!()` in Pfaden, die der Boot durchläuft.
-5. **Keine Behauptung ohne Code dahinter.** Kennzahlen werden nachgemessen, wenn sie sich ändern.
-
-## Entwurfsdokumente
+## Doku
 
 | Datei | Inhalt |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Schichten, arch-Grenze, POSIX-Abtrennung, Abhängigkeiten |
-| [ROADMAP.md](ROADMAP.md) | Phasen 1–9, inklusive aarch64/Mobil als eigenes Ökosystem |
-| [PACKAGING.md](PACKAGING.md) | unveränderliche content-addressed Apps, drei Datentöpfe, Systemgenerationen |
-| [FILESYSTEM.md](FILESYSTEM.md) | VFS → FAT32 → ext4 (lesend) → eigenes Dateisystem |
-| [LANGUAGE.md](LANGUAGE.md) | Firn: warum eine eigene Sprache, und was sie dem Kernel abverlangt |
-| [RENAME.md](RENAME.md) | Kernel und OS in unter 15 Minuten umbenennen |
+| [KERNELWECHSEL.md](KERNELWECHSEL.md) | **Was gilt.** Der Abgleich Modul für Modul, was portiert wurde, was offen ist, was gelöscht wurde |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | die Architektur des Systems: wer was macht, und wo die Grenze liegt |
+| [ROADMAP.md](ROADMAP.md) | wohin es geht, nach Abhängigkeit sortiert |
+| [LANGUAGE.md](LANGUAGE.md) | das Logbuch der Reibungspunkte zwischen Rust und einem Kernel — Geschichte, und weiterhin Anforderungen an Firn |
+| [BRANDING.md](BRANDING.md) · [RENAME.md](RENAME.md) · [NAMEN.md](NAMEN.md) | Marken, Umbenennen, Namensfindung |
+| [PACKAGING.md](PACKAGING.md) · [FILESYSTEM.md](FILESYSTEM.md) | Verteilmodell und Dateisystem-Entwurf |
+| [ASSISTENT.md](ASSISTENT.md) | die Schnittstelle für einen Assistenten (statt Bildschirmfotos) |
+| [NETZWERK.md](NETZWERK.md) | Umleitschicht, Kernel/Userspace-Grenze, Tor/WireGuard |
+| [userland/README.md](userland/README.md) | wie das Userland ins ISO kommt und was daraus werden soll |
+| [tests/README.md](tests/README.md) | wie die Abnahme aufgebaut ist |

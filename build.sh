@@ -100,8 +100,9 @@ if [[ $MIT_USERLAND -eq 1 ]]; then
                 [[ -f "$3" ]] || FEHLT="$FEHLT $3"
                 ;;
             verzeichnis\ *)
+                # mkfs.py erkennt ein Verzeichnis am Schraegstrich am Ende.
                 set -- $zeile
-                SPEC+=("$2")
+                SPEC+=("${2%/}/")
                 ;;
             *)
                 if [[ -f "vendor/osum/bin/$zeile" ]]; then
@@ -117,8 +118,12 @@ if [[ $MIT_USERLAND -eq 1 ]]; then
     # den Aufbau eines einzelnen Nachweises.
     for d in ${DAZU+"${DAZU[@]}"}; do
         SPEC+=("$d")
-        q=${d#*=}
-        [[ -z "$q" || -f "$q" ]] || FEHLT="$FEHLT $q"
+        # Ein Eintrag OHNE `=` ist ein Verzeichnis (mkfs.py erkennt es am
+        # Schraegstrich); nur bei einem mit `=` gibt es eine Quelldatei,
+        # die es geben muss.
+        case "$d" in
+            *=*) q=${d#*=}; [[ -f "$q" ]] || FEHLT="$FEHLT $q" ;;
+        esac
     done
     if [[ -n "$FEHLT" ]]; then
         echo "userland/PROGRAMME nennt, was es nicht gibt:$FEHLT" >&2
@@ -146,7 +151,16 @@ if [[ -z "$CMDLINE" ]]; then
         CMDLINE="osum nokbd nosched noproc nofs noring3"
     fi
 elif [[ $MIT_USERLAND -eq 1 && "$CMDLINE" != *modcrc=* ]]; then
-    CMDLINE="$CMDLINE modfs modcrc=${CRC}"
+    # WICHTIG: vor `script=`, nicht dahinter. Osums `console_load` liest
+    # alles hinter `script=` bis zum Ende der Zeile als Skript -- ein
+    # `modfs` dahinter waere ein Shell-Befehl und kein Kernelwort. Genau
+    # das ist einmal passiert und stand als `osum$ exit modfs modcrc=...`
+    # im Protokoll.
+    if [[ "$CMDLINE" == *script=* ]]; then
+        CMDLINE="${CMDLINE%%script=*}modfs modcrc=${CRC} script=${CMDLINE#*script=}"
+    else
+        CMDLINE="$CMDLINE modfs modcrc=${CRC}"
+    fi
 fi
 
 # ------------------------------------------------------- 4. das ISO

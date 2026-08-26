@@ -1,5 +1,16 @@
 # PLAN — Runde 3: vom Boot-Kern zum System mit echtem Userspace
 
+> **ÜBERHOLT AM 26.08.2026.** Dieses Dokument beschreibt Arbeit am
+> **Rust-Kernel** dieses Repos. Der ist gelöscht — der Kernel kommt aus
+> dem Osum-Repo ([KERNELWECHSEL.md](KERNELWECHSEL.md)). Alles, was hier
+> `run-qemu.sh`, `cargo`, `kernel/src` oder `Cargo.toml` nennt, gibt es
+> nicht mehr; wo die Dinge jetzt stehen, sagt
+> [tests/GELOESCHT.md](tests/GELOESCHT.md). Das Dokument bleibt als
+> **Protokoll** stehen: was damals geplant und gemessen wurde, ist Teil
+> der Geschichte dieses Projekts und wird nicht nachträglich
+> umgeschrieben.
+
+
 Dieser Lauf **erweitert** einen bereits bootenden Kernel. Ausgangszustand:
 `PREFLIGHT.md` (15 Schritte gruen, BIOS + UEFI). Nichts wegwerfen, nichts neu
 bauen, keine funktionierende Datei ersetzen. **Ein gruener Boot ist mehr wert

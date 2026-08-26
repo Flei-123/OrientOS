@@ -9,8 +9,8 @@
 >
 > **Der Migrationsstand in M-00 unten ist Geschichte, keine Angabe.** Am
 > 25.08.2026 stand er bei 5 %. Am 26.08.2026 wurde der Rust-Kernel
-> gelöscht — 18 521 Zeilen Rust und 1 206 Zeilen C, nachdem jeder offene
-> Punkt abgearbeitet war. **Der heutige Stand ist: 0 Zeilen Rust in
+> gelöscht — 18 255 Zeilen Rust, 1 206 Zeilen C und 965 Zeilen Firn,
+> nachdem jeder offene Punkt abgearbeitet war. **Der heutige Stand ist: 0 Zeilen Rust in
 > diesem Repo** (plus 378 Zeilen unübersetzte Vorlage), 0 Zeilen Firn in
 > diesem Repo — Firn steht vollständig in Osum, 32 800 Zeilen.
 >
@@ -68,7 +68,7 @@ der Tabelle darunter.
 | **Kernel** | kommt aus dem **Osum-Repo**, festgenagelt über `vendor/osum/COMMIT`. 15 495 Zeilen Firn im Kern, 3 592 im Userland, 1 234 libc, 1 204 Assembler. |
 | **Übersetzer des Kernels** | Osums eigener Nagel (dort `vendor/firn/COMMIT`) — ein **anderer** Commit als der dieses Repos. Zwei Projekte, zwei Nägel. |
 | **Firn in diesem Repo** | **keines mehr.** `kernel/firn/serial.fi`, `bitmap.fi`, `elf.fi` (922 Zeilen) gehörten zum Rust-Kernel und sind mit ihm gelöscht; ihre Gegenstücke stehen in Osum (`serial.fi`, `mem.fi`, `elf.fi`). |
-| **Noch in Rust** | **0 Zeilen.** Am 26.08.2026 gelöscht (18 521 Zeilen). Eine Datei bleibt als **unübersetzte Vorlage** stehen: `vorlage/arch_iface.rs`, 378 Zeilen, mit Begründung im Kopf — es gibt in diesem Repo kein `cargo` und kein `Cargo.toml` mehr, sie ist Text und kein Code. Warum: [KERNELWECHSEL.md](KERNELWECHSEL.md) § 4.1. |
+| **Noch in Rust** | **0 Zeilen.** Am 26.08.2026 gelöscht (18 255 Zeilen, eingecheckt gezählt). Eine Datei bleibt als **unübersetzte Vorlage** stehen: `vorlage/arch_iface.rs`, 378 Zeilen, mit Begründung im Kopf — es gibt in diesem Repo kein `cargo` und kein `Cargo.toml` mehr, sie ist Text und kein Code. Warum: [KERNELWECHSEL.md](KERNELWECHSEL.md) § 4.1. |
 | **Übersetzer dieses Repos** | `vendor/firn/COMMIT` — wird hier nicht mehr zum Übersetzen gebraucht, seit kein Firn-Modul mehr in diesem Baum liegt. Osum nagelt seinen eigenen fest. |
 | **Aufrufrichtung** | gegenstandslos: es gibt keine Sprachgrenze mehr in diesem Repo. Der Eintrag M-02 bleibt trotzdem gültig — er beschreibt, was Firn fehlte, nicht was OrientOS tut. |
 

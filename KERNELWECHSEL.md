@@ -13,9 +13,15 @@ wurde, bevor etwas ersetzt wurde**, was portiert ist, was gelöscht wurde
 noch vollständig da; die Auflage lautete: *nichts löschen, bevor der
 Ersatz nachweislich läuft*. Am 26.08.2026 wurden die letzten zwei offenen
 Punkte nach Firn portiert (SMEP/SMAP, Boot-Module) und der Rust-Kernel
-gelöscht — 18 521 Zeilen Rust und 1 206 Zeilen C. Abschnitt 7 sagt, was
-genau, und Abschnitt 4, was **nicht** portiert wurde und warum es trotzdem
-weg durfte.
+gelöscht — **18 255 Zeilen Rust** und **1 206 Zeilen C**, dazu 965 Zeilen
+Firn, die zu ihm gehörten. Abschnitt 7 sagt, was genau, und Abschnitt 4,
+was **nicht** portiert wurde und warum es trotzdem weg durfte.
+
+**Zu den Zahlen, einmal genau.** Gezählt ist, was `git` kannte
+(`git ls-tree -r 586ac70 --name-only | grep '\.rs$'`). Wer im
+Arbeitsverzeichnis zählt, findet 18 521 — die Differenz von 266 Zeilen
+sind erzeugte Dateien unter `build/`, die nie eingecheckt waren. Beide
+Zahlen sind richtig; diese Datei nennt durchgehend die eingecheckte.
 
 ---
 
@@ -28,8 +34,9 @@ Es gab zwei Kernel mit demselben Namen.
   Dateisystem, ELF64-Lader von der Platte, NVMe über DMA, PCI, APIC, SMP,
   TCP/IP, Signale, Terminals, Bildschirm, POSIX-Schicht mit den
   Systemaufrufnummern von Linux, Shell mit 25 Werkzeugen.
-* **Der Kernel dieses Repos**: 18 521 Zeilen Rust (`kernel/src`, `libs/`)
-  und 922 Zeilen Firn. `LANGUAGE.md` hatte am 21.08.2026 festgehalten:
+* **Der Kernel dieses Repos**: 18 255 Zeilen Rust (`kernel/src` 14 157,
+  `libs/` 3 860, `kernel/build.rs` 144, der ELF-Maßstab 94) und 965 Zeilen
+  Firn. `LANGUAGE.md` hatte am 21.08.2026 festgehalten:
   *„osum wird Firn-only"*, und die Migration lief modulweise — bei rund
   5 %.
 
@@ -336,7 +343,7 @@ ohne Herkunft.
   (`kernel/guard.fi`) und Boot-Module mit CRC32 (`kernel/bootmod.fi`),
   zusammen 579 Zeilen Firn, abgenommen mit 55 Zusagen in Osums
   `tools/guard/run.sh` (dort Abschnitt 15 von `./test.sh`).
-* **26.08.2026** — **der Schnitt.** 18 521 Zeilen Rust und 1 206 Zeilen C
+* **26.08.2026** — **der Schnitt.** 18 255 Zeilen Rust, 1 206 Zeilen C und 965 Zeilen Firn
   gelöscht, eine Datei bleibt als Vorlage stehen. Abschnitt 7.
 * **26.08.2026** — und der Gewinn, der nicht in der Löschliste steht: das
   Produkt-ISO hat zum ersten Mal ein **Userland**. `build.sh` stellt aus
@@ -359,10 +366,11 @@ stehen (4.1).
 
 | Weg | Zeilen | Ersatz |
 |---|---:|---|
-| `kernel/src/` — der ganze Rust-Kernel | 12 269 | Osum `kernel/*.fi`, 26 088 Zeilen Firn |
-| `libs/osum-abi-native/`, `libs/osum-abi-posix/`, `libs/osum-mem/` | 5 892 | Osum `cap.fi`, `sys.fi`, `mem.fi` |
-| `tests/firn-elf/*.c`, `*.rs`, `tests/firn-bitmap/`, `tests/firn-fehler/` | 1 206 C + 94 Rust | Osums eigene Prüfstände; die **53 ELF-Fälle bleiben** (7.3) |
-| `kernel/firn/{serial,bitmap,elf}.fi` (922 Zeilen Firn) | 922 | Osum `serial.fi`, `mem.fi`, `elf.fi` |
+| `kernel/src/` — der ganze Rust-Kernel | 14 157 | Osum `kernel/*.fi`, 26 088 Zeilen Firn |
+| `libs/osum-abi-native/`, `libs/osum-abi-posix/`, `libs/osum-mem/` | 3 860 | Osum `cap.fi`, `sys.fi`, `mem.fi` |
+| `kernel/build.rs`, `tests/firn-elf/rust-massstab.rs` | 238 | nichts — es wird hier kein Rust mehr übersetzt |
+| `tests/firn-elf/*.c`, `tests/firn-bitmap/`, `tests/firn-fehler/` | 1 206 C | Osums eigene Prüfstände; die **53 ELF-Fälle bleiben** (7.3) |
+| `kernel/firn/{serial,bitmap,elf}.fi` und `tests/firn-fehler/*.fi` | 965 Firn | Osum `serial.fi`, `mem.fi`, `elf.fi` |
 | `Cargo.toml`, `Cargo.lock`, `.cargo/config.toml`, `kernel/Cargo.toml`, `kernel/build.rs`, `kernel/linker-x86_64.ld`, `x86_64-osum-none.json` | — | kein cargo mehr im Baum |
 | `run-qemu.sh`, `limine.conf` | — | `run-osum.sh`; `limine.conf` erzeugt `build.sh` |
 | `userland/hello.asm`, `user.ld`, `mkinitramfs.py`, `mkbroken.py` | — | Osums 25 Werkzeuge im Boot-Modul (7.2) |
@@ -418,13 +426,13 @@ weiter.
 
 | | vorher (25.08.) | nachher (26.08.) |
 |---|---:|---:|
-| Rust in `orientos` | 18 521 | **0** (+ 378 Zeilen Vorlage, nicht gebaut) |
+| Rust in `orientos` (eingecheckt) | 18 255 | **0** (+ 378 Zeilen Vorlage, nicht gebaut) |
 | C in `orientos` (ohne `vendor/limine`) | 1 206 | **0** |
-| Firn in `orientos` | 922 | **0** — Firn steht jetzt vollständig in Osum |
+| Firn in `orientos` | 965 | **0** — Firn steht jetzt vollständig in Osum |
 | Firn in `osum` (Kern) | 25 509 | **26 088** |
 | Programme im Produkt-ISO | 1 (`hello`) | **26** |
 | Testabschnitte `orientos` | 19 | 8 |
-| Zusagen `orientos` | 166 | siehe `./test.sh` |
+| Zusagen `orientos` | 166 | **151**, alle mit Gegenprobe |
 | Testabschnitte `osum` | 14 | **15** |
 
 Die Abschnittszahl von OrientOS sinkt, und das ist richtig so: dreizehn

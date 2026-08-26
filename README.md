@@ -7,8 +7,9 @@ Kein Linux-Fork, kein uebernommener Fremdcode. Der Kernel ist in
 System darum herum.
 
 > **Der Kernelwechsel ist am 26.08.2026 abgeschlossen.** Der alte
-> Rust-Kernel dieses Repos ist **geloescht** — 18.521 Zeilen Rust und
-> 1.206 Zeilen C, nachdem jeder offene Punkt abgearbeitet war. Eine
+> Rust-Kernel dieses Repos ist **geloescht** — 18.255 Zeilen Rust,
+> 1.206 Zeilen C und 965 Zeilen Firn, die zu ihm gehoerten, nachdem jeder
+> offene Punkt abgearbeitet war. Eine
 > einzige Datei bleibt als unuebersetzte **Vorlage** stehen
 > (`vorlage/arch_iface.rs`, mit Begruendung im Kopf). Was verglichen
 > wurde, was portiert ist, was noch fehlt und was genau weggefallen ist:
@@ -102,7 +103,7 @@ alles Austauschbare, der Quelltext kennt keinen dieser Werte
 | Systemaufrufe | 72 |
 | Programme in Ring 3 | 31 gebaut, **26 im Produkt-ISO** |
 | Zusagen der Kernel-Abnahme (Osum `./test.sh`) | **1180**, in 15 Abschnitten |
-| Zusagen der System-Abnahme (hier, `./test.sh`) | siehe unten |
+| Zusagen der System-Abnahme (hier, `./test.sh`) | **151**, in 11 Schritten, jede mit Gegenprobe |
 
 Alles nachpruefbar: `./test.sh` baut, bootet und misst. Jede Zusage hat
 eine **Gegenprobe** — denselben Kernel mit abgeschalteter Eigenschaft, wo

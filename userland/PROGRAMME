@@ -17,7 +17,15 @@
 #   datei <zielpfad> <quelle>     eine Datei aus DIESEM Repo hineinlegen
 #   bloecke: <n>                  Groesse des Dateisystems in Bloecken zu 512
 
-bloecke: 6144
+# NACHGEZOGEN AM 26.08.2026 (Osum c5fe12f): 4096 statt 6144.
+# Die Blockkarte von OFS ist EIN Block zu 512 Oktetten, also 4096 Bits,
+# also hoechstens 4096 Bloecke je Abbild. Bis K15 hat mkfs.py das nicht
+# geprueft und 6144 klaglos gebaut -- die oberen 2048 Bloecke (1 MiB)
+# waren dabei nicht adressierbar, weil kein Bit sie beschreibt. Aufgefallen
+# ist es nie, weil das Produkt sie nie brauchte: die 27 Programme dieser
+# Liste belegen 932.584 Oktette, also 1822 Datenbloecke von 4062
+# verfuegbaren. Seit K15 lehnt mkfs.py 6144 ab, und das ist richtig so.
+bloecke: 4096
 
 # --- die Shell und die Werkzeuge (Osum, Runden K6/K8/K9)
 sh

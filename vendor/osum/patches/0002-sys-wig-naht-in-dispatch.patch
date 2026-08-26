@@ -1,0 +1,50 @@
+Betrifft: Osum c5fe12f (Merge k15-ui), kernel/sys.fi
+Befund:   Der Merge hat die K15-Naht (Systemaufrufe 1800..1806) in die
+          FALSCHE Funktion gelegt: in `k13_call` statt in `dispatch`.
+Wirkung:  Der Kernel dieses festgenagelten Commits UEBERSETZT NICHT.
+          firnc bricht ab mit
+            error: unknown name 'a4'
+             1099 |  return wig_call(state, me, number, a0, a1, a2, a3, a4)
+          `k13_call` nimmt a0..a3 entgegen (kernel/sys.fi:1016), die Naht
+          braucht fuenf Argumente.
+
+Und selbst uebersetzt waere der Zweig TOT: er stuende hinter
+          `if is_k13(number)`, und `is_k13` (sys.fi:996) zaehlt die
+          Linux-Nummern 21, 90..95, 102..108, 113..120, 169, 260..269 und
+          1600 auf. 1800..1806 sind nicht darunter -- kein Widget-Aufruf
+          haette diese Stelle je erreicht.
+
+Beleg, dass es ein MERGE-Fehler ist:
+          Im Elternteil fcb5c30 (k15-Spitze) steht der Block in
+          `dispatch`, unmittelbar hinter der K12-Naht
+          (`git show fcb5c30:kernel/sys.fi`, Zeilen 785..792). Diese
+          Aenderung legt ihn genau dorthin zurueck: hinter den
+          K12-Block, vor die K13-Verzweigung. Kein neues Verhalten.
+
+Warum hier: siehe 0001-kmain-merge-klammer.patch, gleicher Grund.
+
+--- a/kernel/sys.fi	2026-08-26 15:33:07.298708231 +0000
++++ b/kernel/sys.fi	2026-08-26 15:33:07.315708381 +0000
+@@ -968,6 +968,10 @@
+     if number >= SYS_VM_CREATE && number <= SYS_VM_VALUE {
+         return vm_call(state, me, number, a0, a1)
+     }
++    // RUNDE K15: die Naht zur Widget-Bibliothek.
++    if number >= WIG_BASE && number <= WIG_MAXNR {
++        return wig_call(state, me, number, a0, a1, a2, a3, a4)
++    }
+     // ------------------------------------------------------ RUNDE K13
+     //
+     // EINE ZEILE UND NICHT FUENFUNDZWANZIG, und das ist keine
+@@ -1093,11 +1097,6 @@
+     if number == SYS_OSUM_USERINFO {
+         return do_userinfo(state, me, a0)
+     }
+-
+-    // RUNDE K15: die Naht zur Widget-Bibliothek.
+-    if number >= WIG_BASE && number <= WIG_MAXNR {
+-        return wig_call(state, me, number, a0, a1, a2, a3, a4)
+-    }
+     return neg(errno.E_NOSYS)
+ }
+ 

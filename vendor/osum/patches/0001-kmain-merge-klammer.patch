@@ -1,0 +1,46 @@
+Betrifft: Osum c5fe12f (Merge k15-ui), kernel/kmain.fi
+Befund:   Der Merge hat EINE schliessende geschweifte Klammer verloren.
+Wirkung:  Der Kernel dieses festgenagelten Commits UEBERSETZT NICHT.
+          firnc bricht ab mit
+            error: 'fn' is only allowed at top level, not inside a function body
+                 --> kernel/kmain.fi:2484:1
+          weil `mode_of` ab Zeile 2394 nie geschlossen wird und alle
+          folgenden Funktionen dadurch INNERHALB von `mode_of` stehen.
+          Nachgerechnet: die Klammerbilanz der Datei endet bei +1 statt 0,
+          und 13 Funktionen beginnen auf der falschen Ebene.
+
+Beleg, dass es ein MERGE-Fehler ist und keine Absicht:
+          Elternteil 78f8e86 (`git show 78f8e86:kernel/kmain.fi`, Zeilen
+          2387..2389) hat den Block vollstaendig:
+
+              if find(cmd, (&nsw[0]) as u64, 11) != 0 {
+                  mode = mode | kstate.M_NOSTACK
+              }
+
+          Im Merge ist der K15-Block genau an die Stelle der schliessenden
+          Klammer geraten. Diese Aenderung stellt den Elternstand wieder her
+          -- sie fuegt NICHTS Neues hinzu und aendert keine Semantik.
+
+Warum hier und nicht im Osum-Repo:
+          Der Kernel wird festgenagelt (vendor/osum/COMMIT), damit OrientOS
+          gegen einen BEKANNTEN Stand baut. Ein Commit im Kernelrepo waere
+          eine andere Nummer und damit ein anderer Stand. Osum bleibt
+          c5fe12f; OrientOS repariert die Stelle beim Auspacken und sagt,
+          dass es das tut.
+
+Lebensdauer:
+          Sobald Osum den Merge selbst berichtigt, laesst sich dieser Patch
+          nicht mehr anwenden -- hole-osum.sh bricht dann ab, statt still
+          weiterzubauen. Das ist die Absicht: er soll auffallen, wenn er
+          ueberfluessig wird.
+
+--- a/kernel/kmain.fi
++++ b/kernel/kmain.fi
+@@ -2393,6 +2393,7 @@
+     }
+     if find(cmd, (&nsw[0]) as u64, 11) != 0 {
+         mode = mode | kstate.M_NOSTACK
++    }
+     // RUNDE K15. `wig` startet die Anwendung, die auf der
+     // Widget-Bibliothek sitzt, `wigfiles` den Dateimanager; die beiden
+     // Gegenproben `wignohit` und `wignoclip` werden der Anwendung als

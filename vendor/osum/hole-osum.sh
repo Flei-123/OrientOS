@@ -98,6 +98,43 @@ rm -rf "$BAU"
 mkdir -p "$BAU"
 git -C "$OSUM" archive "$COMMIT" | tar -x -C "$BAU"
 
+# --- Berichtigungen am festgenagelten Stand.
+#
+# WARUM ES DAS GIBT. Ein festgenagelter Commit ist ein BEKANNTER Stand,
+# kein FEHLERFREIER. Faellt an ihm etwas auf, das den Bau verhindert, gibt
+# es zwei Wege: den Nagel verschieben (dann baut OrientOS gegen einen
+# anderen Stand, und die Messung von gestern gilt nicht mehr) oder die
+# Stelle hier beim Auspacken berichtigen und SAGEN, dass man es tut.
+# OrientOS nimmt den zweiten Weg -- derselbe Umgang, den jede
+# Distribution mit fremden Quellen pflegt.
+#
+# DIE REGELN, und test.sh haelt sie fest (tests/step-05-patches.sh):
+#   * Jeder Patch liegt in vendor/osum/patches/ und traegt im Kopf, WAS
+#     er berichtigt, WARUM es ein Fehler ist und WORAN man sieht, dass er
+#     ueberfluessig geworden ist.
+#   * Ein Patch, der NICHT mehr passt, ist ein ABBRUCH und kein Achselzucken.
+#     Genau daran faellt auf, dass Osum die Stelle selbst berichtigt hat.
+#   * Kein Patch veraendert Verhalten. Was hier steht, macht einen Stand
+#     baubar -- neue Eigenschaften kommen aus dem Kernelrepo.
+shopt -s nullglob
+PATCHES=("$HIER"/patches/*.patch)
+shopt -u nullglob
+if [[ ${#PATCHES[@]} -gt 0 ]]; then
+    echo ">> ${#PATCHES[@]} Berichtigung(en) am Stand $KURZ anwenden"
+    for p in "${PATCHES[@]}"; do
+        if ! git -C "$BAU" apply --check -p1 "$p" 2>/dev/null; then
+            echo "FEHLER: $(basename "$p") passt nicht mehr auf Osum $KURZ." >&2
+            echo "        Entweder ist der Nagel verschoben worden, oder Osum hat" >&2
+            echo "        die Stelle selbst berichtigt. Dann gehoert der Patch WEG," >&2
+            echo "        nicht angepasst. Kopf der Datei lesen:" >&2
+            echo "        $p" >&2
+            exit 1
+        fi
+        git -C "$BAU" apply -p1 "$p"
+        echo "   $(basename "$p")"
+    done
+fi
+
 echo ">> Osums eigenen Firn-Uebersetzer bauen ($(cut -c1-8 "$BAU/vendor/firn/COMMIT"))"
 ( cd "$BAU" && FIRN_REPO="$FIRN" bash vendor/firn/hole-firnc.sh >/dev/null )
 

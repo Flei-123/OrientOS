@@ -1,0 +1,23 @@
+# pkg/rezepte/hallo.rezept -- das kleinste Paket, und das einzige, das
+# sich OHNE Bildschirm beweisen laesst.
+#
+# WOFUER ES DA IST. Die grossen Kandidaten dieser Runde -- der
+# Datei-Explorer und die Widget-Anwendung aus Osums Runde K15 -- sind
+# Programme mit einer Oberflaeche. Dass sie INSTALLIERT sind, laesst sich
+# an ihren Oktetten messen; dass ein installiertes Paket wirklich LAEUFT,
+# nicht. Ein Programm, das eine Zeile schreibt und sich beendet, kann
+# beides: es liegt im Store, es haengt in `/apps`, und im Protokoll der
+# seriellen Leitung steht, was es gesagt hat.
+#
+# `/bin/hello` ist Osums eigenes Ring-3-Programm aus Runde K1 -- das
+# erste, das dieser Kernel je von einer Platte geladen hat.
+#
+# Es hat KEIN Buendel in Osums assets/apps, deshalb steht dieses Rezept
+# von Hand da und wird nicht erzeugt.
+name=hallo
+fassung=1.0.0
+titel=Hallo
+info=Schreibt eine Zeile und beendet sich -- der Nachweis, dass ein Paket laeuft
+keys=hallo,hello,probe,test
+handle=konsole
+datei=start ../../vendor/osum/bin/hello

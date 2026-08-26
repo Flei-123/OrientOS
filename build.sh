@@ -1,252 +1,176 @@
 #!/usr/bin/env bash
-# OrientOS — Bauen des bootfaehigen ISO-Abbilds.
+# OrientOS — das bootfaehige Produkt bauen.
 #
-# ZWEI KERNELQUELLEN, und das ist seit dem Kernelwechsel der wichtigste
-# Schalter dieser Datei (Begruendung und Stand: KERNELWECHSEL.md):
+# WAS DIESES SKRIPT SEIT DEM 26.08.2026 IST, und was es nicht mehr ist.
+# Bis zum Kernelwechsel hat es einen Rust-Kernel uebersetzt (cargo,
+# build-std, eigenes Target, Startdateisystem in einem eigenen Format).
+# Dieser Kernel ist geloescht; er kommt aus dem Osum-Repo, in Firn,
+# festgenagelt ueber `vendor/osum/COMMIT` und gebaut mit SEINEM eigenen
+# Uebersetzer. Was hier passiert, ist deshalb kein Uebersetzen mehr,
+# sondern ZUSAMMENSTELLEN — genau die Rolle, die OrientOS nach dem
+# Wechsel hat (KERNELWECHSEL.md):
 #
-#   --kernel osum   VOREINSTELLUNG. Der Kernel kommt aus dem Osum-Repo,
-#                   festgenagelt ueber vendor/osum/COMMIT. Er ist in Firn
-#                   geschrieben, wird mit SEINEM eigenen Firn-Uebersetzer
-#                   gebaut und ueber das Multiboot-Protokoll von Limine
-#                   gestartet — BIOS und UEFI. Ergebnis: build/<slug>.iso
-#   --kernel rust   Der alte Kernel dieses Repos (kernel/src, libs/).
-#                   Er ist NICHT das Produkt mehr, sondern die Vorlage fuer
-#                   das, was noch nicht nach Firn portiert ist (Kanaele,
-#                   Ports, Namensraeume, Rahmenpufferkonsole, arch-Grenze).
-#                   Er bleibt messbar, bis sein Ersatz nachweislich laeuft.
-#                   Ergebnis: build/<slug>-rust.iso
+#   1. den festgenagelten Kernel holen (vendor/osum/hole-osum.sh),
+#   2. aus den unprivilegierten Programmen desselben Commits und der
+#      Liste in `userland/PROGRAMME` ein OFS-Dateisystem bauen,
+#   3. dessen CRC32 rechnen und dem Kernel auf der Kommandozeile nennen,
+#   4. Kernel und Dateisystem mit Limine zu einem ISO packen, das ueber
+#      BIOS und ueber UEFI startet.
 #
-#   ./build.sh                 Release-Build + ISO (Osum-Kernel)
-#   ./build.sh --debug         Debug-Build
-#   ./build.sh --features test-pagefault
-#   ./build.sh --no-posix      Gegenprobe: Kernel ohne POSIX-Schicht
-#   ./build.sh --fresh         eigene Crates vorher wegwerfen und WIRKLICH neu
-#                              uebersetzen (Nachweis der Warnungsfreiheit)
-#   ./build.sh --brand xoffi   mit einer anderen Marke bauen (brands/xoffi.toml).
-#                              Gleicher Quelltext, anderes Produkt — BRANDING.md
-#   ./build.sh --cmdline "..." Kommandozeile fuer den Osum-Kernel
+# DAS DATEISYSTEM IST EIN BOOT-MODUL, und das ist der Grund, warum das
+# Produkt ueberhaupt ein Userland hat: ein ISO hat keine Platte, und was
+# ein Multiboot-Lader neben den Kern legen kann, ist ein Modul. Osums
+# Runde K10 nimmt eines entgegen, prueft die Summe und mountet es als
+# Wurzel (dort `kernel/bootmod.fi`).
+#
+#   ./build.sh                     Produkt-ISO: build/<slug>.iso
+#   ./build.sh --brand xoffi       andere Marke, gleicher Quelltext
+#   ./build.sh --cmdline "..."     eigene Kommandozeile fuer den Kernel
+#   ./build.sh --ohne-userland     GEGENPROBE: ISO ohne das Modul
+#   ./build.sh --kaputte-summe     GEGENPROBE: falsche CRC32 im Aufruf
+#   ./build.sh --dazu /t/x.sh=datei   eine weitere Datei ins Dateisystem
+#                                  (mehrfach; Testschritte legen so ihre
+#                                  Faelle hinein, ohne PROGRAMME anzufassen)
 set -euo pipefail
 cd "$(dirname "$0")"
 
-PROFILE=release
-CARGO_PROFILE_FLAG=--release
-FEATURE_ARGS=()
-EXTRA=()
-# Eigene Crates. Nur diese wirft --fresh weg; core/compiler_builtins bleiben
-# im Cache, sonst dauert jeder Testlauf unnoetig lange.
-OWN_CRATES=(osum osum-mem osum-abi-native osum-abi-posix)
-FRESH=0
 BRAND="${BRAND:-}"
-KERNELQUELLE=osum
+MIT_USERLAND=1
+KAPUTT=0
+DAZU=()
 # Was der Osum-Kernel auf der Kommandozeile bekommt. Die Woerter sind in
-# seinem kmain.fi/mode_of dokumentiert; `caps` schaltet die
-# Capability-Runde zu.
-OSUM_CMDLINE="osum nokbd nosched noproc nofs noring3"
+# seinem `kmain.fi`/`mode_of`, `fb.parse`, `guard.parse` und
+# `bootmod.parse` dokumentiert. `modfs` sagt: nimm das Boot-Modul als
+# Wurzelplatte; `osum` sagt: starte /bin/sh davon.
+CMDLINE=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --debug) PROFILE=debug; CARGO_PROFILE_FLAG=""; shift ;;
-        --features) FEATURE_ARGS+=(--features "$2"); shift 2 ;;
-        --no-posix) EXTRA+=(--no-default-features); shift ;;
-        --fresh) FRESH=1; shift ;;
         --brand) BRAND="$2"; shift 2 ;;
-        --kernel) KERNELQUELLE="$2"; shift 2 ;;
-        --cmdline) OSUM_CMDLINE="$2"; shift 2 ;;
-        -h|--help) sed -n '2,8p' "$0"; exit 0 ;;
+        --cmdline) CMDLINE="$2"; shift 2 ;;
+        --ohne-userland) MIT_USERLAND=0; shift ;;
+        --kaputte-summe) KAPUTT=1; shift ;;
+        --dazu) DAZU+=("$2"); shift 2 ;;
+        -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
         *) echo "unbekannte Option: $1" >&2; exit 1 ;;
     esac
 done
 
-# Marke aufloesen (setzt BRAND, OS_NAME, SLUG). Muss VOR cargo laufen: BRAND
-# geht als Umgebungsvariable an kernel/build.rs.
 # shellcheck source=brand.sh
 source ./brand.sh
-echo ">> Marke: ${OS_NAME} (${SLUG}${BRAND:+, brands/$BRAND.toml})"
+echo ">> Marke: ${OS_NAME} (${SLUG}, brands/${BRAND}.toml)"
 
-# ------------------------------------------------------- der Osum-Kernel
-#
-# Der kurze Weg: kein cargo, kein build-std, kein Startdateisystem. Der
-# Kernel ist ein fertiges Multiboot-Abbild aus einem anderen Repo, und
-# alles, was hier passiert, ist Verpacken — genau die Rolle, die OrientOS
-# nach dem Kernelwechsel hat.
-if [[ "$KERNELQUELLE" == osum ]]; then
-    ./vendor/osum/hole-osum.sh
-    KERNEL=vendor/osum/osum.mb
-    test -f "$KERNEL" || { echo "Osum-Abbild fehlt: $KERNEL" >&2; exit 1; }
+# ---------------------------------------------------- 1. der Kernel
+./vendor/osum/hole-osum.sh
+KERNEL=vendor/osum/osum.mb
+test -f "$KERNEL" || { echo "Osum-Abbild fehlt: $KERNEL" >&2; exit 1; }
 
-    ROOT=build/isoroot
-    rm -rf "$ROOT"
-    mkdir -p "$ROOT/boot/limine" "$ROOT/EFI/BOOT"
-    cp "$KERNEL" "$ROOT/boot/osum"
-
-    # Limine, Protokoll multiboot1. DAS IST DER UEFI-PFAD: Osums
-    # Multiboot-Kopf verlangt seit seinem Commit c4427fa einen linearen
-    # Rahmenpuffer (Flag-Bit 2). Ohne den bricht Limine unter UEFI mit
-    # "multiboot1: Cannot use text mode with UEFI" ab; mit ihm bootet
-    # dasselbe Abbild ueber SeaBIOS und ueber OVMF.
-    {
-        echo "# Erzeugt von build.sh --kernel osum. Nicht von Hand aendern."
-        echo "timeout: 0"
-        echo "verbose: yes"
-        echo
-        echo "/${OS_NAME}"
-        echo "    protocol: multiboot1"
-        echo "    path: boot():/boot/osum"
-        echo "    cmdline: ${OSUM_CMDLINE}"
-    } > "$ROOT/boot/limine/limine.conf"
-
-    cp vendor/limine/limine-bios.sys \
-       vendor/limine/limine-bios-cd.bin \
-       vendor/limine/limine-uefi-cd.bin "$ROOT/boot/limine/"
-    cp vendor/limine/BOOTX64.EFI "$ROOT/EFI/BOOT/"
-
-    xorriso -as mkisofs -quiet -R -r -J \
-        -b boot/limine/limine-bios-cd.bin \
-        -no-emul-boot -boot-load-size 4 -boot-info-table \
-        -hfsplus -apm-block-size 2048 \
-        --efi-boot boot/limine/limine-uefi-cd.bin \
-        -efi-boot-part --efi-boot-image \
-        --protective-msdos-label \
-        "$ROOT" -o "build/${SLUG}.iso"
-    if [[ ! -x vendor/limine/limine ]]; then
-        make -s -C vendor/limine >/dev/null
-    fi
-    vendor/limine/limine bios-install "build/${SLUG}.iso" >/dev/null
-
-    echo ">> Kernel: Osum $(cut -c1-8 vendor/osum/COMMIT) (Firn), Kommandozeile: ${OSUM_CMDLINE}"
-    echo ">> fertig: build/${SLUG}.iso ($(( $(stat -c%s "build/${SLUG}.iso") / 1024 )) KiB), Kernel $(( $(stat -c%s "$KERNEL") / 1024 )) KiB"
-    exit 0
-fi
-
-if [[ "$KERNELQUELLE" != rust ]]; then
-    echo "unbekannte Kernelquelle: $KERNELQUELLE (osum|rust)" >&2
-    exit 1
-fi
-
-# ------------------------------------------------------- der Rust-Kernel
-#
-# NICHT MEHR DAS PRODUKT. Er bleibt gebaut und gemessen, solange er Dinge
-# kann, die Osum noch nicht kann — siehe KERNELWECHSEL.md, Abschnitt
-# "Was noch in Rust steht".
-
-# build-std steht bewusst hier und nicht in .cargo/config.toml, damit
-# Host-Tests (cargo test) nicht ebenfalls ein zweites `core` bauen.
-BUILD_STD=(-Z build-std=core,compiler_builtins,alloc
-           -Z build-std-features=compiler-builtins-mem)
-
-# ------------------------------------------------------------ Firn-Module
-# osum wird Firn-only (LANGUAGE.md). Die schon portierten Module werden VOR
-# dem Kernel uebersetzt — cargo linkt die Objekte ueber kernel/build.rs dazu.
-#
-# Der Uebersetzer ist auf vendor/firn/COMMIT festgenagelt. Grund: Firn wird
-# gerade aktiv weiterentwickelt; ohne festen Stand waere bei jedem Fehler
-# unklar, ob er aus dem Kernel oder aus dem Uebersetzer kommt.
-FIRN_MODULE=(serial bitmap elf)
-FIRNC=vendor/firn/firnc
-echo ">> Firn-Module (${#FIRN_MODULE[@]}), Uebersetzer $(cut -c1-8 vendor/firn/COMMIT)"
-./vendor/firn/hole-firnc.sh
-mkdir -p build/firn
-for M in "${FIRN_MODULE[@]}"; do
-    FIRNLIB=$PWD/vendor/firn/lib "$FIRNC" -o "build/firn/$M.o" "kernel/firn/$M.fi"
-    # Ein Kernelmodul MUSS freistehend sein. Ein undefiniertes Symbol hiesse:
-    # es haengt an etwas, das im Kernel gar nicht existiert. Lieber hier
-    # abbrechen als spaeter im Linker oder, schlimmer, beim Booten.
-    #
-    # GENAU EINE Ausnahme: `osum_panic`. Firns geprüfte Arithmetik (Runde
-    # 72/83) erzeugt im Kernelprofil keinen eigenen Panik-Pfad, sondern ruft
-    # dieses externe Symbol — welche Bedeutung ein Ueberlauf hat, entscheidet
-    # der Kernel. Definiert in kernel/src/kcore/firn_panic.rs. Die Liste ist
-    # bewusst eine Weissliste: jeder ANDERE undefinierte Name bricht ab.
-    ERLAUBT='^osum_panic$'
-    if U=$(nm -u --format=posix "build/firn/$M.o" | awk '{print $1}' | grep -vE "$ERLAUBT") && [[ -n $U ]]; then
-        echo "   $M.fi hat unerlaubte undefinierte Symbole:" >&2
-        echo "$U" >&2
-        exit 1
-    fi
-    OFFEN=$(nm -u --format=posix "build/firn/$M.o" | awk '{print $1}' | tr '\n' ' ')
-    echo "   $M.fi -> build/firn/$M.o ($(stat -c%s "build/firn/$M.o") B, offen: ${OFFEN:-keine})"
-done
-
-echo ">> cargo build (${PROFILE})"
-mkdir -p build
-if [[ $FRESH -eq 1 ]]; then
-    # Ohne das ist ein Folgebau ein No-op ("Finished ... in 0.09s") und sein
-    # Log als Nachweis der Warnungsfreiheit wertlos.
-    echo "   eigene Crates werden neu uebersetzt (--fresh)"
-    # `cargo clean -p` greift bei einem eigenen Target mit -Z build-std nicht
-    # zuverlaessig; das Anfassen der Quelldateien tut es immer und laesst die
-    # teuren Fremdteile (core, compiler_builtins) im Cache.
-    touch kernel/src/main.rs kernel/build.rs libs/*/src/lib.rs
-fi
-# Mitschreiben, damit test.sh die Warnungsfreiheit pruefen kann.
-cargo build "${BUILD_STD[@]}" ${CARGO_PROFILE_FLAG} \
-    "${FEATURE_ARGS[@]}" "${EXTRA[@]}" 2>&1 | tee build/cargo-build.log
-RC=${PIPESTATUS[0]}
-# Ehrliche Kennzeichnung: war das ueberhaupt eine Uebersetzung? Ein No-op-Log
-# darf spaeter nicht als "keine Warnungen" durchgehen.
-if grep -q '^ *Compiling ' build/cargo-build.log; then
-    echo "BUILD-EVIDENZ: echte Uebersetzung ($(grep -c '^ *Compiling ' build/cargo-build.log) Crate(s))" \
-        >> build/cargo-build.log
-    cp -f build/cargo-build.log build/cargo-build-fresh.log
-else
-    echo "BUILD-EVIDENZ: No-op (nichts neu uebersetzt)" >> build/cargo-build.log
-fi
-[[ $RC -eq 0 ]] || exit $RC
-
-KERNEL="target/x86_64-osum-none/${PROFILE}/osum"
-test -f "$KERNEL" || { echo "Kernelabbild fehlt: $KERNEL" >&2; exit 1; }
-
-echo ">> Symboltabelle fuer Backtraces"
-mkdir -p build
-if command -v nm >/dev/null; then
-    nm -n --demangle "$KERNEL" > build/osum.map || true
-fi
-
-# --------------------------------------------------------------- Userland
-# Die unprivilegierten Programme werden mit nasm+ld gebaut (statisch, ET_EXEC,
-# keine Laufzeitbibliothek) und zusammen mit einer Textdatei und einem
-# absichtlich kaputten Abbild in ein Startdateisystem gepackt. Format und
-# Begruendung: userland/mkinitramfs.py.
-echo ">> Userland und Startdateisystem"
-UROOT=build/userland
-mkdir -p "$UROOT"
-INITRAMFS=build/initramfs.img
-PACK=()
-if command -v nasm >/dev/null && command -v ld >/dev/null && command -v python3 >/dev/null; then
-    nasm -f elf64 -o "$UROOT/hello.o" userland/hello.asm
-    ld -n --build-id=none -T userland/user.ld -o "$UROOT/hello" "$UROOT/hello.o"
-    python3 userland/mkbroken.py "$UROOT/hello" "$UROOT/kaputt.elf"
-    PACK+=("hello=$UROOT/hello" "kaputt.elf=$UROOT/kaputt.elf")
-    echo "   hello: $(stat -c%s "$UROOT/hello") B (ELF64, statisch)"
-else
-    echo "   Hinweis: nasm/ld/python3 fehlen — kein unprivilegiertes Programm im Archiv" >&2
-fi
-# Bewusst laenger als ein ELF-Kopf (64 B): so scheitert der Ladeversuch an der
-# KENNUNG und nicht schon an der Laenge — der Negativtest prueft damit die
-# Stelle, die er pruefen soll.
-{
-    echo 'Startdateisystem von build.sh — dies ist absichtlich kein Programm,'
-    echo 'sondern eine Textdatei fuer den Negativtest des ELF-Laders.'
-} > "$UROOT/liesmich.txt"
-PACK+=("liesmich.txt=$UROOT/liesmich.txt")
-if command -v python3 >/dev/null; then
-    python3 userland/mkinitramfs.py "$INITRAMFS" "${PACK[@]}"
-else
-    # Ohne Packer kein Archiv — der Kernel meldet das ehrlich und bootet
-    # trotzdem. Ein halb geschriebenes Abbild waere schlimmer als keines.
-    rm -f "$INITRAMFS"
-    echo "   Hinweis: python3 fehlt — Startdateisystem wird nicht gebaut" >&2
-fi
-
-echo ">> ISO bauen"
 ROOT=build/isoroot
 rm -rf "$ROOT"
 mkdir -p "$ROOT/boot/limine" "$ROOT/EFI/BOOT"
-cp "$KERNEL" "$ROOT/boot/osum"
-if [[ -s "$INITRAMFS" ]]; then
-    cp "$INITRAMFS" "$ROOT/boot/initramfs.img"
+cp "$KERNEL" "$ROOT/boot/${KERNEL_PKG}"
+
+# -------------------------------------------------- 2. das Userland
+#
+# `userland/PROGRAMME` sagt, WAS ins Produkt kommt; gebaut hat die
+# Programme das Osum-Repo (vendor/osum/bin/). Das ist die Trennung, um
+# die es geht: Osum liefert die Programme, OrientOS stellt das Produkt
+# zusammen. Eine Marke, die ein anderes Userland will, bekommt spaeter
+# eine eigene Liste — der Quelltext bleibt derselbe.
+IMG=""
+CRC=""
+if [[ $MIT_USERLAND -eq 1 ]]; then
+    test -x vendor/osum/mkfs.py -o -f vendor/osum/mkfs.py \
+        || { echo "vendor/osum/mkfs.py fehlt — hole-osum.sh neu laufen lassen" >&2; exit 1; }
+    BLOCKS=$(sed 's/#.*//' userland/PROGRAMME | grep -m1 '^bloecke:' \
+             | sed 's/^bloecke:[[:space:]]*//' | tr -d '[:space:]')
+    [[ -n "$BLOCKS" ]] || BLOCKS=4096
+    SPEC=("/bin/")
+    FEHLT=""
+    while read -r zeile; do
+        zeile=${zeile%%#*}
+        zeile=$(echo "$zeile" | xargs || true)
+        [[ -z "$zeile" ]] && continue
+        case "$zeile" in
+            bloecke:*) continue ;;
+            datei\ *)
+                # `datei <zielpfad> <quelle>` — eine Datei aus DIESEM Repo.
+                set -- $zeile
+                SPEC+=("$2=$3")
+                [[ -f "$3" ]] || FEHLT="$FEHLT $3"
+                ;;
+            verzeichnis\ *)
+                set -- $zeile
+                SPEC+=("$2")
+                ;;
+            *)
+                if [[ -f "vendor/osum/bin/$zeile" ]]; then
+                    SPEC+=("/bin/$zeile=vendor/osum/bin/$zeile")
+                else
+                    FEHLT="$FEHLT vendor/osum/bin/$zeile"
+                fi
+                ;;
+        esac
+    done < userland/PROGRAMME
+    # Was ein Testschritt zusaetzlich hineinlegen will. Das laeuft NICHT
+    # ueber userland/PROGRAMME: die Liste beschreibt das Produkt, nicht
+    # den Aufbau eines einzelnen Nachweises.
+    for d in ${DAZU+"${DAZU[@]}"}; do
+        SPEC+=("$d")
+        q=${d#*=}
+        [[ -z "$q" || -f "$q" ]] || FEHLT="$FEHLT $q"
+    done
+    if [[ -n "$FEHLT" ]]; then
+        echo "userland/PROGRAMME nennt, was es nicht gibt:$FEHLT" >&2
+        exit 1
+    fi
+    mkdir -p build
+    IMG="build/${SLUG}-userland.img"
+    python3 vendor/osum/mkfs.py build "$IMG" "$BLOCKS" "${SPEC[@]}" >/dev/null
+    CRC=$(python3 -c 'import zlib,sys;print("%08x"%zlib.crc32(open(sys.argv[1],"rb").read()))' "$IMG")
+    if [[ $KAPUTT -eq 1 ]]; then
+        # Die Gegenprobe zur Pruefsumme: der Kernel bekommt eine Summe
+        # genannt, die nicht zu den Daten passt, und MUSS das Modul dann
+        # liegen lassen.
+        CRC=deadbeef
+    fi
+    cp "$IMG" "$ROOT/boot/${SLUG}-userland.img"
+    echo ">> Userland: $IMG ($((BLOCKS * 512 / 1024)) KiB, $(( ${#SPEC[@]} - 1 )) Eintraege), CRC32 0x${CRC}"
 fi
-cp limine.conf "$ROOT/boot/limine/limine.conf"
+
+# ------------------------------------------------- 3. die Kommandozeile
+if [[ -z "$CMDLINE" ]]; then
+    if [[ $MIT_USERLAND -eq 1 ]]; then
+        CMDLINE="osum nokbd nosched noproc nofs noring3 modfs modcrc=${CRC}"
+    else
+        CMDLINE="osum nokbd nosched noproc nofs noring3"
+    fi
+elif [[ $MIT_USERLAND -eq 1 && "$CMDLINE" != *modcrc=* ]]; then
+    CMDLINE="$CMDLINE modfs modcrc=${CRC}"
+fi
+
+# ------------------------------------------------------- 4. das ISO
+#
+# Limine, Protokoll multiboot1. DAS IST DER UEFI-PFAD: Osums
+# Multiboot-Kopf verlangt seit seinem Commit c4427fa einen linearen
+# Rahmenpuffer (Flag-Bit 2). Ohne den bricht Limine unter UEFI mit
+# "multiboot1: Cannot use text mode with UEFI" ab; mit ihm bootet
+# dasselbe Abbild ueber SeaBIOS und ueber OVMF.
+{
+    echo "# Erzeugt von build.sh. Nicht von Hand aendern."
+    echo "timeout: 0"
+    echo "verbose: yes"
+    echo
+    echo "/${OS_NAME}"
+    echo "    protocol: multiboot1"
+    echo "    path: boot():/boot/${KERNEL_PKG}"
+    echo "    cmdline: ${CMDLINE}"
+    if [[ $MIT_USERLAND -eq 1 ]]; then
+        echo "    module_path: boot():/boot/${SLUG}-userland.img"
+        echo "    module_string: userland"
+    fi
+} > "$ROOT/boot/limine/limine.conf"
+
 cp vendor/limine/limine-bios.sys \
    vendor/limine/limine-bios-cd.bin \
    vendor/limine/limine-uefi-cd.bin "$ROOT/boot/limine/"
@@ -259,14 +183,11 @@ xorriso -as mkisofs -quiet -R -r -J \
     --efi-boot boot/limine/limine-uefi-cd.bin \
     -efi-boot-part --efi-boot-image \
     --protective-msdos-label \
-    "$ROOT" -o build/${SLUG}-rust.iso
-
-# BIOS-Bootsektor eintragen (das Host-Tool wird bei Bedarf gebaut).
+    "$ROOT" -o "build/${SLUG}.iso"
 if [[ ! -x vendor/limine/limine ]]; then
     make -s -C vendor/limine >/dev/null
 fi
-vendor/limine/limine bios-install build/${SLUG}-rust.iso >/dev/null
+vendor/limine/limine bios-install "build/${SLUG}.iso" >/dev/null
 
-SIZE_K=$(( $(stat -c%s build/${SLUG}-rust.iso) / 1024 ))
-KSIZE_K=$(( $(stat -c%s "$KERNEL") / 1024 ))
-echo ">> fertig: build/${SLUG}-rust.iso (${SIZE_K} KiB), Kernel ${KSIZE_K} KiB"
+echo ">> Kernel: Osum $(cut -c1-8 vendor/osum/COMMIT) (Firn), Kommandozeile: ${CMDLINE}"
+echo ">> fertig: build/${SLUG}.iso ($(( $(stat -c%s "build/${SLUG}.iso") / 1024 )) KiB), Kernel $(( $(stat -c%s "$KERNEL") / 1024 )) KiB"

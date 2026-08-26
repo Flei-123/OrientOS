@@ -1,0 +1,53 @@
+# userland/PROGRAMME — was im Produkt-ISO liegt.
+#
+# DIESE DATEI IST DIE GANZE ZUSAMMENSTELLUNG. Gebaut werden die Programme
+# im Osum-Repo (dort `kernel/user/*.fi`, gebaut von
+# `vendor/osum/hole-osum.sh` nach `vendor/osum/bin/`); WELCHE davon ins
+# Produkt kommen und was sonst noch auf der Wurzel liegt, entscheidet
+# OrientOS — hier.
+#
+# Das ist die Teilung, um die es nach dem Kernelwechsel geht: Osum liefert
+# Kernel und Programme, OrientOS stellt daraus ein Produkt zusammen. Eine
+# zweite Marke bekommt spaeter eine eigene Liste; der Quelltext bleibt
+# derselbe (BRANDING.md).
+#
+# Zeilenformen:
+#   <name>                        ein Programm aus vendor/osum/bin/ nach /bin/<name>
+#   verzeichnis <pfad>            ein leeres Verzeichnis anlegen
+#   datei <zielpfad> <quelle>     eine Datei aus DIESEM Repo hineinlegen
+#   bloecke: <n>                  Groesse des Dateisystems in Bloecken zu 512
+
+bloecke: 6144
+
+# --- die Shell und die Werkzeuge (Osum, Runden K6/K8/K9)
+sh
+ls
+cat
+cp
+mv
+rm
+mkdir
+rmdir
+touch
+head
+tail
+wc
+grep
+sort
+uniq
+true
+false
+sleep
+ps
+kill
+uname
+date
+df
+hello
+ping
+wget
+
+# --- was das System selbst mitbringt
+verzeichnis /etc
+datei /etc/ausgabe.txt userland/dateien/ausgabe.txt
+verzeichnis /home

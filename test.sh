@@ -1,5 +1,26 @@
 #!/usr/bin/env bash
-# Gesamter Testlauf von OrientOS: Host-Tests + echte QEMU-Boots.
+# Die Abnahme von OrientOS — des GESAMTSYSTEMS.
+#
+# WAS HIER SEIT DEM 26.08.2026 GEMESSEN WIRD, und was nicht mehr.
+# Bis zum Kernelwechsel hat dieser Lauf einen Rust-Kernel gebaut und
+# gebootet (cargo, build-std, dreizehn QEMU-Starts). Dieser Kernel ist
+# geloescht — er kommt aus dem Osum-Repo, und DORT wird er abgenommen
+# (`./test.sh`, 15 Abschnitte, ueber 1100 Zusagen). Dieses Repo misst,
+# was DIESES Repo tut:
+#
+#   * dass der Kernel eine nachvollziehbare HERKUNFT hat und kein Abbild
+#     im Baum liegt,
+#   * dass kein Rust mehr da ist, wo es keines mehr geben soll,
+#   * dass aus Kernel und Programmen ein PRODUKT wird, das ueber BIOS
+#     und ueber UEFI startet,
+#   * dass in diesem Produkt ein USERLAND laeuft — eine Shell aus einem
+#     Boot-Modul, das dieses Repo zusammengestellt hat,
+#   * dass die Marken funktionieren (ein Quellbaum, zwei Produkte),
+#   * und dass die Dokumente dasselbe sagen wie der Baum.
+#
+# Jede Zusage hat eine Gegenprobe. Eine Eigenschaft ohne Gegenprobe ist
+# eine Behauptung.
+#
 # Exitcode 0 = alles bestanden.
 set -uo pipefail
 cd "$(dirname "$0")"
@@ -8,218 +29,145 @@ cd "$(dirname "$0")"
 # shellcheck source=brand.sh
 source ./brand.sh
 FAIL=0
-# Die Grundschritte stehen hier, die Nachweise der einzelnen Baustellen als
-# eigene Dateien in tests/step-*.sh (jede Datei ruft `step` und `run` selbst).
-# Dadurch kann an mehreren Modulen gleichzeitig gearbeitet werden, ohne dass
-# sich zwei Leute in dieser Datei ins Gehege kommen.
+ZUSAGEN=0
+# Die Nachweise stehen als eigene Dateien in tests/step-*.sh (jede ruft
+# `step` und `run` selbst). Dadurch kann an mehreren Stellen gleichzeitig
+# gearbeitet werden, ohne dass sich zwei Leute in dieser Datei ins Gehege
+# kommen.
 EXTRA=(tests/step-*.sh)
 [[ -e "${EXTRA[0]}" ]] || EXTRA=()
-# Die Schritte in DIESER Datei, gezaehlt statt geschaetzt: die Zahl stand
-# hier fest und war um eins zu klein -- der Lauf endete mit "24/23" und
-# nach dem Kernelwechsel mit "27/26". Eine Zahl, die niemand nachzaehlt,
-# ist irgendwann falsch.
 BASE_STEPS=$(grep -c '^step "' "$0")
 TOTAL=$((BASE_STEPS + ${#EXTRA[@]}))
 NR=0
 step() { NR=$((NR + 1)); echo; echo "################ $NR/$TOTAL $* ################"; }
 run()  { if "$@"; then echo "  => bestanden"; else echo "  => FEHLGESCHLAGEN"; FAIL=1; fi }
+# Jede einzelne Zusage wird gezaehlt. Eine Sammelzahl allein waere zu
+# leicht gruen zu bekommen.
+ok()   { ZUSAGEN=$((ZUSAGEN + 1)); echo "  [ ok ] $*"; }
+nok()  { ZUSAGEN=$((ZUSAGEN + 1)); echo "  [FEHL] $*"; RC=1; }
+export -f step run ok nok 2>/dev/null || true
 
-step "Host-Tests der architekturunabhaengigen Crates"
-run cargo test --target x86_64-unknown-linux-gnu \
-      -p osum-mem -p osum-abi-native -p osum-abi-posix
-
-# ACHTUNG, seit dem Kernelwechsel: `--kernel rust` steht hier
-# AUSDRUECKLICH. Voreinstellung von build.sh ist der Osum-Kernel; die
-# Schritte 2 bis 13 messen aber weiterhin den alten Rust-Kernel, weil er
-# Dinge kann, die noch nicht portiert sind (KERNELWECHSEL.md). Was den
-# Osum-Kernel misst, steht in tests/step-24 und tests/step-25.
-step "Rust-Kernel baut (Release, mit POSIX) -- die noch nicht portierte Vorlage"
-# --fresh: die eigenen Crates werden wirklich neu uebersetzt. Sonst waere das
-# Bau-Log ein No-op und die Warnungspruefung weiter unten wertlos.
-run ./build.sh --kernel rust --fresh
-
-step "Rust-Kernel baut OHNE POSIX-Schicht"
-run ./build.sh --kernel rust --no-posix
-
-step "Boot in QEMU (BIOS)"
-run ./run-qemu.sh --check
-
-step "Boot in QEMU ohne POSIX-Schicht"
-run ./run-qemu.sh --check --no-posix
-
-step "Selbsttest Page Fault"
-run ./run-qemu.sh --test-pagefault
-
-step "Selbsttest Double Fault (echter #DF auf IST-Stapel)"
-run ./run-qemu.sh --test-doublefault
-
-step "Selbsttest Panic-Handler"
-run ./run-qemu.sh --test-panic
-
-step "Selbsttest .rodata schreibgeschuetzt (#PF erwartet)"
-run ./run-qemu.sh --test-rodata
-
-step "Selbsttest NX: Daten ausfuehren (#PF mit Instruktionsabruf erwartet)"
-run ./run-qemu.sh --test-nx
-
-step "Selbsttest #GP: nicht kanonische Adresse (kein #PF, sondern #GP)"
-run ./run-qemu.sh --test-gp
-
-step "Selbsttest #UD: ungueltige Instruktion (ud2)"
-run ./run-qemu.sh --test-ud
-
-step "Boot ueber UEFI (OVMF)"
-if ls /usr/share/OVMF/OVMF_CODE*.fd >/dev/null 2>&1; then
-    run ./run-qemu.sh --check --uefi
-else
-    echo "  => uebersprungen (OVMF nicht installiert)"
-fi
-
-step "Produktname kommt nur aus branding.rs"
-branding_check() {
-    # Kein Produktname als Literal im Quelltext. branding.rs selbst und
-    # Verweise auf die eigenen Crates (osum_mem, osum-abi-*) sind erlaubt —
-    # die benennt ./rename.sh mit um.
-    local k os hits
-    k=$(grep -m1 '^name = ' kernel/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
-    os=$(grep -m1 '^os-name = ' kernel/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
-    hits=$(grep -rn "\b${k}\b\|${os}" kernel/src --include='*.rs' \
-             | grep -v '^kernel/src/kcore/branding.rs' \
-             | grep -vE "${k}_(mem|abi_native|abi_posix)" \
-             | grep -vE ':[[:space:]]*(//|///|//!|\*)')
-    if [[ -n "$hits" ]]; then
-        echo "Produktname hartkodiert ausserhalb branding.rs:"
-        echo "$hits"
+step "Herkunft: der Kernel ist festgenagelt, im Repo liegt kein Abbild"
+herkunft() {
+    RC=0
+    local c f
+    if [[ ! -f vendor/osum/COMMIT ]]; then
+        nok "vendor/osum/COMMIT fehlt — der Kernel haette keine Herkunft"
         return 1
     fi
-    echo "  kein hartkodierter Produktname in kernel/src ausser branding.rs"
-    echo "  Kernelname aus Cargo.toml: $k / OS-Name: $os"
-    # rename.sh muss es geben und ausfuehrbar sein.
-    if [[ ! -x ./rename.sh ]]; then
-        echo "rename.sh fehlt oder ist nicht ausfuehrbar"
-        return 1
+    c=$(cat vendor/osum/COMMIT)
+    if [[ "$c" =~ ^[0-9a-f]{40}$ ]]; then
+        ok "Kernel festgenagelt auf Osum ${c:0:8}"
+    else
+        nok "vendor/osum/COMMIT ist kein Commit-Hash: $c"
     fi
-    echo "  rename.sh vorhanden und ausfuehrbar (Anleitung: RENAME.md)"
-    return 0
-}
-run branding_check
-
-step "Marken: brands/ ist vollstaendig und eindeutig"
-brands_check() {
-    # Eine Marke ohne os-name/slug wuerde erst beim Bauen auffallen, und ein
-    # doppelter slug wuerde ein Abbild ueberschreiben. Beides hier abfangen.
-    local n=0 slugs=""
-    shopt -s nullglob
-    for f in brands/*.toml; do
-        n=$((n+1))
-        local on sl
-        on=$(brand_feld "$f" os-name); sl=$(brand_feld "$f" slug)
-        if [[ -z "$on" || -z "$sl" ]]; then
-            echo "  $f: os-name oder slug fehlt"; return 1
-        fi
-        if [[ ! "$sl" =~ ^[a-z][a-z0-9-]*$ ]]; then
-            echo "  $f: slug \"$sl\" taugt nicht als Dateiname"; return 1
-        fi
-        case " $slugs " in *" $sl "*) echo "  slug doppelt vergeben: $sl"; return 1 ;; esac
-        slugs="$slugs $sl"
-        echo "  $f -> $on ($sl)"
+    f=$(cat vendor/firn/COMMIT 2>/dev/null || echo -)
+    if [[ "$f" =~ ^[0-9a-f]{40}$ ]]; then
+        ok "der Firn-Uebersetzer dieses Repos ist festgenagelt auf ${f:0:8}"
+    else
+        nok "vendor/firn/COMMIT ist kein Commit-Hash: $f"
+    fi
+    # Im Repo darf KEIN Kernelabbild und kein Programm eingecheckt sein.
+    # Faende sich eines, waere nicht mehr gesagt, welcher Stand gemessen
+    # wurde.
+    local schmutz=""
+    for f in vendor/osum/osum.mb vendor/osum/osum.mb.elf vendor/osum/mkfs.py; do
+        git ls-files --error-unmatch "$f" >/dev/null 2>&1 && schmutz="$schmutz $f"
     done
-    [[ $n -ge 1 ]] || { echo "  keine Markendatei in brands/"; return 1; }
-    # Die Bauskripte duerfen den Markennamen nicht hartkodieren, sonst faerbt
-    # jede Zweitmarke den Testlauf rot, obwohl alles richtig ist.
-    local os
-    os=$(brand_feld kernel/Cargo.toml os-name)
-    if grep -n "$os" build.sh run-qemu.sh | grep -vE '^\S+:[0-9]+:[[:space:]]*#'; then
-        echo "  Markenname in einem Bauskript hartkodiert (gehoert nach brand.sh)"; return 1
+    if git ls-files 'vendor/osum/bin/*' | grep -q .; then
+        schmutz="$schmutz vendor/osum/bin/"
     fi
-    echo "  $n Marke(n), Bauskripte ohne hartkodierten Namen"
-    return 0
+    if [[ -n "$schmutz" ]]; then
+        nok "im Repo liegen gebaute Osum-Artefakte:$schmutz"
+    else
+        ok "kein Kernelabbild, kein Programm, kein mkfs.py im Repo — nur COMMIT und das Bauskript"
+    fi
+    # ...und das Bauskript baut wirklich aus genau diesem Commit.
+    ./vendor/osum/hole-osum.sh >/dev/null || { nok "hole-osum.sh ist fehlgeschlagen"; return 1; }
+    if [[ "$(cat vendor/osum/.gebaut 2>/dev/null)" == "$c" ]]; then
+        ok "das gebaute Abbild stammt aus ${c:0:8}"
+    else
+        nok "das gebaute Abbild stammt nicht aus dem festgenagelten Commit"
+    fi
+    local n
+    n=$(ls vendor/osum/bin 2>/dev/null | wc -l)
+    if [[ "$n" -ge 20 ]]; then
+        ok "dasselbe Skript hat $n unprivilegierte Programme aus demselben Commit gebaut"
+    else
+        nok "nur $n Programme in vendor/osum/bin — erwartet mindestens 20"
+    fi
+    if [[ -f vendor/osum/mkfs.py ]]; then
+        ok "und den Dateisystembauer (vendor/osum/mkfs.py) aus demselben Commit"
+    else
+        nok "vendor/osum/mkfs.py fehlt"
+    fi
+    return $RC
 }
-run brands_check
+run herkunft
 
-step "Architekturgrenze und Codehygiene"
-arch_leak() {
-    local hits
-    hits=$(grep -rnE '\b(cr[0-4]|PML4|PTE|rdmsr|wrmsr|lgdt|lidt|outb|inb|asm!|invlpg|iretq|swapgs|sysret|STAR|LSTAR|SFMASK|SMEP|SMAP)\b' \
-             kernel/src --include='*.rs' | grep -v '^kernel/src/arch/')
-    # Nur echter Code ist ein Verstoss; ein Kommentar, der die Grenze ERKLAERT,
-    # ist keiner. Beides wird gemeldet, aber nur Code laesst den Schritt fallen.
-    local code
-    code=$(echo "$hits" | grep -vE ':[[:space:]]*(//|\*)' | grep -v '^$')
-    if [[ -n "$code" ]]; then
-        echo "x86-Details im Code ausserhalb kernel/src/arch/:"
-        echo "$code"
-        return 1
+step "Der Rust-Kernel ist weg — und die eine Vorlage steht mit Begruendung da"
+kein_rust() {
+    RC=0
+    local n
+    # Gezaehlt wird, was git kennt: eine Datei im Arbeitsverzeichnis, die
+    # niemand eingecheckt hat, ist kein Bestandteil des Projekts.
+    n=$(git ls-files '*.rs' | grep -v '^vorlage/' | wc -l)
+    if [[ "$n" -eq 0 ]]; then
+        ok "kein Rust im Baum ausser der Vorlage (0 Dateien)"
+    else
+        nok "$n Rust-Dateien ausserhalb von vorlage/:"
+        git ls-files '*.rs' | grep -v '^vorlage/' | sed 's/^/         /'
     fi
-    echo "  keine x86-Details im Code ausserhalb kernel/src/arch/"
-    if [[ -n "$hits" ]]; then
-        echo "  Hinweis: x86-Begriffe erscheinen nur in erklaerenden Kommentaren:"
-        echo "$hits" | sed 's/^/    /'
-    fi
-    local stubs
-    stubs=$(grep -rnE '(todo!|unimplemented!)' kernel/src libs --include='*.rs' \
-              | grep -vE ':[[:space:]]*(//|\*)')
-    if [[ -n "$stubs" ]]; then
-        echo "unfertige Stellen im Code:"
-        echo "$stubs"
-        return 1
-    fi
-    echo "  kein todo!()/unimplemented!() im Baum"
-    # Warnungsfreiheit: der letzte Build darf keine einzige Compilerwarnung
-    # erzeugt haben. Warnungen sind kein Rauschen, sondern unerledigte Arbeit.
-    # Nachweis, dass wirklich uebersetzt wurde: ein No-op-Log ("Finished ...
-    # in 0.09s") ist als Beleg fuer Warnungsfreiheit wertlos, und eine
-    # fehlende Datei darf die Pruefung nicht stillschweigend ueberspringen.
-    local blog=build/cargo-build-fresh.log
-    if [[ ! -f "$blog" ]]; then
-        echo "kein Log einer echten Uebersetzung ($blog fehlt) — ./build.sh --fresh laufen lassen"
-        return 1
-    fi
-    if ! grep -q '^ *Compiling ' "$blog"; then
-        echo "$blog belegt keine echte Uebersetzung (kein 'Compiling')"
-        return 1
-    fi
-    local warns crates_built
-    crates_built=$(grep -c '^ *Compiling ' "$blog")
-    for f in "$blog" build/cargo-build.log; do
-        warns=$(grep -c '^warning:' "$f" || true)
-        if [[ "$warns" -gt 0 ]]; then
-            echo "Compilerwarnungen in $f: $warns"
-            grep '^warning:' "$f" | sort | uniq -c | head
-            return 1
+    local d
+    for d in kernel/src libs Cargo.toml Cargo.lock .cargo/config.toml \
+             x86_64-osum-none.json run-qemu.sh; do
+        if git ls-files --error-unmatch "$d" >/dev/null 2>&1; then
+            nok "$d ist noch eingecheckt"
+        else
+            ok "$d ist geloescht"
         fi
     done
-    echo "  Build ohne Compilerwarnungen ($crates_built Crate(s) wirklich uebersetzt)"
-    # Zusaetzlich haelt das Bausystem selbst dagegen: [workspace.lints.rust]
-    # warnings = "deny" laesst jede Warnung den Bau abbrechen.
-    if ! grep -q 'warnings = "deny"' Cargo.toml; then
-        echo "Cargo.toml: [workspace.lints.rust] warnings = \"deny\" fehlt"
+    # ...aber die Historie hat es noch. Geloescht heisst nicht vergessen.
+    if git log --oneline -1 -- kernel/src >/dev/null 2>&1 \
+       && [[ -n "$(git log --oneline -- kernel/src | head -1)" ]]; then
+        ok "die Historie kennt kernel/src weiterhin ($(git log --oneline -- kernel/src | wc -l) Commits)"
+    else
+        nok "die Historie kennt kernel/src nicht mehr — es wurde nicht mit git rm geloescht"
+    fi
+    # Die C-Dateien des alten Kernels und seiner Pruefstaende.
+    n=$(git ls-files '*.c' '*.h' | grep -v '^vendor/limine/' | wc -l)
+    if [[ "$n" -eq 0 ]]; then
+        ok "keine C-Datei mehr ausser denen des Bootladers (vendor/limine)"
+    else
+        nok "$n C-Dateien ausserhalb von vendor/limine:"
+        git ls-files '*.c' '*.h' | grep -v '^vendor/limine/' | sed 's/^/         /'
+    fi
+    # DIE EINE VORLAGE. Sie darf da sein, sie darf NICHT gebaut werden,
+    # und sie muss sagen, warum sie da ist.
+    if [[ -f vorlage/arch_iface.rs ]]; then
+        ok "vorlage/arch_iface.rs steht da ($(wc -l < vorlage/arch_iface.rs) Zeilen)"
+    else
+        nok "vorlage/arch_iface.rs fehlt — der offene Punkt aus KERNELWECHSEL.md § 4.2 waere still verschwunden"
         return 1
     fi
-    echo "  Warnungen sind im Bausystem als Fehler geschaltet (deny)"
-    local crates
-    crates=$(grep -cE '^name = ' Cargo.lock)
-    echo "  Crates in Cargo.lock (inkl. eigener): $crates"
-    # Jeder Fehler-Selbsttest, den kernel/Cargo.toml anbietet, braucht auch
-    # einen Schalter in run-qemu.sh — sonst gibt es tote Testpfade, die nie
-    # jemand ausfuehrt.
-    local feat missing=""
-    for feat in $(grep -oE '^test-[a-z0-9]+' kernel/Cargo.toml); do
-        grep -q -- "--$feat)" run-qemu.sh || missing="$missing $feat"
-    done
-    if [[ -n "$missing" ]]; then
-        echo "Selbsttest-Feature ohne Schalter in run-qemu.sh:$missing"
-        return 1
+    if grep -q 'VORLAGE — KEIN GEBAUTER CODE' vorlage/arch_iface.rs; then
+        ok "sie sagt selbst, dass sie nicht uebersetzt wird"
+    else
+        nok "vorlage/arch_iface.rs erklaert nicht, dass sie Vorlage ist"
     fi
-    echo "  jedes test-*-Feature hat einen Schalter in run-qemu.sh"
-    # Kennzahlen, damit Groessenwachstum sichtbar bleibt (siehe README).
-    if [[ -f build/isoroot/boot/osum ]]; then
-        echo "  Kernelabbild: $(( $(stat -c%s build/isoroot/boot/osum) / 1024 )) KiB (ELF, ungestrippt)"
+    if [[ ! -f Cargo.toml && ! -f kernel/Cargo.toml ]]; then
+        ok "und es gibt nichts, was sie uebersetzen koennte (kein Cargo.toml im Baum)"
+    else
+        nok "es gibt noch ein Cargo.toml — die Vorlage waere kein Text, sondern Code"
     fi
-    echo "  Rust-Zeilen kernel+libs: $(find kernel/src libs -name '*.rs' -exec cat {} + | wc -l)"
-    return 0
+    if grep -qF 'vorlage/arch_iface.rs' KERNELWECHSEL.md && grep -qF 'vorlage/arch_iface.rs' ROADMAP.md; then
+        ok "KERNELWECHSEL.md und ROADMAP.md nennen sie beide"
+    else
+        nok "die Vorlage wird in KERNELWECHSEL.md oder ROADMAP.md nicht genannt"
+    fi
+    return $RC
 }
-run arch_leak
+run kein_rust
 
 for f in "${EXTRA[@]}"; do
     # shellcheck source=/dev/null
@@ -227,9 +175,10 @@ for f in "${EXTRA[@]}"; do
 done
 
 echo
+echo "=================================================================="
 if [[ $FAIL -eq 0 ]]; then
-    echo "############ ALLE TESTS BESTANDEN ############"
+    echo "############ ALLE $TOTAL SCHRITTE BESTANDEN, $ZUSAGEN Zusagen ############"
 else
-    echo "############ TESTS FEHLGESCHLAGEN ############"
+    echo "############ TESTS FEHLGESCHLAGEN ($ZUSAGEN Zusagen geprueft) ############"
 fi
 exit $FAIL

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# vendor/osum/hole-osum.sh — besorgt den FESTGENAGELTEN Osum-Kernel.
+# vendor/osum/hole-osum.sh — besorgt den FESTGENAGELTEN Osum-Kernel und
+# das Userland, das dazugehoert.
 #
-# WARUM DIESE DATEI EXISTIERT. Der Kernel von OrientOS wird nicht mehr in
+# WARUM DIESE DATEI EXISTIERT. Der Kernel von OrientOS wird nicht in
 # diesem Repo geschrieben. Er ist ein eigenes Projekt (Osum, in Firn), und
-# OrientOS ist das System DRUMHERUM: Marken, Userland, Paketformat, die
-# Abnahme des Ganzen. Dieselbe Teilung, die dieses Repo schon fuer den
-# Firn-Uebersetzer benutzt (vendor/firn/) — und aus demselben Grund:
+# OrientOS ist das System DRUMHERUM: Marken, Userland-Zusammenstellung,
+# Paketformat, die Abnahme des Ganzen. Dieselbe Teilung, die dieses Repo
+# schon fuer den Firn-Uebersetzer benutzt (vendor/firn/) — und aus
+# demselben Grund:
 #
 #   * FESTGENAGELT. Osum wird weiterentwickelt. Wuerde OrientOS immer
 #     gegen den neuesten Stand bauen, waere bei jedem Fehler unklar, ob er
@@ -20,16 +22,26 @@
 #     sein eigenes Repo es sagt — nicht mit dem Uebersetzer dieses Repos.
 #     Zwei Projekte, zwei Nagel, keine stille Vermischung.
 #
-# Eingecheckt ist nur COMMIT und dieses Skript; das Abbild (rund 500 KiB
-# je Uebersetzerstufe) wird gebaut.
+# WAS SEIT DEM 26.08.2026 DAZUKAM: NICHT NUR DER KERN.
+# Osums Runde K10 hat das Boot-Modul gebracht — der Kernel nimmt ein
+# OFS-Dateisystem entgegen, das der Lader neben ihn legt, prueft dessen
+# CRC32 und mountet es als Wurzel. Damit kann ein ISO ein Userland
+# tragen, und dieses Skript baut deshalb auch die unprivilegierten
+# Programme aus demselben festgenagelten Commit. WELCHE davon ins Produkt
+# kommen, entscheidet OrientOS (`userland/PROGRAMME`) — gebaut werden
+# hier alle.
+#
+# Eingecheckt ist nur COMMIT und dieses Skript; alles andere wird gebaut.
 #
 #   ./vendor/osum/hole-osum.sh          baut, wenn noetig
 #   ./vendor/osum/hole-osum.sh --force  baut in jedem Fall neu
 #
-# Ergebnis:
+# Ergebnis (alles in .gitignore):
 #   vendor/osum/osum.mb      Multiboot-Abbild (ELF32-Huelle)
 #   vendor/osum/osum.mb.elf  dieselbe Sache als ELF64, mit Symbolen
-#   vendor/osum/.gebaut      der Commit, aus dem beides entstand
+#   vendor/osum/bin/*        die unprivilegierten Programme, ELF64 statisch
+#   vendor/osum/mkfs.py      der Dateisystembauer aus demselben Commit
+#   vendor/osum/.gebaut      der Commit, aus dem das alles entstand
 set -euo pipefail
 cd "$(dirname "$0")"
 HIER=$(pwd)
@@ -40,9 +52,9 @@ KURZ=${COMMIT:0:8}
 FORCE=0
 [[ ${1:-} == --force ]] && FORCE=1
 
-if [[ $FORCE -eq 0 && -f $HIER/osum.mb && -f $HIER/.gebaut \
-      && $(cat "$HIER/.gebaut") == "$COMMIT" ]]; then
-    echo "Osum ist aktuell ($KURZ)"
+if [[ $FORCE -eq 0 && -f $HIER/osum.mb && -f $HIER/mkfs.py && -d $HIER/bin \
+      && -f $HIER/.gebaut && $(cat "$HIER/.gebaut") == "$COMMIT" ]]; then
+    echo "Osum ist aktuell ($KURZ, $(ls "$HIER/bin" | wc -l) Programme)"
     exit 0
 fi
 
@@ -92,8 +104,36 @@ echo ">> Osums eigenen Firn-Uebersetzer bauen ($(cut -c1-8 "$BAU/vendor/firn/COM
 echo ">> Kernel bauen (tools/build-kernel.sh aus dem Osum-Repo)"
 ( cd "$BAU" && bash tools/build-kernel.sh "$BAU/osum.mb" )
 
+# --- Das Userland. Dieselben Schritte wie in Osums tools/userland/run.sh:
+# ein Startstueck in Assembler, je Programm eine Firn-Uebersetzungseinheit,
+# statisch gebunden gegen kernel/user/user.ld. Kein libc-Aufsatz, keine
+# dynamische Bindung — der Lader dieses Kernels bindet nicht.
+echo ">> Userland bauen (unprivilegierte Programme aus demselben Commit)"
+rm -rf "$HIER/bin"
+mkdir -p "$HIER/bin"
+(
+    cd "$BAU"
+    export FIRNLIB="$BAU/lib"
+    as --64 -o crt.o kernel/user/crt.s
+    n=0
+    for f in kernel/user/*.fi; do
+        p=$(basename "$f" .fi)
+        # ulib ist die gemeinsame Bibliothek der Programme, kein Programm.
+        [[ $p == ulib ]] && continue
+        vendor/firn/bin/firnc "$f" -o "$p.o" >/dev/null 2>&1 || continue
+        ld -T kernel/user/user.ld --defsym=USER_ENTRY="_F0.u_start" \
+           -o "$p.elf" crt.o "$p.o" 2>/dev/null || continue
+        strip --strip-all "$p.elf"
+        cp -f "$p.elf" "$HIER/bin/$p"
+        n=$((n + 1))
+    done
+    echo "   $n Programme"
+)
+cp -f "$BAU/tools/osum/mkfs.py" "$HIER/mkfs.py"
+
 cp -f "$BAU/osum.mb" "$HIER/osum.mb"
 cp -f "$BAU/osum.mb.elf" "$HIER/osum.mb.elf"
 echo "$COMMIT" > "$HIER/.gebaut"
 rm -rf "$BAU"
-echo ">> fertig: vendor/osum/osum.mb ($(stat -c%s "$HIER/osum.mb") Oktette, $KURZ)"
+echo ">> fertig: vendor/osum/osum.mb ($(stat -c%s "$HIER/osum.mb") Oktette, $KURZ),"
+echo "   vendor/osum/bin/ ($(ls "$HIER/bin" | wc -l) Programme), vendor/osum/mkfs.py"

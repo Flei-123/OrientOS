@@ -1,0 +1,179 @@
+# tests/step-70-doku.sh — wird von test.sh gesourct, nicht direkt gestartet.
+#
+# DAMIT DIE DOKU NICHT LEISE VERROTTET.
+#
+# Es gab in diesem Projekt zwei Kernel mit demselben Namen, und der Grund
+# war nicht Absicht, sondern Doku, die stehengeblieben ist: LANGUAGE.md
+# beschrieb eine modulweise Migration nach Firn, waehrend daneben ein
+# fertiger Firn-Kernel entstand. Zwei Wahrheiten in einem Projekt sind
+# eine Wahrheit zu viel.
+#
+# Dieser Schritt prueft deshalb nicht Code, sondern ob die Dokumente noch
+# dasselbe sagen wie der Baum:
+#
+#   1. KERNELWECHSEL.md enthaelt wirklich den Abgleich, das Portierte,
+#      das Offene und die Geschichte — nicht nur Ueberschriften.
+#   2. Der alte Migrationsstand wird nirgends mehr als GELTEND behauptet,
+#      und die Zahl "noch in Rust" stimmt mit dem Baum ueberein.
+#   3. JEDER PFAD, den ein Dokument nennt, existiert. Das ist der Ersatz
+#      fuer die alte Zeilennummernpruefung (tests/verweise.py): die
+#      zeigte auf Rust-Dateien, die es nicht mehr gibt. Ein Verweis auf
+#      eine Datei, die es nicht gibt, ist schlimmer als keiner — er sieht
+#      ueberpruefbar aus und ist es nicht.
+#   4. Was noch offen ist, wird auch als offen benannt, und was geloescht
+#      wurde, steht als geloescht da. Nichts wird wegretuschiert.
+#   5. GEGENPROBE: die Pfadpruefung muss bei einem erfundenen Pfad
+#      wirklich anschlagen.
+step "Doku: die Dokumente sagen dasselbe wie der Baum"
+doku_check() {
+    RC=0
+    local abschnitt d
+
+    # --- 1. KERNELWECHSEL.md
+    if [[ ! -f KERNELWECHSEL.md ]]; then
+        nok "KERNELWECHSEL.md fehlt"; return 1
+    fi
+    for abschnitt in \
+        '## 2. Der Abgleich, Modul für Modul' \
+        '## 3. Was portiert wurde' \
+        '## 4. Was NOCH offen ist' \
+        '## 6. Die Geschichte dieses Wechsels' \
+        '## 7. Der Schnitt'
+    do
+        grep -qF "$abschnitt" KERNELWECHSEL.md \
+            && ok "KERNELWECHSEL.md: $abschnitt" \
+            || nok "KERNELWECHSEL.md: Abschnitt fehlt — $abschnitt"
+    done
+    local zeilen
+    zeilen=$(grep -cE '^\| .* \| .* \| .* \|' KERNELWECHSEL.md)
+    [[ "$zeilen" -ge 20 ]] \
+        && ok "der Abgleich hat $zeilen Tabellenzeilen" \
+        || nok "der Abgleich hat nur $zeilen Tabellenzeilen — das ist keine Modul-fuer-Modul-Pruefung"
+
+    # --- 2. Alle Hauptdokumente verweisen darauf
+    for d in README.md ARCHITECTURE.md ROADMAP.md LANGUAGE.md; do
+        grep -qF 'KERNELWECHSEL.md' "$d" \
+            && ok "$d verweist auf KERNELWECHSEL.md" \
+            || nok "$d verweist nicht auf KERNELWECHSEL.md — dort steht, was gilt"
+    done
+
+    # --- 3. Der alte Stand wird nicht mehr als geltend behauptet
+    grep -qF 'ÜBERHOLT AM 25.08.2026' LANGUAGE.md \
+        && ok "LANGUAGE.md kennzeichnet den alten Migrationsstand als überholt" \
+        || nok "LANGUAGE.md behauptet den alten Migrationsstand weiter als geltend"
+    # Die Zahl aus M-00, die nach dem Schnitt schlicht falsch ist.
+    if grep -qF '17 993 Zeilen' LANGUAGE.md && ! grep -qF 'Geschichte' LANGUAGE.md; then
+        nok "LANGUAGE.md nennt 17 993 Zeilen Rust, ohne sie als Geschichte zu kennzeichnen"
+    else
+        ok "die alte Zahl in LANGUAGE.md steht als Geschichte da, nicht als Stand"
+    fi
+    grep -qF 'Der Umbau läuft modulweise' README.md \
+        && nok "README.md kuendigt weiter die modulweise Migration DIESES Baums an" \
+        || ok "README.md kuendigt keine modulweise Migration dieses Baums mehr an"
+
+    # --- 4. Die Zahl stimmt mit dem Baum
+    local ist
+    ist=$(git ls-files '*.rs' | grep -v '^vorlage/' | xargs cat 2>/dev/null | wc -l)
+    if [[ "$ist" -eq 0 ]]; then
+        ok "im Baum stehen 0 Zeilen Rust ausser der Vorlage"
+    else
+        nok "im Baum stehen $ist Zeilen Rust ausserhalb von vorlage/"
+    fi
+    local vorlage_zeilen
+    vorlage_zeilen=$(wc -l < vorlage/arch_iface.rs)
+    if grep -qF "$vorlage_zeilen Zeilen" KERNELWECHSEL.md; then
+        ok "KERNELWECHSEL.md nennt die Groesse der Vorlage richtig ($vorlage_zeilen Zeilen)"
+    else
+        nok "KERNELWECHSEL.md nennt nicht $vorlage_zeilen Zeilen fuer vorlage/arch_iface.rs"
+    fi
+
+    # --- 5. Jeder genannte Pfad existiert
+    local fehlend
+    fehlend=$(python3 - <<'PY'
+import re, pathlib, sys
+# Pfade in Backticks, die wie Pfade aussehen: mit / oder mit bekannter
+# Endung. Absichtlich ohne Zeilennummern -- die verrotten, Pfade nicht.
+muster = re.compile(r'`([A-Za-z0-9_./-]+\.(?:md|sh|py|toml|fi|rs|conf|json|ld|asm|img|txt))`')
+# Dateien, die in einem anderen Repo liegen (Osum) oder erst gebaut werden.
+fremd = ('kernel/', 'lib/', 'tools/', 'docs/ROUND', 'docs/OSUM', 'vendor/osum/osum.mb',
+         'vendor/osum/mkfs.py', 'vendor/osum/bin', 'vendor/firn/firnc', 'build/')
+fehlt = set()
+for md in sorted(pathlib.Path('.').glob('*.md')):
+    if md.name == 'GAUNTLET.md':
+        continue          # automatisch erzeugtes Protokoll, zitiert Fremdbefunde
+    for m in muster.finditer(md.read_text(encoding='utf-8', errors='replace')):
+        p = m.group(1)
+        if p.startswith(fremd) or '/' not in p and not pathlib.Path(p).suffix:
+            continue
+        if p.startswith(fremd):
+            continue
+        if not pathlib.Path(p).exists():
+            fehlt.add(f'{md.name}: {p}')
+for z in sorted(fehlt):
+    print(z)
+PY
+)
+    if [[ -z "$fehlend" ]]; then
+        ok "jeder Pfad, den die Dokumente nennen, existiert wirklich"
+    else
+        nok "die Dokumente nennen Pfade, die es nicht gibt:"
+        echo "$fehlend" | sed 's/^/         /'
+    fi
+    # GEGENPROBE: die Pruefung muss anschlagen.
+    local tmp
+    tmp=$(mktemp -d)
+    printf 'Probe: `kernel/src/gibtsnicht.rs`\n' > "$tmp/PROBE.md"
+    cp tests/step-70-doku.sh "$tmp/" 2>/dev/null
+    if (cd "$tmp" && python3 - <<'PY' | grep -q .
+import re, pathlib
+muster = re.compile(r'`([A-Za-z0-9_./-]+\.(?:md|sh|py|toml|fi|rs|conf|json|ld|asm|img|txt))`')
+for md in sorted(pathlib.Path('.').glob('*.md')):
+    for m in muster.finditer(md.read_text()):
+        if not pathlib.Path(m.group(1)).exists():
+            print(m.group(1))
+PY
+    ); then
+        ok "Gegenprobe: ein erfundener Pfad laesst die Pruefung anschlagen"
+    else
+        nok "die Pfadpruefung schlaegt bei einem erfundenen Pfad NICHT an"
+    fi
+    rm -rf "$tmp"
+
+    # --- 6. Was offen ist, steht als offen da
+    grep -qF 'vorlage/arch_iface.rs' KERNELWECHSEL.md \
+        && ok "der offene Punkt 'arch-Grenze' nennt die Vorlage, die ihn belegt" \
+        || nok "KERNELWECHSEL.md § 4 nennt die Vorlage nicht"
+    grep -qiE 'NotSupported|Kanäle, Ports' KERNELWECHSEL.md \
+        && ok "die nicht portierten Objekte der nativen ABI stehen als offen da" \
+        || nok "KERNELWECHSEL.md sagt nicht, dass Kanaele/Ports/Namensraeume fehlen"
+    # ...und was NICHT mehr offen ist, steht auch nicht mehr als offen da.
+    if grep -qE '^\| .*SMEP/SMAP.*OFFEN' KERNELWECHSEL.md; then
+        nok "SMEP/SMAP steht noch als offen — es ist portiert (Osum, kernel/guard.fi)"
+    else
+        ok "SMEP/SMAP steht nicht mehr als offen"
+    fi
+    if grep -qE 'Rahmenpufferkonsole.*OFFEN|fbcon.*\*\*OFFEN' KERNELWECHSEL.md; then
+        nok "die Rahmenpufferkonsole steht noch als offen — Osum hat seit K7 einen Bildschirm"
+    else
+        ok "die Rahmenpufferkonsole steht nicht mehr als offen"
+    fi
+
+    # --- 7. Was geloescht wurde, steht als geloescht da
+    for d in README.md ARCHITECTURE.md ROADMAP.md LANGUAGE.md KERNELWECHSEL.md; do
+        if grep -qE 'kernel/src|libs/osum-abi|run-qemu\.sh|cargo' "$d" \
+           && ! grep -qiE 'gelöscht|geloescht|Historie|Geschichte|bis zum' "$d"; then
+            nok "$d nennt geloeschte Dinge, ohne zu sagen, dass sie geloescht sind"
+        else
+            ok "$d nennt Geloeschtes nur als Geschichte"
+        fi
+    done
+
+    # --- 8. userland/ sagt, was daraus geworden ist
+    if grep -qF 'PROGRAMME' userland/README.md && ! grep -qF 'hello.asm' userland/README.md; then
+        ok "userland/README.md beschreibt die neue Rolle (PROGRAMME), nicht mehr hello.asm"
+    else
+        nok "userland/README.md beschreibt noch das geloeschte Startdateisystem"
+    fi
+    return $RC
+}
+run doku_check

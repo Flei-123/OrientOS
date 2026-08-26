@@ -1,0 +1,10 @@
+OrientOS -- Betriebssystem von Grund auf.
+
+Der Kernel heisst osum, ist in Firn geschrieben und kommt aus einem
+eigenen Repository. Dieses hier ist das System darum herum: Marken,
+Userland-Zusammenstellung, Paketformat, Abnahme.
+
+Diese Datei liegt in der Wurzel des Produkt-ISOs. Sie kommt nicht aus
+dem Kernel-Repo, sondern aus diesem -- userland/dateien/ausgabe.txt --
+und ist damit der Nachweis, dass OrientOS dem Abbild wirklich etwas
+Eigenes hinzufuegt und nicht nur weiterreicht, was Osum baut.

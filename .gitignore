@@ -3,19 +3,21 @@
 # Binaerdateien und ein 7-MB-ISO) -- herausgenommen am 23.08.2026.
 # Wer einen Beweis aufheben will, legt ihn woanders ab: das Ergebnis eines
 # Testlaufs ist der Commit, der ihn bestanden hat, nicht sein Log.
-/target/
 /build/
 
 # Der festgenagelte Firn-Uebersetzer wird gebaut, nicht eingecheckt.
 # Eingecheckt ist nur vendor/firn/COMMIT und das Bauskript.
 /vendor/firn/firnc
+/vendor/firn/bin/
 /vendor/firn/lib/
 /vendor/firn/.bau/
 /vendor/firn/.gebaut
-/build/firn/
 
-# Der festgenagelte Osum-Kernel wird gebaut, nicht eingecheckt.
-# Eingecheckt ist nur vendor/osum/COMMIT und das Bauskript.
+# Der festgenagelte Osum-Kernel UND sein Userland werden gebaut, nicht
+# eingecheckt. Eingecheckt ist nur vendor/osum/COMMIT und das Bauskript;
+# alles andere entsteht daraus (hole-osum.sh).
 /vendor/osum/osum.mb
 /vendor/osum/osum.mb.elf
+/vendor/osum/bin/
+/vendor/osum/mkfs.py
 /vendor/osum/.gebaut

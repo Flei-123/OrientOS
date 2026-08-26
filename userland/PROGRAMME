@@ -60,3 +60,25 @@ wget
 verzeichnis /etc
 datei /etc/ausgabe.txt userland/dateien/ausgabe.txt
 verzeichnis /home
+
+# --- PAKETE (Roadmap 6.1, PAKETE.md)
+#
+# Was hier steht, wird NICHT nach /bin kopiert. Ein Paket wird
+# installiert: es landet unveraenderlich unter `/store/<hash>` und wird
+# ueber `/apps/<name>.prog` sichtbar -- ein zweiter Verzeichniseintrag
+# auf dieselben Oktette, kein zweites Exemplar. Dazu die drei Toepfe
+# unter `/users/` und die Generationen unter `/system/`.
+#
+# Gebaut werden die Pakete von `pkg/bauen.sh` aus demselben
+# festgenagelten Osum-Commit (`vendor/osum/bin/` + `vendor/osum/apps/`),
+# installiert von `pkg/opkg.py` in eine Wurzel unter `build/`, und von
+# dort uebersetzt `pkg/mkfs-spec.py` sie in Angaben fuer mkfs.py.
+#
+# WARUM NUR DREI. Ein Abbild hat 4096 Bloecke zu 512 Oktetten, davon
+# sind 34 Verwaltung. Der Datei-Explorer allein ist 234 448 Oktette.
+# Welche Pakete ein Produkt mitbringt, ist eine Entscheidung dieses
+# Repos und keine des Kernels -- genau dafuer gibt es diese Datei.
+inodes: 512
+paket hallo
+paket explorer
+paket widgets

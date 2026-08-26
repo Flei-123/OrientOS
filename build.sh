@@ -85,14 +85,33 @@ if [[ $MIT_USERLAND -eq 1 ]]; then
     BLOCKS=$(sed 's/#.*//' userland/PROGRAMME | grep -m1 '^bloecke:' \
              | sed 's/^bloecke:[[:space:]]*//' | tr -d '[:space:]')
     [[ -n "$BLOCKS" ]] || BLOCKS=4096
-    SPEC=("/bin/")
+    # Die Groesse der Inodetabelle. Sie steht seit Osums zweitem
+    # K15-Nachtrag im Superblock und wird von `fs.mount` von dort
+    # gelesen; ohne Angabe bleiben es 128, und ein Abbild ohne
+    # `--inodes=` ist Oktett fuer Oktett dasselbe wie vorher. Ein
+    # Paketbaum braucht mehr Namen als 128: je Paket ein Store-Eintrag
+    # mit seinen Dateien, dasselbe noch einmal unter /apps, drei Toepfe
+    # je Nutzer und je Generation zwei Dateien.
+    INODES=$(sed 's/#.*//' userland/PROGRAMME | grep -m1 '^inodes:' \
+             | sed 's/^inodes:[[:space:]]*//' | tr -d '[:space:]')
+    SPEC=()
+    [[ -n "$INODES" ]] && SPEC+=("--inodes=$INODES")
+    SPEC+=("/bin/")
+    PAKETE=()
     FEHLT=""
     while read -r zeile; do
         zeile=${zeile%%#*}
         zeile=$(echo "$zeile" | xargs || true)
         [[ -z "$zeile" ]] && continue
         case "$zeile" in
-            bloecke:*) continue ;;
+            bloecke:*|inodes:*) continue ;;
+            paket\ *)
+                # `paket <name>` — wird weiter unten in EINEM Zug
+                # installiert; hier nur gesammelt, weil die Reihenfolge
+                # der Angaben fuer mkfs.py sonst nicht stimmt.
+                set -- $zeile
+                PAKETE+=("$2")
+                ;;
             datei\ *)
                 # `datei <zielpfad> <quelle>` — eine Datei aus DIESEM Repo.
                 set -- $zeile
@@ -113,6 +132,36 @@ if [[ $MIT_USERLAND -eq 1 ]]; then
                 ;;
         esac
     done < userland/PROGRAMME
+    # ------------------------------------------------------ die Pakete
+    #
+    # DAS IST DER UNTERSCHIED ZU `/bin`. Ein Programm unter `/bin` wird
+    # hier kopiert; ein Paket wird INSTALLIERT — von `pkg/opkg.py` in
+    # eine Wurzel unter `build/wurzel`, mit Store, Generation, den drei
+    # Toepfen und harten Verweisen. Was ins Abbild kommt, ist das
+    # ERGEBNIS dieser Installation und nicht eine Liste von Dateien.
+    # Uebersetzt wird es von `pkg/mkfs-spec.py`, das die harten Verweise
+    # als `<neu>@<vorhanden>` weitergibt — sonst laege der Explorer
+    # zweimal auf einer Platte von zwei Megaoktett.
+    if [[ ${#PAKETE[@]} -gt 0 ]]; then
+        mkdir -p build
+        ./pkg/bauen.sh > build/pakete.log 2>&1 || {
+            echo "pkg/bauen.sh fehlgeschlagen:" >&2; cat build/pakete.log >&2; exit 1; }
+        WURZEL=build/wurzel
+        rm -rf "$WURZEL"
+        for p in "${PAKETE[@]}"; do
+            test -f "build/pakete/$p.opkg" || {
+                echo "userland/PROGRAMME nennt das Paket '$p', das es nicht gibt" >&2
+                exit 1; }
+            python3 pkg/opkg.py installieren --wurzel "$WURZEL" \
+                    --quelle build/quelle --schluessel build/quelle/oeffentlich.key \
+                    "$p" >> build/pakete.log 2>&1 || {
+                echo "opkg installieren $p fehlgeschlagen:" >&2
+                tail -5 build/pakete.log >&2; exit 1; }
+        done
+        while read -r z; do SPEC+=("$z"); done < <(python3 pkg/mkfs-spec.py "$WURZEL")
+        echo ">> Pakete: ${#PAKETE[@]} installiert (${PAKETE[*]}), Generation $(cat "$WURZEL/system/AKTUELL")"
+    fi
+
     # Was ein Testschritt zusaetzlich hineinlegen will. Das laeuft NICHT
     # ueber userland/PROGRAMME: die Liste beschreibt das Produkt, nicht
     # den Aufbau eines einzelnen Nachweises.
@@ -140,7 +189,9 @@ if [[ $MIT_USERLAND -eq 1 ]]; then
         CRC=deadbeef
     fi
     cp "$IMG" "$ROOT/boot/${SLUG}-userland.img"
-    echo ">> Userland: $IMG ($((BLOCKS * 512 / 1024)) KiB, $(( ${#SPEC[@]} - 1 )) Eintraege), CRC32 0x${CRC}"
+    ANZ=0
+    for e in "${SPEC[@]}"; do [[ $e == --* ]] || ANZ=$((ANZ + 1)); done
+    echo ">> Userland: $IMG ($((BLOCKS * 512 / 1024)) KiB, $((ANZ - 1)) Eintraege), CRC32 0x${CRC}"
 fi
 
 # ------------------------------------------------- 3. die Kommandozeile

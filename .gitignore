@@ -20,9 +20,13 @@
 /vendor/osum/osum.mb.elf
 /vendor/osum/bin/
 /vendor/osum/mkfs.py
+/vendor/osum/apps/
 /vendor/osum/.gebaut
 
 # Es gibt in diesem Repo kein cargo mehr (KERNELWECHSEL.md). Der Eintrag
 # bleibt als Wache stehen: faende sich hier je wieder ein target/, waere
 # das ein Rueckfall in den geloeschten Kernel.
 /target/
+
+# Python legt neben jedem importierten Modul einen Zwischenspeicher an.
+/pkg/__pycache__/

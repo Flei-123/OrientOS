@@ -10,6 +10,20 @@ Die 50 dazugekommenen Zusagen, aufgeschlüsselt: 13 im Patchschritt
 einem installierten Paket unter `/apps` + `/store` unterscheidet. Keine
 einzige bestehende Zusage ist verloren.
 
+**Eine Zahl, die zweimal gemessen werden musste, und warum sie hier
+steht.** Der abschließende Lauf aus einem leergeräumten Baum
+(`rm -rf build vendor/osum/bin …`) meldete **201 Zusagen mit einem
+Fehler**: Schritt 10, `'smapraw' bleibt stehen, aber nicht an einem
+#PF`. Das Protokoll dieses Laufs bricht mitten in der Speicherprüfung
+ab, lange vor Ring 3 — die QEMU-Maschine ist in ihr Zeitlimit gelaufen.
+Grund war die Maschine, nicht das Produkt: auf demselben Rechner lief
+gleichzeitig die Abnahme der Kernelrunde K18 (`bash ./test.sh` in
+`osum-k18-power`), Lastmittel **13,9**. Derselbe Schritt allein, direkt
+danach: **34 Zusagen, 0 Fehler**, `'smapraw' endet in einem #PF
+(err=0x1) — SMAP setzt wirklich durch`. Der Stand, der oben zählt, ist
+der Lauf ohne diese Fremdlast. Das steht hier, weil eine Zahl, die man
+zweimal messen musste, dazugehört.
+
 Diese Runde hat zwei Hälften, und die erste war nicht geplant.
 
 ---

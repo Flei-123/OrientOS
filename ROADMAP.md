@@ -17,9 +17,9 @@ Ohne diese Punkte ist Osum ein Vorfuehrsystem, kein Arbeitsgeraet.
 
 | | Was | Stand |
 |---|---|---|
-| 1.1 | **Editor** — bildschirmorientiert, roher Terminalmodus, Suchen/Ersetzen, Rueckgaengig. Ohne ihn laesst sich auf dem System keine Datei aendern. | in Arbeit (Runde K11) |
-| 1.2 | **Werkzeugkasten** — `find`, `sed`, `diff`, `patch`, `tar`, `gzip`, `xargs`, `du`, `top`, `mount`, `cut`, `tr`, `tee` | in Arbeit (K11) |
-| 1.3 | **Shell-Skripte** — `if`, `for`, `while`, `case`, Funktionen, Variablenersetzung, `test` | in Arbeit (K11) |
+| 1.1 | **Editor** — bildschirmorientiert, roher Terminalmodus, Suchen/Ersetzen, Rueckgaengig. Ohne ihn laesst sich auf dem System keine Datei aendern. | **fertig** (K11, `/bin/edit`) |
+| 1.2 | **Werkzeugkasten** — `find`, `sed`, `diff`, `patch`, `tar`, `gzip`, `xargs`, `du`, `top`, `mount`, `cut`, `tr`, `tee` | **fertig** (K11, 20 Werkzeuge gegen ihre GNU-Gegenstuecke gemessen) |
+| 1.3 | **Shell-Skripte** — `if`, `for`, `while`, `case`, Funktionen, Variablenersetzung, `test` | **fertig** (K11) |
 | 1.4 | **Benutzer und Rechte** — `uid`/`gid`, `chmod`, `chown`, `setuid`, Anmelden, `passwd`. Heute laeuft alles mit allen Rechten. | offen |
 | 1.5 | **`init` und Dienste** — heute startet der Kernel die Shell unmittelbar. Ein System braucht einen ersten Prozess, der Dienste startet, ueberwacht, neu startet und beim Herunterfahren aufraeumt. | offen |
 | 1.6 | **VFS** — mehrere Dateisysteme nebeneinander einhaengen. Voraussetzung fuer `/proc`, `/dev` und fuer fremde Platten. | offen |
@@ -29,14 +29,14 @@ Ohne diese Punkte ist Osum ein Vorfuehrsystem, kein Arbeitsgeraet.
 
 | | Was | Stand |
 |---|---|---|
-| 2.1 | **Maus** (PS/2, spaeter USB-HID) | in Arbeit (Runde K10) |
-| 2.2 | **Fensterserver** — Fenster anlegen, verschieben, stapeln, Fokus, Ereigniszustellung, nur schmutzige Bereiche neu zusammensetzen. Ueber Capability-Handles. | in Arbeit (K10) |
-| 2.3 | **Echte Schriften** — TrueType lesen und rastern, Kantenglaettung, Unterschneidung. Der 8x16-Zeichensatz reicht nur fuer eine Konsole. | in Arbeit (K10) |
+| 2.1 | **Maus** (PS/2, spaeter USB-HID) | **fertig** (K10, PS/2 an IRQ 12) |
+| 2.2 | **Fensterserver** — Fenster anlegen, verschieben, stapeln, Fokus, Ereigniszustellung, nur schmutzige Bereiche neu zusammensetzen. Ueber Capability-Handles. | **fertig** (K10) |
+| 2.3 | **Echte Schriften** — TrueType lesen und rastern, Kantenglaettung, Unterschneidung. Der 8x16-Zeichensatz reicht nur fuer eine Konsole. | **fertig** (K10, TrueType mit Kantenglaettung, je Zeichen gegen eine zweite Rasterung geprueft) |
 | 2.4 | **Widget-Bibliothek** — Knoepfe, Listen, Bildlaufleisten, Textfelder, Menues | offen |
-| 2.5 | **Terminalfenster** — die Shell in einem Fenster statt auf der ganzen Flaeche | offen |
+| 2.5 | **Terminalfenster** — die Shell in einem Fenster statt auf der ganzen Flaeche | **fertig** (K10, `/bin/sh` laeuft darin) |
 | 2.6 | **Dateimanager** — sobald 2.1 bis 2.4 stehen, ist er die grafische Fassung von `ls`; Dateisystem und Verzeichnislesen sind fertig | offen |
 | 2.7 | **Einstellungen, Themen, Hintergrundbilder** — Farbschema als Datei, Bild laden, ein Programm dafuer. Fleissarbeit, sobald der Fensterserver steht. | offen |
-| 2.8 | **Aufgabenverwaltung** — `top` auf der Konsole, danach grafisch: Prozesse, Speicher, Last, Beenden | offen |
+| 2.8 | **Aufgabenverwaltung** — `top` auf der Konsole, danach grafisch: Prozesse, Speicher, Last, Beenden | `top` fertig (K11), grafisch offen |
 
 ## 3 — Geraete
 
@@ -71,7 +71,7 @@ Hoechstleistung**.
 |---|---|---|
 | 5.1 | **Linux-Binaerkompatibilitaet** — statisch gelinkte Programme ueber Umsetzung der Systemaufrufnummern. Der ELF-Lader steht, und die POSIX-Schicht wurde absichtlich mit den Linux-Nummern gebaut. Das ist Wochen, nicht Jahre. | offen |
 | 5.2 | **Dynamisches Linken** — Lader fuer Bibliotheken, damit auch nicht statisch gebundene Programme laufen | offen |
-| 5.3 | **Hypervisor** — VT-x, verschachtelte Seitentabellen, Gastmaschinen. Damit laufen fremde Systeme unveraendert; der Nutzen geht weit ueber Windows hinaus (Isolation, Linux-Gaeste, Osum in Osum testen). | in Arbeit (Runde K12) |
+| 5.3 | **Hypervisor** — AMD-V (VT-x offen), verschachtelte Seitentabellen, Gastmaschinen. Damit laufen fremde Systeme unveraendert; der Nutzen geht weit ueber Windows hinaus (Isolation, Linux-Gaeste, Osum in Osum testen). | **fertig fuer AMD-V** (K12: VMCB, NPT, Gaeste, Handles aus Ring 3). VT-x offen — auf der Messmaschine (AMD EPYC ohne /dev/kvm) nicht pruefbar |
 | 5.4 | **Windows-Programme** — ueber 5.3 in einem Gastsystem. Eine eigene Nachbildung der Windows-Schnittstellen (der Weg von Wine) ist ausdruecklich NICHT geplant: Wine arbeitet seit 1993 daran und hat allein fuer `user32.dll` 783 von rund 990 Funktionen. | spaeter |
 
 ## 6 — Software fuer das System

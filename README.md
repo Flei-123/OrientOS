@@ -67,16 +67,47 @@ gar keine Platte hat. Was darin liegt, stellt **dieses** Repo zusammen
 ein Handle mit Rechten — Slot und Generation, zehn Rechtebits, acht
 Objektarten. Kein Erben, keine Umgebungsautoritaet.
 
+**Eine Oberflaeche.** Ein Zeigegeraet am zweiten Anschluss des
+Tastaturbausteins, ein **Fensterserver** mit Stapelreihenfolge,
+Eingabefokus und Bereichsverfolgung, und ein **TrueType-Leser samt
+Rasterer mit Kantenglaettung**, ganz in Firn. Auf dem Schirm stehen zwei
+Fenster: ein Terminal, in dem `/bin/sh` von der Platte laeuft, und ein
+zweites, das sich anklicken, verschieben und schliessen laesst. Gemessen
+an echten Bildschirmfotos, in die ueber den QEMU-Monitor echte
+Mausbewegungen, Klicks und Tastendruecke eingespeist wurden — und der
+Text darin nicht gegen eine Flaeche, sondern **je Zeichen** gegen eine
+zweite, unabhaengige Rasterung desselben Umrisses.
+
+**Man kann darauf arbeiten.** Ein bildschirmorientierter **Editor**
+(`/bin/edit`) in Ring 3 ueber den rohen Terminalmodus, und der
+Werkzeugkasten dazu: `find`, `sed`, `diff`, `patch`, `tar`, `gzip`,
+`gunzip`, `xargs`, `du`, `top`, `mount`, `umount`, `tee`, `cut`, `tr`,
+`seq`, `env`, `which`, `basename`, `dirname`. Die Shell ist eine Sprache
+geworden — `if`/`elif`/`else`, `while`, `until`, `for`, `case`,
+Funktionen, `return`/`break`/`continue`/`shift`, `test` und `[`. Jedes
+Werkzeug steht gegen sein GNU-Gegenstueck; `tar` und `gzip` arbeiten in
+**beide Richtungen** mit dem echten `tar` und `gzip` des Wirts zusammen.
+
+**Ein Wirt fuer fremde Prozessoren.** Ein **Hypervisor** in Firn:
+Steuerblock, Gastzustand, Abfangbits, Eintritt, Austritt, Austrittsgrund,
+**verschachtelte Seitentabellen**. Gastmaschinen sind aus Ring 3
+erreichbar — ueber Handles mit Rechten, nicht ueber kleine Zahlen: wer
+eine Kopie ohne `R_MANAGE` weitergibt, gibt das Recht zu laufen weiter
+und das Recht zu toeten nicht. Umgesetzt ist **AMD-V**, nicht Intel VT-x,
+und der Grund steht in `docs/ROUNDK12.md`: die Messmaschine ist ein AMD
+EPYC ohne `/dev/kvm`, und QEMUs TCG bietet `vmx` nachweislich nicht an —
+ein VMX-Wirt waere hier nicht messbar gewesen, und dieses Projekt misst.
+
 **Marken.** Ein Quelltext, mehrere Produkte: `brands/*.toml` beschreibt
 alles Austauschbare, der Quelltext kennt keinen dieser Werte
 (`./build.sh --brand <name>`).
 
 ## Was es nicht kann
 
-- **Keine Oberflaeche.** Es gibt einen Rahmenpuffer und eine Textkonsole,
-  aber keinen Fensterserver, keine Maus und keine skalierbaren Schriften.
-- **Keinen Editor.** Dateien lassen sich lesen und loeschen, aber auf dem
-  System selbst nicht schreiben oder aendern.
+- **Keinen Schreibtisch.** Es gibt Fenster, eine Maus und Schriften, aber
+  keine Anwendungen darin ausser dem Terminal und einem Testfenster:
+  kein Dateimanager, keine Themen, keine Hintergrundbilder, keine
+  Einstellungen.
 - **Keine Benutzer.** Kein `uid`/`gid`, kein `chmod`, kein Anmelden —
   alles laeuft mit allen Rechten.
 - **Kein `init`, keine Dienste.** Der Kernel startet die Shell unmittelbar.
@@ -84,7 +115,14 @@ alles Austauschbare, der Quelltext kennt keinen dieser Werte
   fremde Platten sind damit unlesbar.
 - **Keine Paketverwaltung.** Das Format ist entworfen
   ([PACKAGING.md](PACKAGING.md)), aber nicht gebaut.
-- **Kein Auslagern**, kein `mmap` auf Dateien, **kein USB**, **kein Ton**.
+- **Kein Auslagern**, kein `mmap` auf Dateien, **kein USB**, **kein Ton**,
+  **keine Energieverwaltung** (ACPI kann bisher nur abschalten: keine
+  P-States, keine Profile, kein Akkustand, keine Helligkeit, kein
+  Standby).
+- **Keine Gastsysteme von der Stange.** Der Hypervisor laesst eigene,
+  kleine Gaeste laufen und misst sie; ein unveraendertes Linux oder gar
+  Windows hat er noch nie gebootet, und die virtuellen Geraete dafuer
+  (Platte, Netz, Bildschirm) fehlen.
 - **Nur x86-64.** Firn selbst uebersetzt auch nach aarch64, der Kernel
   nicht.
 - **Keine fremden Programme.** Es laeuft, was in Firn geschrieben und fuer
@@ -95,14 +133,14 @@ alles Austauschbare, der Quelltext kennt keinen dieser Werte
 
 | | |
 |---|---|
-| Kernel (Osum, festgenagelter Commit) | 32.800 Zeilen Firn + 1.336 Zeilen Assembler |
+| Kernel (Osum, festgenagelter Commit) | 34.459 Zeilen Firn + 1.884 Zeilen Assembler |
 | Rust im Kernel | **0** |
 | Rust in DIESEM Repo | **0** (+ 378 Zeilen Vorlage, nicht uebersetzt) |
 | C in diesem Repo (ausser dem Bootlader) | **0** |
 | Externe Bibliotheken im Kernel | **0** |
-| Systemaufrufe | 72 |
-| Programme in Ring 3 | 31 gebaut, **26 im Produkt-ISO** |
-| Zusagen der Kernel-Abnahme (Osum `./test.sh`) | **1181**, in 15 Abschnitten, 0 Fehler |
+| Systemaufrufe | 79 deklariert, 74 im Verteiler |
+| Programme in Ring 3 | **52** (kernel/user/*.fi mit eigenem `_start`; dazu zwei Bibliotheken ohne) |
+| Zusagen der Kernel-Abnahme (Osum `./test.sh`) | **1486**, in 18 Abschnitten, 0 Fehler |
 | Zusagen der System-Abnahme (hier, `./test.sh`) | **151**, in 11 Schritten, jede mit Gegenprobe |
 
 Alles nachpruefbar: `./test.sh` baut, bootet und misst. Jede Zusage hat

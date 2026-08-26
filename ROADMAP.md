@@ -32,9 +32,10 @@ Ohne diese Punkte ist Osum ein Vorfuehrsystem, kein Arbeitsgeraet.
 | 2.1 | **Maus** (PS/2, spaeter USB-HID) | **fertig** (K10, PS/2 an IRQ 12) |
 | 2.2 | **Fensterserver** — Fenster anlegen, verschieben, stapeln, Fokus, Ereigniszustellung, nur schmutzige Bereiche neu zusammensetzen. Ueber Capability-Handles. | **fertig** (K10) |
 | 2.3 | **Echte Schriften** — TrueType lesen und rastern, Kantenglaettung, Unterschneidung. Der 8x16-Zeichensatz reicht nur fuer eine Konsole. | **fertig** (K10, TrueType mit Kantenglaettung, je Zeichen gegen eine zweite Rasterung geprueft) |
-| 2.4 | **Widget-Bibliothek** — Knoepfe, Listen, Bildlaufleisten, Textfelder, Menues | offen |
+| 2.4 | **Widget-Bibliothek** — Knoepfe, Listen, Bildlaufleisten, Textfelder, Menues | in Arbeit (Runde K15) |
+| 2.4a | **KEIN grafischer Oberflaechen-Entwerfer.** Am 26.08.2026 ausdruecklich verworfen. Die Widget-Bibliothek wird benutzt wie Windows Forms OHNE Designer: Fenster im Quelltext zusammenbauen, keine Ziehflaeche, kein Eigenschaftenfenster, kein Codegenerator. Steht hier, damit die Frage nicht in einem halben Jahr wiederkommt. | verworfen |
 | 2.5 | **Terminalfenster** — die Shell in einem Fenster statt auf der ganzen Flaeche | **fertig** (K10, `/bin/sh` laeuft darin) |
-| 2.6 | **Dateimanager** — sobald 2.1 bis 2.4 stehen, ist er die grafische Fassung von `ls`; Dateisystem und Verzeichnislesen sind fertig | offen |
+| 2.6 | **Datei-Explorer** — `/bin/explorer`, angezeigt als Datei-Explorer, zweiter Name `/bin/files`. KEIN Eigenname: der Name IST die Beschreibung, wie bei Windows. Dazu ein Programmverzeichnis `/apps/<name>.prog/` (Buendel wie bei Apple, aber NICHT `.app` — zu sehr Apple) und eine sofortige Suche ueber das ganze Dateisystem nach dem Vorbild von Everything: die OFS-Inodetabelle am Stueck lesen und einen Namensindex im Speicher halten, statt den Verzeichnisbaum zu durchlaufen. | in Arbeit (K15) |
 | 2.7 | **Einstellungen, Themen, Hintergrundbilder** — Farbschema als Datei, Bild laden, ein Programm dafuer. Fleissarbeit, sobald der Fensterserver steht. | offen |
 | 2.8 | **Aufgabenverwaltung** — `top` auf der Konsole, danach grafisch: Prozesse, Speicher, Last, Beenden | `top` fertig (K11), grafisch offen |
 

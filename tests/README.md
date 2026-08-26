@@ -28,6 +28,13 @@ und ob die Dokumente dasselbe sagen wie der Baum.
 | `step-50-schutz.sh` | Capabilities aus Ring 3 · SMEP/SMAP im Produkt |
 | `step-60-elf-korpus.sh` | 53 kaputte ELF-Abbilder durch den Lader |
 | `step-70-doku.sh` | die Dokumente gegen den Baum |
+| `step-80-pakete.sh` | Paketformat, Prüfsumme, Generationen, Quelle **und** ein Paket, das im gebooteten System wirklich läuft |
+
+`step-80-pakete.sh` misst die Paketverwaltung (ROADMAP 6.1/6.2, Format in
+[PAKETE.md](../PAKETE.md)). Der zweite seiner beiden Schritte startet das
+Produkt und lässt `/apps/hallo.prog/start` laufen — alles davor läuft auf
+dem Wirt, und ein Paket, dessen Oktette man nur zählen kann, ist
+installiert, nicht nachweislich lauffähig.
 
 `step-05-patches.sh` ist am 26.08.2026 dazugekommen und misst etwas, das
 es vorher nicht gab: **Patches auf den festgenagelten Kernel.** Osums

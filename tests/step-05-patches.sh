@@ -31,14 +31,21 @@
 #      Osum die Stelle selbst berichtigt hat, wird der Lauf rot und sagt,
 #      welche Datei zu loeschen ist.
 #
-# Uebersetzt wird `kernel/kmain.fi` — die Uebersetzungseinheit, mit der
-# auch `tools/build-kernel.sh` anfaengt. Alle anderen Kerneldateien haengen
-# per `import` daran, ein Fehler in `sys.fi` faellt also hier auf. Ein Lauf
-# kostet rund zwei Sekunden.
+# WIE GEPRUEFT WIRD, sagt der Patch selbst. Standard ist ein Uebersetzerlauf
+# ueber `kernel/kmain.fi` — die Uebersetzungseinheit, mit der auch
+# `tools/build-kernel.sh` anfaengt; alle anderen Kerneldateien haengen per
+# `import` daran, ein Fehler in `sys.fi` faellt also dort auf, und ein Lauf
+# kostet rund zwei Sekunden. Ein Patch, der etwas anderes als Kernelquelltext
+# berichtigt — `tools/osum/mkfs.py` zum Beispiel —, schreibt sich seine
+# eigene Probe in eine Zeile `Probe: <befehl>` im Kopf. Der Befehl laeuft im
+# ausgepackten Baum und muss MIT der Berichtigung 0 zurueckgeben und OHNE
+# sie etwas anderes. Ohne diese Moeglichkeit waere die Wirkung eines
+# Patches an einem Werkzeug ungemessen, und ungemessen heisst hier: nicht
+# vorhanden.
 step "Berichtigungen am festgenagelten Kernel: begruendet, passend, und einzeln noetig"
 patches_check() {
     RC=0
-    local c p n=0 k
+    local c n=0 k
     c=$(cat vendor/osum/COMMIT 2>/dev/null || echo -)
 
     shopt -s nullglob
@@ -89,10 +96,21 @@ patches_check() {
 
     local roh; roh=$(mktemp -d "${TMPDIR:-/tmp}/orientos-patchprobe-XXXXXX")
     git -C "$osum" archive "$c" | tar -x -C "$roh"
-    # Der unberuehrte Stand, aus dem einzelne Dateien zurueckgeholt werden.
-    cp -r "$roh/kernel" "$roh/.kernel-roh"
 
     local hier; hier=$(pwd)
+    # DER UNBERUEHRTE STAND JEDER BETROFFENEN DATEI, bevor irgendetwas
+    # angewandt wird. Nicht nur `kernel/` — ein Patch darf jede Datei des
+    # Baums treffen, und der erste, der `tools/osum/mkfs.py` berichtigte,
+    # ist genau darueber gestolpert: die Gegenprobe holte nichts zurueck
+    # und ging deshalb faelschlich gruen durch.
+    mkdir -p "$roh/.roh"
+    local p f
+    for p in "${patches[@]}"; do
+        while read -r f; do
+            mkdir -p "$roh/.roh/$(dirname "$f")"
+            cp "$roh/$f" "$roh/.roh/$f"
+        done < <(grep '^+++ b/' "$hier/$p" | sed -e 's|^+++ b/||' -e 's/[[:space:]].*$//' | sort -u)
+    done
     local alle_passen=1
     for p in "${patches[@]}"; do
         if git -C "$roh" apply --check -p1 "$hier/$p" 2>/dev/null; then
@@ -129,6 +147,19 @@ patches_check() {
         ( cd "$roh" && FIRNLIB="$roh/lib" "$firnc" kernel/kmain.fi -o "$roh/probe.o" ) \
             >"$roh/probe.log" 2>&1
     }
+    # Die Probe EINES Patches: entweder seine eigene Zeile `Probe:` oder,
+    # wenn er keine hat, der Uebersetzerlauf.
+    probe_von() {
+        sed -n '1,/^--- /p' "$1" | sed -n '/^Probe:/,/^$/p' | sed '1s/^Probe:[[:space:]]*//'
+    }
+    probiert() {
+        local befehl="$1"
+        if [[ -z "$befehl" ]]; then
+            uebersetzt
+        else
+            ( cd "$roh" && eval "$befehl" ) >"$roh/probe.log" 2>&1
+        fi
+    }
 
     # --- 3. mit dem ganzen Stapel
     if uebersetzt; then
@@ -136,21 +167,31 @@ patches_check() {
     else
         nok "der Kernel uebersetzt TROTZ der Berichtigungen nicht: $(head -1 "$roh/probe.log")"
     fi
+    # ...und jede eigene Probe muss MIT den Berichtigungen bestehen.
+    for p in "${patches[@]}"; do
+        local eigen; eigen=$(probe_von "$p")
+        [[ -z "$eigen" ]] && continue
+        if probiert "$eigen"; then
+            ok "die eigene Probe von $(basename "$p") besteht mit den Berichtigungen"
+        else
+            nok "die eigene Probe von $(basename "$p") besteht NICHT: $(head -2 "$roh/probe.log" | tr '\n' ' ')"
+        fi
+    done
 
     # --- 4. je Patch einzeln zuruecknehmen
     for p in "${patches[@]}"; do
-        local dateien=()
-        while read -r d; do dateien+=("$d"); done < <(
-            grep '^+++ b/' "$p" | sed -e 's|^+++ b/||' -e 's/[[:space:]].*$//' | sort -u)
-        local f
-        for f in "${dateien[@]}"; do
-            [[ -f "$roh/.${f/kernel\//kernel-roh/}" ]] \
-                && cp "$roh/.${f/kernel\//kernel-roh/}" "$roh/$f"
-        done
-        if uebersetzt; then
-            nok "OHNE $(basename "$p") uebersetzt der Kernel trotzdem — die Berichtigung ist ueberfluessig geworden und gehoert GELOESCHT"
+        while read -r f; do
+            cp "$roh/.roh/$f" "$roh/$f"
+        done < <(grep '^+++ b/' "$p" | sed -e 's|^+++ b/||' -e 's/[[:space:]].*$//' | sort -u)
+        local eigen; eigen=$(probe_von "$p")
+        if probiert "$eigen"; then
+            nok "OHNE $(basename "$p") geht die Probe trotzdem durch — die Berichtigung ist ueberfluessig geworden und gehoert GELOESCHT"
         else
-            ok "GEGENPROBE: ohne $(basename "$p") bricht firnc ab ($(head -1 "$roh/probe.log" | cut -c1-60))"
+            if [[ -z "$eigen" ]]; then
+                ok "GEGENPROBE: ohne $(basename "$p") bricht firnc ab ($(head -1 "$roh/probe.log" | cut -c1-58))"
+            else
+                ok "GEGENPROBE: ohne $(basename "$p") faellt seine eigene Probe durch"
+            fi
         fi
         # wieder anwenden, damit die naechste Runde nur EINEN Patch vermisst
         git -C "$roh" apply -p1 "$hier/$p" 2>/dev/null || true

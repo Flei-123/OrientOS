@@ -110,27 +110,27 @@ plan2_check() {
     $O set --root "$A" net.address 192.168.1.50 >/dev/null 2>&1
     $O set --root "$A" net.netmask 255.255.255.0 >/dev/null 2>&1
     $O set --root "$A" net.gateway 192.168.1.1 >/dev/null 2>&1
-    # `/etc/netz.conf` ist NICHT erfunden: `kernel/user/dhcp.fi` schreibt
+    # `/etc/network.conf` ist NICHT erfunden: `kernel/user/dhcp.fi` schreibt
     # und `kernel/user/einstellungen.fi` liest genau diese Datei, in
     # genau dieser Form. Eine Einstellung, die eine Datei erzeugt, die
     # niemand liest, waere Buchhaltung.
-    if grep -q '^modus=fest$' "$A/etc/netz.conf" 2>/dev/null \
-       && grep -q '^ip=192.168.1.50$' "$A/etc/netz.conf"; then
-        ok "aus vier Einstellungen wird /etc/netz.conf in Osums Form ($(wc -c < "$A/etc/netz.conf") Oktette)"
+    if grep -q '^modus=fest$' "$A/etc/network.conf" 2>/dev/null \
+       && grep -q '^ip=192.168.1.50$' "$A/etc/network.conf"; then
+        ok "aus vier Einstellungen wird /etc/network.conf in Osums Form ($(wc -c < "$A/etc/network.conf") Oktette)"
     else
-        nok "/etc/netz.conf ist nicht die Datei, die kernel/user/dhcp.fi schreibt"
+        nok "/etc/network.conf ist nicht die Datei, die kernel/user/dhcp.fi schreibt"
     fi
     # GEGENPROBE: eine geloeschte Einstellung nimmt ihre Datei mit. Ohne
     # das waere der Baum keine FUNKTION des Plans, sondern seiner
     # Geschichte.
     $O set --root "$A" display.mode 800x600 >/dev/null 2>&1
-    if [[ -f "$A/etc/schirm.conf" ]]; then
+    if [[ -f "$A/etc/display.conf" ]]; then
         $O unset --root "$A" display.mode >/dev/null 2>&1
-        [[ ! -f "$A/etc/schirm.conf" ]] \
-            && ok "GEGENPROBE: 'unset' nimmt /etc/schirm.conf wieder aus dem Baum" \
-            || nok "/etc/schirm.conf bleibt stehen, nachdem die Einstellung weg ist"
+        [[ ! -f "$A/etc/display.conf" ]] \
+            && ok "GEGENPROBE: 'unset' nimmt /etc/display.conf wieder aus dem Baum" \
+            || nok "/etc/display.conf bleibt stehen, nachdem die Einstellung weg ist"
     else
-        nok "/etc/schirm.conf wurde gar nicht erst erzeugt -- die Gegenprobe misst nichts"
+        nok "/etc/display.conf wurde gar nicht erst erzeugt -- die Gegenprobe misst nichts"
     fi
     # Der Schluesselraum ist GESCHLOSSEN. Ein offener waere die
     # Registrierdatenbank, die es hier nicht geben soll.

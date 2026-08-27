@@ -21,15 +21,15 @@ stops at the first instruction with nothing to read.
 
 ---
 
-## 1. `.opk` and `.prog`, since the question came up
+## 1. `.opk` and `.osp`, since the question came up
 
 The short form first, because it is the part worth remembering:
 
-> **`.opk` is what you hold. `.prog` is what runs.**
+> **`.opk` is what you hold. `.osp` is what runs.**
 
 They are different kinds of thing, not two names for one thing.
 
-| | `.opk` | `/apps/<name>.prog/` |
+| | `.opk` | `/apps/<name>.osp/` |
 |---|---|---|
 | **What it is** | a FILE | a DIRECTORY |
 | **Purpose** | transport and archive | the activated view of the current generation |
@@ -49,17 +49,20 @@ octets, and then "same hash = same content" is no longer true and the
 whole design falls over. `archiv_bauen` sorts by the octets of the name
 and takes the file mode from a rule rather than from the host's umask.
 
-**The `.prog` bundle.** `Wurzel.aktivieren` deletes `apps/` and rebuilds
+**The `.osp` bundle.** `Wurzel.aktivieren` deletes `apps/` and rebuilds
 it from the plan, hard-linking every file out of the store
 (`_verweisen`). The metadata file `PAKET` stays behind in the store: a
 bundle is what a *program* needs, not what the package manager needs.
 Osum finds these directories by their suffix (`appdir.fi`,
-`endet_auf_prog`), reads `INFO` out of the bundle, and starts
-`<bundle>/start` — `starter.fi` line 47 has `/apps/suchen.prog/start`
+`endet_auf_osp`), reads `INFO` out of the bundle, and starts
+`<bundle>/start` — `starter.fi` line 47 has `/apps/suchen.osp/start`
 written out in full. The form is Apple's: one program is one directory,
 installing is copying, removing is deleting, and there is no second place
-to forget. The suffix is `.prog` and not `.app` because a system that
-borrows the shape does not have to borrow the name too.
+to forget. The suffix is `.osp` -- OrientOS Program -- and it is three
+letters because that is how program suffixes are written everywhere:
+`.app`, `.deb`, `.exe`, `.apk`, `.rpm`. `.app` is too plainly Apple's,
+`.pro` belongs to Qt's project files, and `.osp` was one letter too
+many.
 
 **Why this matters for two machines.** The bundle contract is
 `<bundle>/start` — one path, no variants. Anything that put two
@@ -77,7 +80,7 @@ a name lives is the place that stops being true.
 ### Rejected: in the package name (`explorer-x86_64`)
 
 The name is what a person types, what `braucht=` refers to, and what
-`/apps/<name>.prog` is called. Putting the machine in it breaks three
+`/apps/<name>.osp` is called. Putting the machine in it breaks three
 things at once:
 
 * **Dependencies become unwritable.** `braucht=explorer` would have to

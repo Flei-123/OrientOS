@@ -85,7 +85,7 @@ arch_check() {
     # AND NOBODY TYPED THE ARCHITECTURE. The two recipes differ in the
     # path of one file and in nothing else -- `bauen` reads the machine
     # out of the octets it is packing.
-    rez() { printf 'name=twin\nfassung=1.0.0\ntitel=twin\ninfo=one source, two machines\nkeys=twin\nhandle=konsole\ndatei=start %s\n' "$2" > "$1"; }
+    rez() { printf 'name=twin\nfassung=1.0.0\ntitel=twin\ninfo=one source, two machines\nkeys=twin\nhandle=console\ndatei=start %s\n' "$2" > "$1"; }
     rez "$T/x.rezept" "$T/bx/twin"
     rez "$T/a.rezept" "$T/ba/twin"
     grep -v '^datei=' "$T/x.rezept" > "$T/x.head"; grep -v '^datei=' "$T/a.rezept" > "$T/a.head"
@@ -108,7 +108,7 @@ arch_check() {
 
     # GEGENPROBE: a recipe that LIES about the machine is refused, and it
     # is the octets that win.
-    printf 'name=liar\nfassung=1.0.0\ntitel=liar\ninfo=x\nkeys=liar\narch=aarch64\nhandle=konsole\ndatei=start %s\n' "$T/bx/twin" > "$T/liar.rezept"
+    printf 'name=liar\nfassung=1.0.0\ntitel=liar\ninfo=x\nkeys=liar\narch=aarch64\nhandle=console\ndatei=start %s\n' "$T/bx/twin" > "$T/liar.rezept"
     if $O bauen "$T/liar.rezept" -o "$T/liar.opk" > "$T/liar.log" 2>&1; then
         nok "a recipe that says aarch64 over an x86-64 binary was built anyway"
     else
@@ -117,7 +117,7 @@ arch_check() {
 
     # GEGENPROBE: THE FAT PACKAGE. macOS puts both machines in one file;
     # this refuses to, and the reason is the hash.
-    printf 'name=fat\nfassung=1.0.0\ntitel=fat\ninfo=x\nkeys=fat\nhandle=konsole\ndatei=start %s\ndatei=start2 %s\n' "$T/bx/twin" "$T/ba/twin" > "$T/fat.rezept"
+    printf 'name=fat\nfassung=1.0.0\ntitel=fat\ninfo=x\nkeys=fat\nhandle=console\ndatei=start %s\ndatei=start2 %s\n' "$T/bx/twin" "$T/ba/twin" > "$T/fat.rezept"
     if $O bauen "$T/fat.rezept" -o "$T/fat.opk" > "$T/fat.log" 2>&1; then
         nok "a package with both machines in it was built -- its hash would name two things"
     else
@@ -181,9 +181,9 @@ PY
     $O source-add --root "$X" "file://$T/q" "$PK" >/dev/null 2>&1
     $O installieren --root "$X" --quelle "$T/q" --schluessel "$T/keys/oeffentlich.key" twin > "$T/ix.log" 2>&1
     local got
-    got=$(python3 -c "import sys;b=open(sys.argv[1],'rb').read(20);print(int.from_bytes(b[18:20],'little'))" "$X/apps/twin.prog/start" 2>/dev/null)
+    got=$(python3 -c "import sys;b=open(sys.argv[1],'rb').read(20);print(int.from_bytes(b[18:20],'little'))" "$X/apps/twin.osp/start" 2>/dev/null)
     [[ "$got" == "62" ]] \
-        && ok "from a source holding BOTH builds, the x86-64 machine got the x86-64 one (/apps/twin.prog/start is EM_X86_64)" \
+        && ok "from a source holding BOTH builds, the x86-64 machine got the x86-64 one (/apps/twin.osp/start is EM_X86_64)" \
         || nok "the x86-64 machine got e_machine $got"
 
     # GEGENPROBE, AND IT IS THE POINT OF THE WHOLE STEP: the other build
@@ -249,10 +249,10 @@ PY
     # ------------------------- 7. rebuild from zero, on the other machine
     local N="$T/new"
     $O rebuild --root "$N" --plan "$T/arm.plan" --source "$T/q" > "$T/rb.log" 2>&1
-    got=$(python3 -c "import sys;b=open(sys.argv[1],'rb').read(20);print(int.from_bytes(b[18:20],'little'))" "$N/apps/twin.prog/start" 2>/dev/null)
+    got=$(python3 -c "import sys;b=open(sys.argv[1],'rb').read(20);print(int.from_bytes(b[18:20],'little'))" "$N/apps/twin.osp/start" 2>/dev/null)
     [[ "$got" == "183" ]] \
         && ok "an aarch64 system rebuilt from its plan on an EMPTY root gets ARM binaries ($(grep -m1 -o '[0-9]* package(s) fetched and verified, [0-9]* octet(s)' "$T/rb.log"))" \
-        || nok "the rebuilt aarch64 tree has e_machine $got in /apps/twin.prog/start"
+        || nok "the rebuilt aarch64 tree has e_machine $got in /apps/twin.osp/start"
     grep -q 'checked against arch aarch64' "$T/rb.log" \
         && ok "and every fetched package was checked against the machine before it entered the store: $(grep -m1 -o '[0-9]* octet(s) of that is .any.' "$T/rb.log")" \
         || nok "the rebuild did not report checking the packages against the machine"
@@ -270,9 +270,9 @@ PY
     fi
 
     # ---------------------------------- 8. dependencies stay on one machine
-    printf 'name=lib\nfassung=1.0.0\ntitel=lib\ninfo=x\nkeys=lib\nhandle=konsole\ndatei=start %s\n' "$T/bx/twin" > "$T/lib.rezept"
-    printf 'name=user\nfassung=1.0.0\ntitel=user\ninfo=x\nkeys=user\nbraucht=lib\nhandle=konsole\ndatei=start %s\n' "$T/ba/twin" > "$T/user.rezept"
-    printf 'name=user\nfassung=1.0.0\ntitel=user\ninfo=x\nkeys=user\nbraucht=lib\nhandle=konsole\ndatei=start %s\n' "$T/bx/twin" > "$T/userx.rezept"
+    printf 'name=lib\nfassung=1.0.0\ntitel=lib\ninfo=x\nkeys=lib\nhandle=console\ndatei=start %s\n' "$T/bx/twin" > "$T/lib.rezept"
+    printf 'name=user\nfassung=1.0.0\ntitel=user\ninfo=x\nkeys=user\nbraucht=lib\nhandle=console\ndatei=start %s\n' "$T/ba/twin" > "$T/user.rezept"
+    printf 'name=user\nfassung=1.0.0\ntitel=user\ninfo=x\nkeys=user\nbraucht=lib\nhandle=console\ndatei=start %s\n' "$T/bx/twin" > "$T/userx.rezept"
     $O bauen "$T/lib.rezept"   -o "$T/lib.opk"   >/dev/null 2>&1
     $O bauen "$T/user.rezept"  -o "$T/user.opk"  >/dev/null 2>&1
     $O bauen "$T/userx.rezept" -o "$T/userx.opk" >/dev/null 2>&1

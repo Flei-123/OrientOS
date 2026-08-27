@@ -15,6 +15,13 @@ been more than a declaration of intent since phase 3.
 > store name, no boot menu with generations -- that is written down in
 > PAKETE.md § 1 and § 5 with the reason beside it.
 
+> **`.opk` is what you hold, `.osp` is what runs.** Die Paketdatei
+> (`.opk`) ist das, was man traegt, aufbewahrt und ueber ihre SHA-256
+> benennt. Das installierte Buendel (`.osp`, OrientOS Program) ist das,
+> was unter `/apps/<name>.osp/` steht und startet. Zwei Endungen, zwei
+> Zustaende derselben Software -- sie werden nicht durcheinander
+> gebracht.
+
 ---
 
 ## 1. The four rules
@@ -185,7 +192,7 @@ ProcessSpawn(
     handles   = [ config:  READ|WRITE,
                   state:   READ|WRITE,
                   cache:   READ|WRITE|CREATE,
-                  konsole: WRITE ]
+                  console: WRITE ]
 )
 ```
 

@@ -165,7 +165,7 @@ away**.
 > compared **entry for entry over 64 entries**, with the documents
 > included: the **only** differences are the PLAN (**921 → 768 octets**,
 > five settings shorter) and the two files those settings rendered,
-> `etc/hostname` and `etc/netz.conf`
+> `etc/hostname` and `etc/network.conf`
 
 Everything else — every package, every bundle, the kernel, the
 appearance, the settings that are not a machine, and every document by

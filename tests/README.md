@@ -34,7 +34,7 @@ und ob die Dokumente dasselbe sagen wie der Baum.
 
 `step-80-pakete.sh` misst die Paketverwaltung (ROADMAP 6.1/6.2, Format in
 [PAKETE.md](../PAKETE.md)). Der zweite seiner beiden Schritte startet das
-Produkt und lässt `/apps/hallo.prog/start` laufen — alles davor läuft auf
+Produkt und lässt `/apps/hallo.osp/start` laufen — alles davor läuft auf
 dem Wirt, und ein Paket, dessen Oktette man nur zählen kann, ist
 installiert, nicht nachweislich lauffähig.
 

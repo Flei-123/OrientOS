@@ -161,9 +161,9 @@ Nine setting keys, a **closed** set (`opk.py settings` prints it with its
 consumers). Three of them produce files something in Osum actually reads:
 
 ```
-time.offset  → /etc/zeit.conf     kernel/user/einstellungen.fi
-screen.mode  → /etc/schirm.conf   kernel/user/einstellungen.fi
-net.*        → /etc/netz.conf     kernel/user/dhcp.fi, einstellungen.fi
+time.offset  → /etc/time.conf     kernel/user/einstellungen.fi
+screen.mode  → /etc/display.conf   kernel/user/einstellungen.fi
+net.*        → /etc/network.conf     kernel/user/dhcp.fi, einstellungen.fi
 ```
 
 and three do not have a consumer at all — `hostname`, `timezone`,
@@ -172,7 +172,7 @@ rendered, and that is the entire truth about them.
 
 `/etc` is **derived**: activation deletes the eight paths in
 `GENERATED_FILES` and rewrites the ones the plan asks for. Measured
-counter-check: `unset screen.mode` makes `/etc/schirm.conf` disappear
+counter-check: `unset screen.mode` makes `/etc/display.conf` disappear
 from the tree. The tree is a function of the plan, not of its history.
 
 The account line carries the **SHA-256 of the credential**, never the
@@ -213,13 +213,13 @@ was driven. They will be packaged automatically the moment
 
 | program | reason |
 |---|---|
-| `edit` | the bundle `editor.prog` already packages it |
-| `explorer` | the bundle `explorer.prog` already packages it |
-| `sh` | the bundle `terminal.prog` already packages it |
-| `starter` | the bundle `suchen.prog` already packages it |
-| `wigdemo` | the bundle `widgets.prog` already packages it |
+| `edit` | the bundle `editor.osp` already packages it |
+| `explorer` | the bundle `explorer.osp` already packages it |
+| `sh` | the bundle `terminal.osp` already packages it |
+| `starter` | the bundle `suchen.osp` already packages it |
+| `wigdemo` | the bundle `widgets.osp` already packages it |
 | `hello` | the hand-written recipe `hallo` already packages it |
-| `suchen` | **a real name collision.** Osum's `suchen.prog` bundle starts `/bin/starter`, and `/bin/suchen` is a *different* binary. A package called `suchen` would mean two things. Packaging it needs a second name, and that is a decision, not a default. |
+| `suchen` | **a real name collision.** Osum's `suchen.osp` bundle starts `/bin/starter`, and `/bin/suchen` is a *different* binary. A package called `suchen` would mean two things. Packaging it needs a second name, and that is a decision, not a default. |
 
 Nothing else failed. The six “already packaged” skips exist so that the
 same octets do not land in the store under two hashes.
@@ -303,14 +303,18 @@ lines):
 
 So roughly **46 %** of `pkg/opk.py` still carries German names. The field
 names of the package metadata (`fassung`, `braucht`, `handle`, `titel`)
-are German too, and so is the handle name `konsole` — the generated
-recipes use `konsole` on purpose, because spelling it `console` would put
-two names on one object, which is worse than one German name. The flag
-`--wurzel` gained `--root` as an alias; both work everywhere.
+are German too. The handle name `konsole` was the same debt and is
+**PAID**: round `rename` made it `console` on both sides in one commit,
+which is the only way such a name moves -- spelling it two ways would
+have put two names on one object. The flag `--wurzel` gained `--root` as
+an alias; both work everywhere.
 
-Two places where German stays and is **not** debt: `/etc/netz.conf` and
-`/etc/zeit.conf` are Osum's file formats (`modus=fest`, `maske=`), and
-this repository writes what the other side reads. The *keys* in the plan
+The two Osum paths this section used to call "German that stays" --
+`/etc/network.conf` and `/etc/time.conf` -- are **gone**: round `rename`
+made them `/etc/network.conf` and `/etc/time.conf`. Paths are structure
+and structure is English. What is left of them here is their CONTENT
+(`modus=fest`, `maske=`), which is Osum's file format, and this
+repository writes what the other side reads. The *keys* in the plan
 are English (`net.mode`, value `static`) and the renderer translates.
 
 Of the 18 Markdown files in the repository root and `docs/`, **16 still
@@ -384,8 +388,8 @@ because the shipped plan has no preferences yet -- see § A8.
 ## A1. What was wrong, measured on Osum's tree
 
 `kernel/user/einstellungen.fi` is 788 lines and writes **only** into
-`/etc`: `theme`, `schemas/`, `hintergrund`, `schirm.conf`, `zeit.conf`,
-`netz.conf`, `shadow`. None of it was in a `PLAN` or under
+`/etc`: `theme`, `schemas/`, `wallpaper`, `display.conf`, `time.conf`,
+`network.conf`, `shadow`. None of it was in a `PLAN` or under
 `/users/<who>/config`. A rebuilt device got the applications of the old
 one and the looks of a fresh install.
 
@@ -411,7 +415,7 @@ cannot exist.
 * New commands `asset-pack`, `pref`, `pref-unset`, `prefs`.
 * One rename, allowed because the key was ours and one day old and had no
   consumer: `screen.mode` → `display.mode`. The **file** keeps Osum's
-  name `schirm.conf`.
+  name `display.conf`.
 
 ## A3. The measurement — does it look the same?
 
@@ -439,7 +443,7 @@ network setting): **45 entries, 25 files, 3 923 350 octets**, and the
 eight files that actually make up the appearance —
 
 ```
-etc/theme  etc/hintergrund  etc/taskbar.conf  etc/schirm.conf  etc/zeit.conf
+etc/theme  etc/wallpaper  etc/taskbar.conf  etc/display.conf  etc/time.conf
 users/justin/config/desktop/{theme,wallpaper,taskbar.conf}
 ```
 
@@ -469,7 +473,7 @@ NO compatibility view under etc/: this machine has 2 accounts, and there
 is no honest answer to whose theme /etc/theme would be
 ```
 
-With one account it is there — `etc/theme`, `etc/hintergrund`,
+With one account it is there — `etc/theme`, `etc/wallpaper`,
 `etc/taskbar.conf` — which is what Osum's taskbar and desktop read today.
 Both directions are assertions, so "deletes everything always" cannot
 pass.
@@ -485,7 +489,7 @@ is the SHA-256; the octets are an asset package.
 * The plan contains **no image octets** (checked: no `OSYM` anywhere in
   it, everything printable) and **does** contain the hash.
 * The image has **three names and one inode** — `store/<h>/blob`,
-  `users/justin/config/desktop/wallpaper`, `etc/hintergrund`. Verified
+  `users/justin/config/desktop/wallpaper`, `etc/wallpaper`. Verified
   by `st_ino`, and `opk.py verify` asserts it.
 * The same four lines of text produce the same 172 812 octets twice, so
   the hash is reproducible from this repository.
@@ -543,8 +547,8 @@ measured with a broken instrument would otherwise stand unchallenged.
 
 ## A9. German that stayed, on purpose
 
-`/etc/theme`, `/etc/hintergrund`, `/etc/schemas/`, `/etc/schirm.conf`,
-`/etc/zeit.conf`, `/etc/netz.conf` keep their names — Osum opens them by
+`/etc/theme`, `/etc/wallpaper`, `/etc/schemas/`, `/etc/display.conf`,
+`/etc/time.conf`, `/etc/network.conf` keep their names — Osum opens them by
 name, and renaming another project's files from here would break it.
 Their contents (`modus=fest`, `maske=`) are Osum's format too. Everything
 this addendum *introduced* is English: `pref`, `theme`, `wallpaper`,
@@ -642,7 +646,7 @@ nobody typed that either, because there was no ELF header to read.
 | a plan claiming aarch64 that names the x86-64 build | refused, and **nothing** was activated (0 bundles in `/apps`) |
 
 **A rebuild on the other machine.** An aarch64 plan, rebuilt on an empty
-root, produces ARM binaries in `/apps/twin.prog/start`. The two plans —
+root, produces ARM binaries in `/apps/twin.osp/start`. The two plans —
 x86-64 and aarch64 — differ in **exactly the lines that name machine
 code (2) plus the one that names the machine (2)**, and the aarch64 plan
 is 4 printable lines, 281 octets. `cat` still reads the whole state.
@@ -675,10 +679,10 @@ one of those becomes `arch=any` the moment it is packaged, with no
 further work. The mechanism is in place; what is missing is content, and
 content belongs to round I18N.
 
-## B5. `.opk` versus `.prog`, checked against the code
+## B5. `.opk` versus `.osp`, checked against the code
 
 The owner asked; the answer was checked against the source before it was
-written down. **`.opk` is what you hold, `.prog` is what runs.**
+written down. **`.opk` is what you hold, `.osp` is what runs.**
 
 `.opk` is a FILE: 64-octet header (`OPKG0001`, two lengths, the SHA-256
 of metadata plus data), then a deterministic archive — not `tar`,
@@ -686,14 +690,14 @@ because tar carries timestamps and owners and two runs would give
 different octets, and then "same hash = same content" would be false.
 `paket_lesen` recomputes the hash and is the only way into the system.
 
-`/apps/<name>.prog/` is a DIRECTORY: the activated view of the current
+`/apps/<name>.osp/` is a DIRECTORY: the activated view of the current
 generation, rebuilt completely on every activation, every file a **hard
 link** into the store (`Wurzel._verweisen`), costing directory entries
 and not one block. `PAKET` stays in the store — a bundle holds what a
 *program* needs. Osum finds these by their suffix
 (`kernel/user/appdir.fi`, `endet_auf_prog`), reads `INFO` from inside,
 and runs `<bundle>/start`; `starter.fi` line 47 has
-`/apps/suchen.prog/start` spelled out.
+`/apps/suchen.osp/start` spelled out.
 
 That bundle contract — one path called `start` — is also the third
 argument against fat packages: a fat bundle needs either two paths or a
@@ -969,7 +973,7 @@ root, source moved away:
 > compared **entry for entry over 64 entries**, documents included: the
 > **only** differences are the PLAN (**921 → 768 octets**) and the two
 > files those five machine settings rendered, `etc/hostname` and
-> `etc/netz.conf`
+> `etc/network.conf`
 
 **The counter-check that makes it a measurement:** the same stick with
 `--keep-identity` gives a tree **identical over all 64 entries**. So the
@@ -1062,7 +1066,7 @@ the run says `1 credential(s) restored and checked against the plan`.
    generated `/etc` coexist in one image, so a shipped product can carry
    a hostname and an account.
 3. **The rename round**: 43 German definitions in `pkg/opk.py`, the
-   metadata field names, and `konsole`. It is mechanical and it is
+   metadata field names. (`konsole` is done — round `rename`.) It is mechanical and it is
    overdue, and it must be one round on its own with the hashes
    recomputed in the same commit.
 4. **A stable source key.** `pkg/bauen.sh` generates a new Ed25519 key on

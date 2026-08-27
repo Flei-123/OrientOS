@@ -265,3 +265,46 @@ The line to hold is the one that is already drawn: **foreign code may measure
 this system, and it may help build it. It may not be in it.** Today that line
 is crossed by exactly four things -- one bootloader and three fonts -- and
 both of those are fixable.
+
+---
+
+## 6. Licence compatibility against GPL-2.0-only (added 27.08.2026)
+
+On 27 August 2026 Justin relicensed all four projects: **GPL-2.0-only** for
+the Osum kernel, OrientOS, the Firn compiler and Certus; **MIT** for Firn
+runtime and standard library and for Osum Ring 3 libraries. The reasoning is
+in `orientos/LICENSING.md`, `osum/LICENSING.md` and `firn/LICENSING.md`.
+
+Every third-party entry in section 1.3 to 1.5 above was checked against
+GPL-2.0-only. **No blocking conflict exists.**
+
+| foreign part | its licence | GPL-2.0-only? | note |
+|---|---|---|---|
+| Limine (on the ISO) | 2-clause BSD | **compatible** | its notice is still not copied onto the ISO. Unchanged defect |
+| DejaVu glyphs (2 TTF + `kernel/font.fi`) | Bitstream Vera / DejaVu | **compatible** | licence text still absent, `name` table still stripped. Unchanged defect, now more visible |
+| Lucide icon font (round ICONS, branch `icons`) | **ISC** | **compatible** | checked deliberately -- ISC, not Apache-2.0. `assets/icons/LICENSE.lucide` is present and `tools/icons/run.sh:108-113` fails the build without it |
+| `cryptography` (optional, `pkg/opk.py`) | Apache-2.0 **OR** BSD-3-Clause | **compatible via the BSD branch** | Apache-2.0 alone would NOT be. The dual licence saves it, and it is optional and not redistributed |
+| the 37 crates behind `html5ever` | 27x MIT OR Apache-2.0, 7x MIT, 1x (MIT OR Apache-2.0) AND Unicode-3.0 | **compatible** | **none is Apache-2.0-only.** `bench/tokenizer` is MIT anyway, so the question does not arise |
+| Web Platform Tests, test262 | BSD-3-Clause | compatible | notice still missing from the tree |
+| JSONTestSuite | MIT | compatible | |
+| css-parsing-tests | CC0 | compatible | |
+| Unicode Character Database | Unicode licence | compatible | permissive; the derived table is MIT |
+| `Ahem.ttf` | public domain | compatible | |
+| NIST CAVP vectors | not stated | not a licence question | data, not code, not shipped |
+| `testdata/realweb/` (4x Wikipedia) | CC BY-SA 4.0 | **not a GPL question, but still wrong** | attribution and share-alike notice missing. Was a defect under MIT, is a defect under GPLv2 |
+| binutils, gcc, qemu, xorriso, mtools | GPL-2.0 / GPL-3.0 | not a licence question | the GPL binds distribution of a TOOL, not of the tool output |
+| OVMF | BSD-2-Clause-Patent | compatible, and irrelevant | firmware for a test, never shipped |
+| SeaBIOS | LGPL-3.0 | irrelevant | inside QEMU, never shipped |
+| rustc / cargo | Apache-2.0 OR MIT | not a licence question | a compiler, not a component |
+
+**The single rule that follows from the decision:** GPL-2.0-only cannot
+absorb **Apache-2.0** (patent-termination clause is a "further restriction"
+that GPLv2 clause 6 forbids) and cannot absorb **GPLv3**. Nothing in the
+tree is either, today. Before anything Apache-2.0-licensed is ever pulled
+in, look for an MIT, BSD or ISC alternative first -- Lucide (ISC) is the
+example of how round ICONS already did it right.
+
+**One item moves to the top of the list because of this change:** the
+DejaVu fonts. Both `LICENSE` files now make a repository-wide statement,
+and neither statement has ever been true of those three files. Adding
+`osum/assets/FONT-LICENSE.txt` is still minutes of work and is now overdue.

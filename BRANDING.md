@@ -1,50 +1,52 @@
-# BRANDING.md — zwei Marken, ein Quellbaum
+# BRANDING.md — two brands, one source tree
 
-Es gibt **zwei** Wege, dieses System anders zu nennen. Sie loesen verschiedene
-Probleme; wer den falschen nimmt, macht sich unnoetig Arbeit oder einen Fork.
+There are **two** ways to give this system another name. They solve different
+problems; whoever picks the wrong one makes unnecessary work or a fork.
 
 | | `./build.sh --brand <name>` | `./rename.sh <kernel> <os>` |
 |---|---|---|
-| aendert | nur das **Produkt** beim Bauen | den **ganzen Baum**: Verzeichnisse, Doku, Cargo-Namen |
-| Baum danach | **unveraendert** | umbenannt, ein Commit |
-| Ergebnis | `build/<slug>.iso` neben dem anderen | ein Projekt mit neuem Namen |
-| wofuer | Zweitmarke (XoffiOS), Testballon, Kundenausgabe | endgueltige Umbenennung, einmalig |
-| Anleitung | dieses Dokument | [RENAME.md](RENAME.md) |
+| changes | only the **product** at build time | the **whole tree**: directories, docs, Cargo names |
+| tree afterwards | **unchanged** | renamed, one commit |
+| result | `build/<slug>.iso` next to the other one | a project with a new name |
+| what for | second brand (XoffiOS), trial balloon, customer edition | final rename, once |
+| instructions | this document | [RENAME.md](RENAME.md) |
 
-Der Normalfall ist der erste. Ein Fork ist **nie** der richtige Weg — zwei
-Baeume laufen auseinander, und ab dem Tag pflegt man alles doppelt.
+The normal case is the first one. A fork is **never** the right way — two
+trees drift apart, and from that day on you maintain everything twice.
 
 ---
 
-## 1. Eine Marke bauen
+## 1. Building a brand
 
 ```sh
-./build.sh                    # Standardmarke -> build/orientos.iso
-./build.sh --brand xoffi      # zweite Marke  -> build/xoffi.iso
+./build.sh                    # default brand -> build/orientos.iso
+./build.sh --brand xoffi      # second brand  -> build/xoffi.iso
 ```
 
-Beide Abbilder liegen nebeneinander, aus demselben Quelltext, ohne dass eine
-Datei im Baum angefasst wurde. Zum Starten dieselbe Marke angeben:
+Both images sit next to each other, from the same source text, without a
+single file in the tree having been touched. To start it, name the same
+brand:
 
 ```sh
 BRAND=xoffi ./run-osum.sh --check
 ```
 
-Gegenprobe, dass es wirklich wirkt — die Zeile kommt aus `kcore::branding`:
+Counter-check that it really takes effect — the line comes from
+`kcore::branding`:
 
 ```
 [osum] boot       osum v0.1.0 — Kernel von XoffiOS
 ```
 
-Der Kernel heisst in beiden Marken `osum`. Das ist Absicht: eine Marke aendert
-das Produkt, nicht den Kernel — so wie NT unter jeder Windows-Ausgabe NT heisst
-und XNU unter macOS wie unter iOS.
+The kernel is called `osum` in both brands. That is deliberate: a brand
+changes the product, not the kernel — the way NT is called NT under every
+Windows edition, and XNU under macOS as under iOS.
 
 ---
 
-## 2. Eine Marke anlegen
+## 2. Creating a brand
 
-Eine Datei in `brands/`, fertig:
+One file in `brands/`, done:
 
 ```toml
 # brands/xoffi.toml
@@ -55,75 +57,76 @@ web       = "https://xoffi.fleitec.com"
 feed      = "https://xoffi.fleitec.com/pakete"
 ```
 
-| Feld | Bedeutung | Pflicht |
+| field | meaning | required |
 |---|---|---|
-| `os-name` | Name fuer Menschen: Banner, Oberflaeche, Doku | ja |
-| `slug` | Kurzname fuer Maschinen: `<slug>.iso`, Verzeichnisse | ja |
-| `publisher` | Herausgeber | nein |
-| `web` | oeffentliche Adresse | nein |
-| `feed` | **Paketquelle dieser Marke** | nein |
-| `kernel-name` | Kernelname ueberschreiben | nein, normalerweise weglassen |
+| `os-name` | name for humans: banner, user interface, docs | yes |
+| `slug` | short name for machines: `<slug>.iso`, directories | yes |
+| `publisher` | publisher | no |
+| `web` | public address | no |
+| `feed` | **package source of this brand** | no |
+| `kernel-name` | override the kernel name | no, normally left out |
 
-`feed` ist getrennt pro Marke, und das ist kein Detail: ein XoffiOS darf sich
-niemals zu einem OrientOS „aktualisieren". Dieselbe Lehre steckt in
-FreeViewer (`src/brand.rs`, `FV_BRAND_FEED`).
+`feed` is separate per brand, and that is not a detail: an XoffiOS must never
+"update" itself into an OrientOS. The same lesson is in FreeViewer
+(`src/brand.rs`, `FV_BRAND_FEED`).
 
-Fehlt ein Feld, greift der Wert aus `[package.metadata.branding]` in
-`kernel/Cargo.toml`.
+If a field is missing, the value from `[package.metadata.branding]` in
+`kernel/Cargo.toml` applies.
 
 ---
 
-## 3. Woher die Werte kommen
+## 3. Where the values come from
 
-`kernel/build.rs` fragt in dieser Reihenfolge, die erste Antwort gewinnt:
+`kernel/build.rs` asks in this order, and the first answer wins:
 
-1. **Einzelne Umgebungsvariablen** — `OS_NAME_OVERRIDE`, `OS_SLUG_OVERRIDE`,
-   `OS_PUBLISHER_OVERRIDE`, `OS_WEB_OVERRIDE`, `OS_FEED_OVERRIDE`,
-   `KERNEL_NAME_OVERRIDE`. Fuer einen schnellen Versuch ohne Datei:
+1. **Individual environment variables** — `OS_NAME_OVERRIDE`,
+   `OS_SLUG_OVERRIDE`, `OS_PUBLISHER_OVERRIDE`, `OS_WEB_OVERRIDE`,
+   `OS_FEED_OVERRIDE`, `KERNEL_NAME_OVERRIDE`. For a quick attempt without a
+   file:
    ```sh
    OS_NAME_OVERRIDE="Testsystem" ./build.sh
    ```
-2. **`brands/$BRAND.toml`**, wenn `BRAND` gesetzt ist (das macht `--brand`).
+2. **`brands/$BRAND.toml`**, when `BRAND` is set (that is what `--brand`
+   does).
 3. **`[package.metadata.branding]`** in `kernel/Cargo.toml`.
-4. **Ableitung** aus dem Cargo-Paketnamen.
+4. **Derivation** from the Cargo package name.
 
-Ein **unbekannter Markenname bricht ab** und faellt nicht still auf die
-Standardmarke zurueck — sonst baut man in Ruhe das falsche Produkt.
+An **unknown brand name aborts** and does not quietly fall back to the
+default brand — otherwise you calmly build the wrong product.
 
-Die Bauskripte loesen dieselbe Reihenfolge in `brand.sh` auf (`OS_NAME`,
-`SLUG`, `KERNEL_PKG`), damit Skript und Kernel nie auseinanderlaufen koennen.
+The build scripts resolve the same order in `brand.sh` (`OS_NAME`, `SLUG`,
+`KERNEL_PKG`), so that script and kernel can never drift apart.
 
 ---
 
-## 4. Die Regel dahinter
+## 4. The rule behind it
 
-> **Im Quelltext steht kein Produktname.**
+> **No product name appears in the source text.**
 
-Alles kommt aus `kernel/src/kcore/branding.rs`:
+Everything comes from `kernel/src/kcore/branding.rs`:
 
 ```rust
 KERNEL_NAME  OS_NAME  SLUG  PUBLISHER  WEB  FEED  VERSION  LOG_TAG  NATIVE_ABI
 banner()
 ```
 
-Statt `"osum laeuft"` schreibt man `"{} laeuft", branding::KERNEL_NAME`.
-`./test.sh` laesst den Build durchfallen, wenn ein Produktname als Literal
-irgendwo sonst in `kernel/src` auftaucht — die Regel ist geprueft, nicht nur
-aufgeschrieben.
+Instead of `"osum laeuft"` you write `"{} laeuft", branding::KERNEL_NAME`.
+`./test.sh` fails the build when a product name turns up as a literal
+anywhere else in `kernel/src` — the rule is checked, not just written down.
 
-Dasselbe gilt fuer die Testskripte: `run-osum.sh` prueft den Boot-Banner gegen
-`$OS_NAME` aus `brand.sh`, nicht gegen einen festen Namen. Sonst wuerde jede
-Zweitmarke den Testlauf rot faerben, obwohl alles richtig ist.
+The same holds for the test scripts: `run-osum.sh` checks the boot banner
+against `$OS_NAME` from `brand.sh`, not against a fixed name. Otherwise every
+second brand would turn the test run red although everything is right.
 
 ---
 
-## 5. Was NICHT in eine Markendatei gehoert
+## 5. What does NOT belong in a brand file
 
-Unterschiede zwischen Marken gehoeren in **Daten**, nie in Code:
+Differences between brands belong in **data**, never in code:
 
-* welche Pakete im Abbild liegen,
-* Erscheinungsbild und Voreinstellungen,
-* Paketquelle.
+* which packages are in the image,
+* appearance and defaults,
+* package source.
 
-Sobald irgendwo `if marke == "xoffi"` steht, ist die Trennung kaputt und man
-hat sich einen Fork gebaut, der nur so tut, als waere er keiner.
+The moment `if marke == "xoffi"` stands anywhere, the separation is broken and
+you have built yourself a fork that only pretends not to be one.

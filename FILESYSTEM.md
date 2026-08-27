@@ -1,54 +1,53 @@
-# Dateisysteme in OrientOS
+# File systems in OrientOS
 
-Reihenfolge und Begründung. Gebaut ist davon in Phase 1 noch nichts — dieses
-Dokument legt fest, **in welcher Reihenfolge** gebaut wird und warum gerade so.
+Order and reasoning. Nothing of it is built in phase 1 yet — this document
+settles **in which order** things get built and why exactly that way.
 
 ---
 
-## Die Reihenfolge
+## The order
 
-| Schritt | Was | Warum an dieser Stelle |
+| step | what | why at this place |
 |---|---|---|
-| **1** | **VFS-Schicht**, objekt-/handle-basiert, FS-Treiber hinter einem Trait | ohne saubere Grenze zementiert der erste Treiber seine Semantik im ganzen System |
-| **2** | **FAT32 lesen und schreiben** | Pflicht: die EFI System Partition ist FAT. Ohne FAT kein eigener Bootloader, kein Update des eigenen Systems auf UEFI |
-| **3** | **ext4 nur lesen** | Interoperabilität: Daten von bestehenden Linux-Platten holen, ohne sie zu gefährden |
-| **4** | **eigenes Dateisystem** (Arbeitstitel `osumfs`) | erst wenn alles darüber steht und man weiß, was man wirklich braucht |
+| **1** | **VFS layer**, object/handle based, FS drivers behind a trait | without a clean boundary the first driver cements its semantics into the whole system |
+| **2** | **FAT32 reading and writing** | mandatory: the EFI System Partition is FAT. Without FAT there is no bootloader of our own and no update of our own system on UEFI |
+| **3** | **ext4 reading only** | interoperability: fetch data off existing Linux disks without endangering them |
+| **4** | **a file system of our own** (working title `osumfs`) | only once everything above it stands and you know what you really need |
 
 ---
 
-## 1. VFS: objekt- und handle-basiert, **keine** POSIX-Semantik erzwungen
+## 1. VFS: object and handle based, **no** POSIX semantics enforced
 
-Der VFS ist die Stelle, an der die meisten Systeme sich POSIX für immer
-einhandeln. Linux' `struct inode`/`struct dentry` sind nicht nur
-Implementierung, sie sind ein **Vertrag**: jedes Dateisystem muss so tun, als
-hätte es Inodes, Hardlinks, `..`-Einträge, `mode_t`-Bits, Zeitstempel in einer
-bestimmten Auflösung und einen globalen Wurzelbaum. FAT hat nichts davon und
-wird deshalb überall mit Emulationsschichten verbogen.
+The VFS is the place where most systems saddle themselves with POSIX forever.
+Linux' `struct inode`/`struct dentry` are not just an implementation, they are
+a **contract**: every file system has to pretend that it has inodes, hard
+links, `..` entries, `mode_t` bits, timestamps at a certain resolution and a
+global root tree. FAT has none of that and is therefore bent into shape with
+emulation layers everywhere.
 
-OrientOS macht es andersherum:
+OrientOS does it the other way round:
 
-* Ein Dateisystem liefert **Objekte hinter Handles**, keine Inodes.
-* Die Trait-Grenze verlangt nur, was jedes Dateisystem wirklich kann:
-  öffnen relativ zu einem Verzeichnis-Handle, lesen, schreiben, Größe,
-  auflisten, erzeugen, löschen, umbenennen, `sync`.
-* Alles Weitere ist **optional und abfragbar** statt vorausgesetzt:
-  Hardlinks, Symlinks, erweiterte Attribute, Nanosekunden-Zeitstempel,
-  Snapshots, Prüfsummen. Ein Treiber meldet seine Fähigkeiten; wer mehr will,
-  fragt vorher.
-* **Kein globaler Root.** Ein Prozess bekommt ein Namespace-Handle übergeben
-  (siehe [PACKAGING.md § 7](PACKAGING.md)); es gibt keinen prozessunabhängigen
-  Pfad `/`. `..` ist deshalb keine besondere Operation, sondern schlicht nicht
-  vorhanden — man kann nicht aus einem Handle „herausklettern".
-* **POSIX-Semantik lebt in der POSIX-Schicht.** Dort werden Pfade aufgelöst,
-  dort gibt es `cwd`, `umask`, `mode_t` und `errno`. Fällt die Schicht weg,
-  fällt die Semantik weg — der VFS merkt es nicht.
+* A file system delivers **objects behind handles**, not inodes.
+* The trait boundary demands only what every file system really can do: open
+  relative to a directory handle, read, write, size, list, create, delete,
+  rename, `sync`.
+* Everything beyond that is **optional and queryable** instead of assumed:
+  hard links, symlinks, extended attributes, nanosecond timestamps, snapshots,
+  checksums. A driver reports its capabilities; whoever wants more asks first.
+* **No global root.** A process is handed a namespace handle (see
+  [PACKAGING.md § 7](PACKAGING.md)); there is no process-independent path `/`.
+  `..` is therefore not a special operation but simply not there — you cannot
+  "climb out" of a handle.
+* **POSIX semantics live in the POSIX layer.** That is where paths are
+  resolved, that is where `cwd`, `umask`, `mode_t` and `errno` exist. Drop the
+  layer and the semantics drop with it — the VFS does not notice.
 
-Konkret heißt das für den Trait (Entwurf, noch nicht implementiert):
+Concretely that means for the trait (a draft, not implemented yet):
 
 ```rust
 pub trait FileSystem {
-    fn capabilities(&self) -> FsCaps;                 // was kann dieses FS wirklich
-    fn root(&self) -> NodeId;                         // Wurzel DIESES Dateisystems
+    fn capabilities(&self) -> FsCaps;                 // what this FS really can do
+    fn root(&self) -> NodeId;                         // root of THIS file system
     fn open(&self, dir: NodeId, name: &str, rights: Rights) -> Result<NodeId>;
     fn read (&self, node: NodeId, off: u64, buf: &mut [u8]) -> Result<usize>;
     fn write(&self, node: NodeId, off: u64, buf: &[u8])     -> Result<usize>;
@@ -59,114 +58,115 @@ pub trait FileSystem {
 }
 ```
 
-Kein `stat` mit 20 Feldern, von denen 15 gelogen sind. Wer Metadaten will,
-fragt gezielt und bekommt `NotSupported`, wenn es sie nicht gibt.
+No `stat` with 20 fields, 15 of which are lies. Whoever wants metadata asks
+for them specifically and gets `NotSupported` when they do not exist.
 
 ---
 
-## 2. FAT32 zuerst — nicht aus Nostalgie, aus Zwang
+## 2. FAT32 first — not out of nostalgia, out of necessity
 
-Die **EFI System Partition ist FAT**. Das ist keine Konvention, das steht in der
-UEFI-Spezifikation. Ohne FAT-Schreibzugriff kann OrientOS:
+The **EFI System Partition is FAT**. That is not a convention, it is in the
+UEFI specification. Without write access to FAT, OrientOS cannot:
 
-* seinen eigenen Bootloader nicht installieren,
-* seine eigenen Systemgenerationen nicht in den Bootpfad eintragen,
-* sich selbst nicht aktualisieren.
+* install its own bootloader,
+* enter its own system generations into the boot path,
+* update itself.
 
-Dazu kommt: FAT ist auf jedem USB-Stick, in jeder Kamera, auf jeder SD-Karte.
-Es ist der kleinste gemeinsame Nenner für Datenaustausch mit der Welt.
+On top of that: FAT is on every USB stick, in every camera, on every SD card.
+It is the lowest common denominator for exchanging data with the world.
 
-FAT ist gleichzeitig das perfekte **Gegenbeispiel** für den VFS-Entwurf: keine
-Inodes, keine Hardlinks, keine Rechte, 8.3-Altlast mit LFN-Aufsatz,
-Zeitstempel in 2-Sekunden-Schritten. Wenn der VFS-Trait FAT ohne Verrenkungen
-trägt, ist er nicht heimlich POSIX. **FAT ist der Lackmustest.**
-
----
-
-## 3. ext4 nur lesen — bewusst kastriert
-
-Schreibender ext4-Support hieße: Journal korrekt führen, Extent-Bäume
-umbauen, Orphan-Listen behandeln, `e2fsck`-Semantik nachbilden. Ein Fehler
-darin zerstört fremde Daten — Daten, die dem Nutzer gehören und die er nicht
-uns anvertraut hat, sondern Linux.
-
-Lesend ist der Nutzen fast derselbe (Daten herüberholen) bei einem Bruchteil
-des Risikos. Schreibzugriff kommt frühestens, wenn ein eigener Test-Korpus mit
-`e2fsck`-Gegenprobe existiert — und ehrlich gesagt vermutlich nie, weil der
-Nutzen den Aufwand nicht trägt.
+At the same time FAT is the perfect **counter-example** for the VFS design: no
+inodes, no hard links, no permissions, the 8.3 legacy with an LFN add-on,
+timestamps in steps of 2 seconds. If the VFS trait carries FAT without
+contortions, it is not secretly POSIX. **FAT is the litmus test.**
 
 ---
 
-## 4. Das eigene Dateisystem — zuletzt, und das mit Absicht
+## 3. ext4 reading only — deliberately cut down
 
-### Warum nicht zuerst?
+Writing ext4 support would mean: keep the journal correctly, rebuild extent
+trees, handle orphan lists, reproduce `e2fsck` semantics. One mistake in there
+destroys foreign data — data that belongs to the user and that he did not
+entrust to us but to Linux.
 
-Weil Dateisysteme die Komponente sind, in der Fehler **irreversibel** sind. Ein
-abstürzender Kernel kostet einen Neustart; ein Dateisystem mit einem Fehler in
-der Schreibreihenfolge kostet die Daten.
+Reading gives almost the same benefit (getting data across) at a fraction of
+the risk. Write access comes at the earliest once a test corpus of our own
+with an `e2fsck` counter-check exists — and honestly probably never, because
+the benefit does not justify the effort.
 
-Zwei Beispiele, die niemand ignorieren sollte:
+---
 
-* **btrfs RAID 5/6.** Angekündigt, gebaut, benutzbar wirkend — und mit einer
-  „write hole"-Schwäche behaftet, die bei Stromausfall während eines
-  Stripe-Updates zu stillem Datenverlust führen kann. Die offizielle Warnung,
-  es nicht produktiv zu benutzen, steht seit **über einem Jahrzehnt**. Es reicht
-  nicht, dass ein Dateisystem im Normalfall funktioniert.
-* **ZFS.** Von den ersten Entwürfen bei Sun (um 2001) bis zur breit
-  vertrauenswürdigen Reife vergingen **Jahre** mit einem bezahlten Team, das
-  nichts anderes tat. Prüfsummen, CoW, Snapshots, Resilvering — jedes einzelne
-  Merkmal ist einfach zu beschreiben und schwer richtig zu machen.
+## 4. Our own file system — last, and deliberately so
 
-Ein eigenes Dateisystem ist also kein Wochenendprojekt und darf nicht auf dem
-kritischen Pfad zu „OrientOS bootet und ist benutzbar" liegen. Bis dahin tun es
-FAT32 und ein Initramfs — letzteres ist seit Phase 3 **gebaut** und lädt bereits
-das erste unprivilegierte Programm (siehe § 5 und ARCHITECTURE.md § 5c).
+### Why not first?
 
-### Anforderungen, wenn es dann gebaut wird
+Because file systems are the component in which mistakes are
+**irreversible**. A crashing kernel costs a reboot; a file system with a
+mistake in the write ordering costs the data.
 
-**Pflicht, weil das Systemmodell darauf steht:**
+Two examples nobody should ignore:
 
-1. **Copy-on-Write mit Snapshots.** Ohne das gibt es keine Systemgenerationen
-   und kein Rollback in Sekunden ([PACKAGING.md § 5](PACKAGING.md)). Das ist
-   der Grund, warum CoW hier kein Zusatzmerkmal ist, sondern die Grundlage.
-2. **Prüfsummen über Daten *und* Metadaten.** Stiller Datenverlust ist die
-   schlimmste Fehlerklasse: er wird erst beim Backup-Zurückspielen sichtbar,
-   wenn auch das Backup schon kaputt ist.
-3. **Dedup über Inhalts-Hashes.** Der App-Store ist content-addressed; das
-   Dateisystem darf denselben Block dann nicht mehrfach speichern.
-   Blockweise, nicht dateiweise.
-4. **Handle-orientiert**, passend zum VFS: kein Pfad-Namensraum als Grundlage,
-   Verzeichnisse sind Objekte wie alles andere.
+* **btrfs RAID 5/6.** Announced, built, looking usable — and afflicted with a
+  "write hole" weakness that can lead to silent data loss on a power failure
+  during a stripe update. The official warning not to use it in production has
+  stood for **over a decade**. It is not enough for a file system to work in
+  the normal case.
+* **ZFS.** From the first drafts at Sun (around 2001) to broadly trustworthy
+  maturity took **years**, with a paid team that did nothing else. Checksums,
+  CoW, snapshots, resilvering — every single feature is easy to describe and
+  hard to get right.
 
-**Altlasten, die einmal sauber entschieden werden — und dann nie wieder:**
+A file system of our own is therefore not a weekend project and must not lie
+on the critical path to "OrientOS boots and is usable". Until then FAT32 and
+an initramfs will do — the latter has been **built** since phase 3 and already
+loads the first unprivileged program (see § 5 and ARCHITECTURE.md § 5c).
 
-| Frage | Entscheidung |
+### Requirements for when it does get built
+
+**Mandatory, because the system model rests on it:**
+
+1. **Copy-on-write with snapshots.** Without it there are no system
+   generations and no rollback in seconds ([PACKAGING.md § 5](PACKAGING.md)).
+   That is the reason why CoW is not an extra feature here but the
+   foundation.
+2. **Checksums over data *and* metadata.** Silent data loss is the worst class
+   of failure: it only becomes visible when restoring a backup, when the
+   backup is already broken too.
+3. **Dedup over content hashes.** The app store is content-addressed; the file
+   system must then not store the same block several times. Block-wise, not
+   file-wise.
+4. **Handle-oriented**, matching the VFS: no path namespace as the foundation,
+   directories are objects like everything else.
+
+**Legacy questions that get decided cleanly once — and then never again:**
+
+| question | decision |
 |---|---|
-| 8.3-Namen | gibt es nicht. Namen sind Namen. |
-| Zeitstempel | 64-bit-Nanosekunden seit 1970, **kein 2038-Problem**, kein 2-Sekunden-Raster |
-| Zeichensatz | UTF-8, **normalisiert bei der Erzeugung** (NFC), abgelehnt wenn ungültig |
-| Groß-/Kleinschreibung | **case-sensitive, exakt**. Kein „case-preserving, case-insensitive" — das ist der Ursprung ganzer Fehlerklassen und macht Unicode-Vergleiche zur Zeitbombe |
-| Trennzeichen | `/` ist im Namen verboten, `\0` ist verboten, sonst alles erlaubt |
-| Maximale Namenslänge | 255 Bytes UTF-8, hart geprüft |
-| Sonderdateien | keine Geräteknoten im Dateisystem. Geräte sind Handles, nicht Dateien |
+| 8.3 names | do not exist. Names are names. |
+| timestamps | 64-bit nanoseconds since 1970, **no 2038 problem**, no 2-second grid |
+| character set | UTF-8, **normalised at creation time** (NFC), rejected when invalid |
+| upper/lower case | **case-sensitive, exact**. No "case-preserving, case-insensitive" — that is the origin of whole classes of bugs and turns Unicode comparisons into a time bomb |
+| separator | `/` is forbidden in a name, `\0` is forbidden, everything else is allowed |
+| maximum name length | 255 bytes of UTF-8, checked hard |
+| special files | no device nodes in the file system. Devices are handles, not files |
 
-Der Punkt bei dieser Tabelle: Jede dieser Fragen wird in bestehenden Systemen
-**mehrfach und widersprüchlich** beantwortet (HFS+ vs. APFS vs. ext4 vs. NTFS).
-Wer sie einmal entscheidet und dokumentiert, spart sich zwanzig Jahre
-Sonderfallcode.
+The point of this table: every one of these questions is answered
+**several times and contradictorily** in existing systems (HFS+ vs. APFS vs.
+ext4 vs. NTFS). Whoever decides them once and documents them saves himself
+twenty years of special-case code.
 
 ---
 
-## 5. Reihenfolge im Verhältnis zur Roadmap
+## 5. Order in relation to the roadmap
 
-| Phase | Voraussetzung dafür |
+| phase | precondition for it |
 |---|---|
-| Initramfs (Phase 3) ✔ **gebaut** | nichts — liegt im Speicher. Format `IRFS0002` (Kopf + Tabelle fester Breite, CRC32 je Eintrag), gepackt von `vendor/osum/mkfs.py` (bis zum Kernelwechsel: `userland/mkinitramfs.py`, siehe [tests/GELOESCHT.md](tests/GELOESCHT.md)), als Limine-Modul in der ISO, gelesen von `kernel/src/kcore/initramfs.rs`. Bewusst **kein** cpio/tar: beide transportieren POSIX-Metadaten (Modus, uid/gid, Pfade), die dieser Kern nicht kennt, und sind stromorientiert statt wahlfrei. 7 Negativfälle im Boot-Log |
-| VFS + FAT32 (Phase 4) | Blockgeräte-Trait, also AHCI/NVMe |
-| ext4 lesend (Phase 4) | VFS steht |
-| eigenes FS (Phase 8) | alles darüber steht, und es gibt einen Testkorpus samt Absturzsimulation |
+| initramfs (phase 3) ✔ **built** | nothing — it lies in memory. Format `IRFS0002` (header + fixed-width table, CRC32 per entry), packed by `vendor/osum/mkfs.py` (until the kernel switch: `userland/mkinitramfs.py`, see [tests/GELOESCHT.md](tests/GELOESCHT.md)), as a Limine module in the ISO, read by `kernel/src/kcore/initramfs.rs`. Deliberately **no** cpio/tar: both carry POSIX metadata (mode, uid/gid, paths) that this kernel does not know, and both are stream-oriented instead of random access. 7 negative cases in the boot log |
+| VFS + FAT32 (phase 4) | a block device trait, so AHCI/NVMe |
+| ext4 reading (phase 4) | the VFS stands |
+| own FS (phase 8) | everything above it stands, and there is a test corpus together with a crash simulation |
 
-Vor dem eigenen Dateisystem steht ein **Absturztest-Werkzeug**: künstliche
-Stromausfälle an zufälligen Punkten der Schreibreihenfolge, danach Prüfung auf
-Konsistenz. Ohne dieses Werkzeug wird nicht angefangen. Das ist die Lehre aus
-btrfs RAID 5/6.
+Before the file system of our own comes a **crash test tool**: artificial
+power failures at random points of the write ordering, then a check for
+consistency. Without that tool the work does not start. That is the lesson
+from btrfs RAID 5/6.

@@ -1,114 +1,113 @@
-# NAMEN.md — Namensfindung: Stand und Begründung
+# NAMEN.md — finding the names: state and reasoning
 
-Stand: 25.08.2026 (OS-Name gesetzt; Kernelteil unveraendert vom 19.08.2026)
+State: 2026-08-25 (the OS name is set; the kernel part is unchanged from
+2026-08-19)
 
-| Ebene | Name | Status |
+| level | name | status |
 |---|---|---|
-| **Kernel** | **osum** | **gesetzt** (Cargo-Paketname `osum`) |
-| **Betriebssystem** | **OrientOS** | **gesetzt** (25.08.2026, ersetzt den Arbeitstitel `Karstos`) |
-| **Sprache** | **Firn** | gesetzt, eigenes Projekt |
+| **Kernel** | **osum** | **set** (Cargo package name `osum`) |
+| **Operating system** | **OrientOS** | **set** (2026-08-25, replaces the working title `Karstos`) |
+| **Language** | **Firn** | set, its own project |
 
-Umbenennung erfolgt ausschließlich über `./rename.sh <kernel> <os>` — siehe
-`RENAME.md`. Im Quelltext steht kein Produktname; alles kommt aus
+Renaming happens exclusively through `./rename.sh <kernel> <os>` — see
+`RENAME.md`. No product name appears in the source text; everything comes from
 `kernel/src/kcore/branding.rs`.
 
 ---
 
-## Warum OrientOS
+## Why OrientOS
 
-Gesetzt am 25.08.2026. **OrientOS** war der Name eines frueheren eigenen
-Projekts (~2024): ein Betriebssystem von Grund auf mit eingebautem
-KI-Assistenten. Der Kernel von damals ist nie geflogen, die Idee schon --
-sie steht jetzt in [ASSISTENT.md](ASSISTENT.md). Der Name schliesst das ab.
+Set on 2026-08-25. **OrientOS** was the name of an earlier project of our own
+(~2024): an operating system from scratch with a built-in AI assistant. The
+kernel of back then never flew, the idea did -- it now stands in
+[ASSISTENT.md](ASSISTENT.md). The name closes that off.
 
-### Geprueft am 25.08.2026
+### Checked on 2026-08-25
 
-| Register | `orientos` |
+| registry | `orientos` |
 |---|---|
-| crates.io | frei (fuer den OS-Namen ohnehin unerheblich -- nur der **Kernel** ist ein Cargo-Paket) |
-| npm | frei |
-| PyPI | frei |
+| crates.io | free (irrelevant for the OS name anyway -- only the **kernel** is a Cargo package) |
+| npm | free |
+| PyPI | free |
 
-| Domain | Stand |
+| domain | state |
 |---|---|
-| `orientos.org`, `orientos.sh`, `orient-os.com` | **frei** |
-| `orientos.com` | vergeben |
-| `orientos.dev` | keine Nameserver gesetzt, beim Registrar zu pruefen |
+| `orientos.org`, `orientos.sh`, `orient-os.com` | **free** |
+| `orientos.com` | taken |
+| `orientos.dev` | no name servers set, to be checked with the registrar |
 
-**Vorbelastung:** `OrientDB`, eine Graphdatenbank, existiert weiter. Andere
-Kategorie, keine Verwechslungsgefahr in der Domaene Betriebssystem -- anders
-als bei den frueher verworfenen Kandidaten, die alle *in derselben Kategorie*
-kollidierten. Auf GitHub gibt es kein ernstzunehmendes Betriebssystem dieses
-Namens.
+**Prior use:** `OrientDB`, a graph database, still exists. A different
+category, no danger of confusion in the operating system domain -- unlike the
+candidates rejected earlier, which all collided *in the same category*. On
+GitHub there is no serious operating system of this name.
 
-**Hinweis:** "Orient" ist ein geografisch aufgeladener Begriff. Bewusst
-akzeptiert.
+**Note:** "Orient" is a geographically loaded term. Deliberately accepted.
 
-### Warum nicht `OsumOS`
+### Why not `OsumOS`
 
-Registerseitig frei, aber verworfen: Kernel `osum` und System `OsumOS`
-unterscheiden sich um zwei Buchstaben. Kernel- und Produktname trennt man --
-NT/Windows, XNU/macOS, Linux/GNU machen es alle so, und aus gutem Grund:
-sonst laesst sich in keinem Satz mehr sagen, welche Ebene gemeint ist.
+Free in the registries, but rejected: the kernel `osum` and the system
+`OsumOS` differ by two letters. You separate the kernel name from the product
+name -- NT/Windows, XNU/macOS, Linux/GNU all do it, and for good reason:
+otherwise you cannot say in any sentence which level is meant.
 
-### Zweitmarke
+### Second brand
 
-Eine Variante **XoffiOS** ist **gebaut und geprueft**: kein eigener Zweig, kein
-Fork, sondern ein Quellbaum und zwei Builds.
+A variant **XoffiOS** is **built and checked**: no branch of its own, no fork,
+but one source tree and two builds.
 
 ```sh
 ./build.sh                    # -> build/orientos.iso
-./build.sh --brand xoffi      # -> build/xoffi.iso, gleicher Quelltext
+./build.sh --brand xoffi      # -> build/xoffi.iso, same source text
 ```
 
-Markendateien liegen in `brands/`, die Reihenfolge der Quellen und alle Felder
-stehen in [BRANDING.md](BRANDING.md). Der Kernel heisst in jeder Marke `osum`.
-Unterschiede zwischen Marken gehoeren in **Daten** (welche Pakete im Abbild
-liegen, Erscheinungsbild, Paketquelle), nie in Code.
+The brand files lie in `brands/`, the order of the sources and all fields are
+in [BRANDING.md](BRANDING.md). The kernel is called `osum` in every brand.
+Differences between brands belong in **data** (which packages are in the image,
+appearance, package source), never in code.
 
 ---
 
-## Warum osum
+## Why osum
 
-- **Alle drei relevanten Paketregister frei**: crates.io, npm, PyPI. Kein
-  anderer geprüfter Kandidat hatte das.
-- **Kurz, tippbar, aussprechbar**, keine Umlaute, keine Sonderzeichen.
-- Wortspiel auf **„awesome"** — bewusst gewählt, nicht Zufall.
+- **All three relevant package registries free**: crates.io, npm, PyPI. No
+  other checked candidate had that.
+- **Short, typeable, pronounceable**, no umlauts, no special characters.
+- A pun on **"awesome"** — deliberately chosen, not chance.
 
-### Vorbelastung (geprüft, bewusst akzeptiert)
+### Prior use (checked, deliberately accepted)
 
-| Fund | Einschätzung |
+| finding | assessment |
 |---|---|
-| **OSUM** — Hobby-OS-Blogprojekt, 2008, „an 'Awesome' Operating System" | seit ~2008 inaktiv, keine Reichweite. Unkritisch |
-| **Ossum Inc.** — Softwarefirma, Doppel-s | andere Schreibweise, anderer Markt |
+| **OSUM** — a hobby OS blog project, 2008, "an 'Awesome' Operating System" | inactive since ~2008, no reach. Uncritical |
+| **Ossum Inc.** — a software company, double s | different spelling, different market |
 
-### Domains (whois, 19.08.2026)
+### Domains (whois, 2026-08-19)
 
-| frei | vergeben |
+| free | taken |
 |---|---|
 | `osum.cc`, `osum.sh`, `osumos.org` | `osum.com`, `.dev`, `.org`, `.io`, `.systems`, `osumos.com`, `osumos.dev` |
 
-`osum.com` ist belegt und aktiv (HTTP 200). Für ein Open-Source-Projekt ohne
-Marketing-Anspruch unerheblich — `osum.sh` passt zu einem Systemprojekt ohnehin
-besser.
+`osum.com` is occupied and active (HTTP 200). Irrelevant for an open source
+project with no marketing ambition — `osum.sh` fits a systems project better
+anyway.
 
 ---
 
-## Geprüfte und verworfene Kandidaten
+## Checked and rejected candidates
 
-### Wegen bestehender Software in derselben Domäne
+### Because of existing software in the same domain
 
-| Name | Konflikt |
+| name | conflict |
 |---|---|
-| **zircon / zirkon** | **Kernel von Google Fuchsia OS.** Identische Kategorie — schlechtestmögliche Kollision |
-| **wolfram** | **`WolframKernel`** ist der dokumentierte Prozessname der Mathematica-Rechenmaschine. Zusätzlich Marke von Wolfram Research für Software |
-| **vanadium** | **Browser von GrapheneOS** (gehärteter Chromium + WebView). Sicherheits-OS mit eigenem Browser = exakt dieses Projekt. Bekanntheit allerdings auf eine Nische begrenzt |
-| **osmium** | **libosmium** (OpenStreetMap-C++-Bibliothek) + `osmium-tool`, `pyosmium`, `node-osmium`. Alle drei Register belegt. Zusatz: „Osmium" bedeutet wörtlich *Geruch* |
-| **titan** | Google-Sicherheitschip, Saturnmond, dutzende Produkte |
-| **radix** | Radix DLT (Krypto) + „radix sort" als Standardbegriff. Alle Register belegt |
-| **solum** | OpenStack Solum, PyPI/npm belegt |
+| **zircon / zirkon** | **the kernel of Google Fuchsia OS.** An identical category — the worst possible collision |
+| **wolfram** | **`WolframKernel`** is the documented process name of the Mathematica computation engine. On top of that a trademark of Wolfram Research for software |
+| **vanadium** | **the browser of GrapheneOS** (a hardened Chromium + WebView). A security OS with its own browser = exactly this project. Its fame is admittedly limited to a niche |
+| **osmium** | **libosmium** (the OpenStreetMap C++ library) + `osmium-tool`, `pyosmium`, `node-osmium`. All three registries taken. In addition: "osmium" literally means *smell* |
+| **titan** | a Google security chip, a moon of Saturn, dozens of products |
+| **radix** | Radix DLT (crypto) + "radix sort" as a standard term. All registries taken |
+| **solum** | OpenStack Solum, PyPI/npm taken |
 
-### Wegen belegter Paketregister
+### Because of occupied package registries
 
 limen · cardo · silex · stratum · basalt · obsidian · serac · arx · vallum ·
 nodus · urd · lithos · gaia · nadir · umbra · penumbra · syzygy · skarn ·
@@ -116,37 +115,37 @@ achat · rutil · kaldera · iridium · hafnium · palladium · rhodium · forti
 magnus · primus · imperium · robur · vis · hyperion · kronos · tartarus ·
 aegis · bastion · ferrum
 
-### Ernsthafte Alternativen, die frei blieben
+### Serious alternatives that stayed free
 
-| Name | Bedeutung | Anmerkung |
+| name | meaning | remark |
 |---|---|---|
-| **nunatak** | Felsgipfel, der aus dem Gletschereis ragt (grönländisch) | stärkstes Bild zu *Firn*, kein Konflikt gefunden. Zweitplatzierter |
-| **tantal** | Metall, das Säuren widersteht und nichts aufnimmt | inhaltlich passend zur Isolation. npm belegt |
-| **niob** | Metall, korrosionsfest | überall frei, aber unbekannt |
-| **chthon** | „Erde, Tiefe" (altgriechisch) | härtester Klang |
-| **gneis** | Gestein unter Hochdruck | `gneis.org` frei |
-| **eklogit** | Gestein aus ~50 km Tiefe | `eklogit.org` frei |
+| **nunatak** | a rocky peak sticking out of the glacier ice (Greenlandic) | the strongest image next to *Firn*, no conflict found. Runner-up |
+| **tantal** | a metal that resists acids and absorbs nothing | fits the isolation theme. npm taken |
+| **niob** | a metal, corrosion-resistant | free everywhere, but unknown |
+| **chthon** | "earth, depth" (ancient Greek) | the hardest sound |
+| **gneis** | rock under high pressure | `gneis.org` free |
+| **eklogit** | rock from ~50 km depth | `eklogit.org` free |
 
 ---
 
-## Erkenntnis für spätere Namensentscheidungen (OS-Name!)
+## Lesson for later naming decisions (the OS name!)
 
-**Das Periodensystem ist als Namensquelle abgegrast.** Sicherheits- und
-OS-Projekte greifen seit Jahren darauf zu: Zircon, Vanadium, Osmium, Wolfram,
-Titan, Iridium — alle vergeben, teils genau in dieser Domäne.
+**The periodic table is grazed bare as a source of names.** Security and OS
+projects have been reaching for it for years: Zircon, Vanadium, Osmium,
+Wolfram, Titan, Iridium — all taken, some of them in exactly this domain.
 
-Prüfreihenfolge für den OS-Namen:
-1. **crates.io + npm + PyPI** (schnell, harte Fakten)
-2. **Websuche** auf bestehende Software — *nicht* aus dem Gedächtnis raten
-3. **whois** für Domains
-4. Markenregister, falls das Projekt je vermarktet werden soll
+Checking order for the OS name:
+1. **crates.io + npm + PyPI** (fast, hard facts)
+2. **a web search** for existing software — do *not* guess from memory
+3. **whois** for domains
+4. trademark registries, should the project ever be marketed
 
-Maßstab ist nicht „gibt es das Wort irgendwo?", sondern
-**„kollidiert es dort, wo dieses Projekt lebt?"**
+The yardstick is not "does the word exist somewhere?", but
+**"does it collide where this project lives?"**
 
 ---
 
-## Kontrolle nach der Umbenennung
+## Check after the rename
 
 ```
 ./rename.sh osum OrientOS     # ausgeführt 19.08.2026

@@ -1,31 +1,31 @@
-# RUN — OrientOS bauen, starten, prüfen
+# RUN — building, starting and checking OrientOS
 
-> **ÜBERHOLT AM 26.08.2026.** Dieses Dokument beschreibt Arbeit am
-> **Rust-Kernel** dieses Repos. Der ist gelöscht — der Kernel kommt aus
-> dem Osum-Repo ([KERNELWECHSEL.md](KERNELWECHSEL.md)). Alles, was hier
-> `run-qemu.sh`, `cargo`, `kernel/src` oder `Cargo.toml` nennt, gibt es
-> nicht mehr; wo die Dinge jetzt stehen, sagt
-> [tests/GELOESCHT.md](tests/GELOESCHT.md). Das Dokument bleibt als
-> **Protokoll** stehen: was damals geplant und gemessen wurde, ist Teil
-> der Geschichte dieses Projekts und wird nicht nachträglich
-> umgeschrieben.
+> **SUPERSEDED ON 2026-08-26.** This document describes work on the
+> **Rust kernel** of this repository. That kernel is deleted — the kernel
+> comes from the Osum repository ([KERNELWECHSEL.md](KERNELWECHSEL.md)).
+> Everything here that names `run-qemu.sh`, `cargo`, `kernel/src` or
+> `Cargo.toml` no longer exists; where things are now is stated in
+> [tests/GELOESCHT.md](tests/GELOESCHT.md). The document stays as a
+> **record**: what was planned and measured back then is part of the
+> history of this project and is not rewritten after the fact.
 
-**Der heute gueltige Weg, in vier Zeilen:**
+**The way that holds today, in four lines:**
 
 ```sh
-./build.sh                              # build/orientos.iso (Kernel + Userland-Modul)
-./run-osum.sh                           # Boot ueber SeaBIOS, serielle Ausgabe im Terminal
-./run-osum.sh --uefi                    # dasselbe Abbild ueber OVMF
-./run-osum.sh --script 'ls /bin;exit'   # ein Shell-Skript hineinreichen
+./build.sh                              # build/orientos.iso (kernel + userland module)
+./run-osum.sh                           # boot through SeaBIOS, serial output in the terminal
+./run-osum.sh --uefi                    # the same image through OVMF
+./run-osum.sh --script 'ls /bin;exit'   # hand in a shell script
 ```
 
-Alles Weitere steht in [README.md](README.md) unter „Skripte".
+Everything else is in [README.md](README.md) under "Scripts".
 
 
-Kernel `osum`, Betriebssystem `OrientOS`, Rust `no_std`, Ziel `x86_64-osum-none`.
-Alle Befehle laufen im Projektwurzelverzeichnis, alle Pfade sind relativ.
+Kernel `osum`, operating system `OrientOS`, Rust `no_std`, target
+`x86_64-osum-none`. All commands run in the project root directory, all paths
+are relative.
 
-## Voraussetzungen
+## Prerequisites
 
 ```sh
 rustup toolchain install nightly && rustup default nightly
@@ -33,58 +33,58 @@ rustup component add rust-src llvm-tools
 sudo apt install qemu-system-x86 xorriso mtools nasm ovmf python3
 ```
 
-`nasm` + `ld` + `python3` werden für das unprivilegierte Programm und das
-Startdateisystem gebraucht. Fehlen sie, baut `build.sh` trotzdem durch und der
-Kernel meldet ehrlich, dass kein Archiv da ist — die ELF-Tests fallen dann aus.
+`nasm` + `ld` + `python3` are needed for the unprivileged program and the boot
+file system. If they are missing, `build.sh` still builds through and the
+kernel reports honestly that there is no archive — the ELF tests then drop out.
 
-Netzzugang zu crates.io ist nicht nötig; Limine liegt vorgebaut in `vendor/limine/`.
-`build-std` steht bewusst als Flag in `build.sh` und **nicht** in
-`.cargo/config.toml` — sonst scheitern die Host-Tests an `duplicate lang item`.
+Network access to crates.io is not needed; Limine lies prebuilt in
+`vendor/limine/`. `build-std` is deliberately a flag in `build.sh` and **not**
+in `.cargo/config.toml` — otherwise the host tests fail on
+`duplicate lang item`.
 
-## Der kurze Weg
+## The short way
 
 ```sh
-./build.sh          # Kernel + Userland + Initramfs + bootfähiges build/orientos.iso
-./run-qemu.sh       # interaktiver Start, serielle Ausgabe im Terminal (Strg-C beendet)
-./test.sh           # der vollständige Nachweis: 19 Schritte, Exitcode 0 = alles grün
+./build.sh          # kernel + userland + initramfs + bootable build/orientos.iso
+./run-qemu.sh       # interactive start, serial output in the terminal (Ctrl-C ends it)
+./test.sh           # the full proof: 19 steps, exit code 0 = everything green
 ```
 
-Ein Durchlauf von `./test.sh` dauert auf diesem Rechner rund **2,5 Minuten**
-(154 s gemessen, 14 echte QEMU-Boots). Nach `cargo clean` sind es rund
-**6,5 Minuten** (392 s), weil `core`/`alloc` über `build-std` neu übersetzt
-werden.
+One run of `./test.sh` takes about **2.5 minutes** on this machine (154 s
+measured, 14 real QEMU boots). After a `cargo clean` it is about **6.5
+minutes** (392 s), because `core`/`alloc` get recompiled through `build-std`.
 
-## Einzelne Schalter
+## Individual switches
 
-| Befehl | Wirkung |
+| command | effect |
 |---|---|
-| `./build.sh` | Release-Build + Userland + `build/initramfs.img` + ISO + Symbolkarte `build/osum.map` |
-| `./build.sh --debug` | Debug-Build |
-| `./build.sh --no-posix` | Gegenprobe ohne POSIX-Schicht (`--no-default-features`) |
-| `./run-qemu.sh --check` | bootet und prüft 38 Merkmale im Log, Exitcode 0/1 |
-| `./run-qemu.sh --check --no-posix` | muss „posix-Schicht NICHT einkompiliert“ melden |
-| `./run-qemu.sh --check --uefi` | Boot über OVMF statt SeaBIOS |
-| `./run-qemu.sh --test-pagefault` | absichtlicher `#PF`, CR2 und Ursache im Klartext |
-| `./run-qemu.sh --test-doublefault` | **echter** `#DF` auf eigenem Notfallstapel (kein `int 8`) |
-| `./run-qemu.sh --test-panic` | Panic-Handler mit Backtrace |
-| `./run-qemu.sh --test-rodata` | Schreibversuch auf `.rodata` muss `#PF` auslösen |
-| `./run-qemu.sh --test-nx` | Ausführungsversuch auf Daten muss `#PF` auslösen |
-| `./run-qemu.sh --test-gp` | nicht kanonische Adresse muss `#GP` auslösen |
-| `./run-qemu.sh --test-ud` | ungültige Instruktion (`ud2`) |
-| `./run-qemu.sh --test-preempt` | Verdrängung: Zählschleifen ohne `yield`, Tickverteilung nach Priorität |
-| `./run-qemu.sh --test-ring3` | unprivilegiertes Programm in Ring 3 + Negativtest auf eine Kerneladresse |
-| `./run-qemu.sh --test-elf` | ELF64 aus dem Startdateisystem laden, Müll definiert abweisen |
-| `./run-qemu.sh --test-handles` | Handle-Negativtests (Index, Generation, fehlendes Recht) |
-| `./rename.sh <kernel> <os>` | benennt Kernel und OS im ganzen Baum um (siehe RENAME.md) |
+| `./build.sh` | release build + userland + `build/initramfs.img` + ISO + symbol map `build/osum.map` |
+| `./build.sh --debug` | debug build |
+| `./build.sh --no-posix` | counter-check without the POSIX layer (`--no-default-features`) |
+| `./run-qemu.sh --check` | boots and checks 38 features in the log, exit code 0/1 |
+| `./run-qemu.sh --check --no-posix` | has to report „posix-Schicht NICHT einkompiliert“ |
+| `./run-qemu.sh --check --uefi` | boot through OVMF instead of SeaBIOS |
+| `./run-qemu.sh --test-pagefault` | a deliberate `#PF`, CR2 and cause in plain text |
+| `./run-qemu.sh --test-doublefault` | a **real** `#DF` on its own emergency stack (not `int 8`) |
+| `./run-qemu.sh --test-panic` | the panic handler with a backtrace |
+| `./run-qemu.sh --test-rodata` | an attempt to write to `.rodata` has to trigger a `#PF` |
+| `./run-qemu.sh --test-nx` | an attempt to execute data has to trigger a `#PF` |
+| `./run-qemu.sh --test-gp` | a non-canonical address has to trigger a `#GP` |
+| `./run-qemu.sh --test-ud` | an invalid instruction (`ud2`) |
+| `./run-qemu.sh --test-preempt` | preemption: counting loops without `yield`, tick distribution by priority |
+| `./run-qemu.sh --test-ring3` | an unprivileged program in ring 3 + a negative test on a kernel address |
+| `./run-qemu.sh --test-elf` | load ELF64 out of the boot file system, refuse garbage in a defined way |
+| `./run-qemu.sh --test-handles` | handle negative tests (index, generation, missing right) |
+| `./rename.sh <kernel> <os>` | renames kernel and OS across the whole tree (see RENAME.md) |
 
-### POSIX abwählen — die genaue Befehlszeile
+### Deselecting POSIX — the exact command line
 
-`./build.sh --no-posix` ist die empfohlene Form. Wer `cargo` direkt aufruft,
-**muss die `build-std`-Flags mitgeben** — sie stehen bewusst in `build.sh` und
-nicht in `.cargo/config.toml` (sonst scheitern die Host-Tests an
-`duplicate lang item: sized`). Ein nacktes `cargo build --no-default-features`
-scheitert deshalb mit `can't find crate for core`; das ist erwartet und kein
-Defekt der POSIX-Abtrennung. Die vollständige Form:
+`./build.sh --no-posix` is the recommended form. Whoever calls `cargo`
+directly **has to pass the `build-std` flags along** — they are deliberately in
+`build.sh` and not in `.cargo/config.toml` (otherwise the host tests fail on
+`duplicate lang item: sized`). A bare `cargo build --no-default-features`
+therefore fails with `can't find crate for core`; that is expected and not a
+defect of the POSIX separation. The complete form:
 
 ```sh
 cargo build -Z build-std=core,compiler_builtins,alloc \
@@ -92,39 +92,39 @@ cargo build -Z build-std=core,compiler_builtins,alloc \
             --release --no-default-features
 ```
 
-Der Boot ohne POSIX meldet dann im Log:
+The boot without POSIX then reports in the log:
 
 ```
 [osum] boot       ABI         : osum-native (POSIX nicht einkompiliert)
 [osum] abi        posix-Schicht NICHT einkompiliert — Core laeuft ohne sie
 ```
 
-Host-Tests der hardwarefreien Logik allein (146 Tests, laufen in Sekunden):
+Host tests of the hardware-free logic alone (146 tests, they run in seconds):
 
 ```sh
 cargo test --target x86_64-unknown-linux-gnu \
     -p osum-mem -p osum-abi-native -p osum-abi-posix
 ```
 
-## Was `./test.sh` abdeckt
+## What `./test.sh` covers
 
-Die Grundschritte 1–15 stehen in `test.sh`, die Nachweise der einzelnen
-Baustellen als eigene Dateien in `tests/step-*.sh` (werden automatisch
-angehängt und mitgezählt).
+The basic steps 1–15 are in `test.sh`, the proofs of the individual work sites
+as separate files in `tests/step-*.sh` (they are appended and counted
+automatically).
 
-1. Host-Tests (146) · 2. Build mit POSIX · 3. Build ohne POSIX ·
-4. Boot BIOS · 5. Boot ohne POSIX · 6. `#PF` · 7. echter `#DF` · 8. Panic ·
-9. `.rodata` schreibgeschützt · 10. NX · 11. `#GP` · 12. `#UD` ·
-13. Boot über UEFI · 14. Produktname nur aus `branding.rs` ·
-15. Architekturgrenze und Codehygiene · 16. Verdrängung ·
-17. Ring 3 · 18. ELF-Lader · 19. Capabilities
+1. host tests (146) · 2. build with POSIX · 3. build without POSIX ·
+4. boot BIOS · 5. boot without POSIX · 6. `#PF` · 7. a real `#DF` · 8. panic ·
+9. `.rodata` write-protected · 10. NX · 11. `#GP` · 12. `#UD` ·
+13. boot through UEFI · 14. the product name only from `branding.rs` ·
+15. the architecture boundary and code hygiene · 16. preemption ·
+17. ring 3 · 18. the ELF loader · 19. capabilities
 
-Schritt 15 prüft unter anderem, dass **keine** x86-Details außerhalb
-`kernel/src/arch/` im Code stehen, dass es kein `todo!()` gibt, dass der letzte
-Build **null** Compilerwarnungen erzeugt hat und dass jedes `test-*`-Feature aus
-`kernel/Cargo.toml` auch einen Schalter in `run-qemu.sh` hat.
+Step 15 checks among other things that **no** x86 details stand outside
+`kernel/src/arch/` in the code, that there is no `todo!()`, that the last build
+produced **zero** compiler warnings and that every `test-*` feature from
+`kernel/Cargo.toml` also has a switch in `run-qemu.sh`.
 
-## Belegter Zustand (letzter vollständiger Lauf, 13.08.2026)
+## Evidenced state (last complete run, 2026-08-13)
 
 ```
 $ ./test.sh ; echo "EXIT=$?"
@@ -151,19 +151,20 @@ $ ./test.sh ; echo "EXIT=$?"
 EXIT=0
 ```
 
-Im Boot-Log nachweisbar: Memory-Map, Frame-Statistik, eigene Umschaltung des
-Adressraums, Heap-Init mit Testallokation (Box/Vec/String), Timer-Ticks,
-30 **erzwungene** Threadwechsel ohne ein einziges `yield`, ein Programm in
-Ring 3 (`CS=0x0023 (RPL=3), CPL=3`), ein aus dem Startdateisystem geladenes
-ELF64, die Handle-Negativtests und die Bilanz
+Demonstrable in the boot log: the memory map, the frame statistics, our own
+switching of the address space, the heap init with a test allocation
+(Box/Vec/String), timer ticks, 30 **forced** thread switches without a single
+`yield`, a program in ring 3 (`CS=0x0023 (RPL=3), CPL=3`), an ELF64 loaded from
+the boot file system, the handle negative tests and the balance
 `Selbsttestbilanz: 166/166 bestanden`.
 
-## Fehlersuche
+## Troubleshooting
 
-* Backtrace-Adressen auflösen:
+* Resolve backtrace addresses:
   `llvm-addr2line -e target/x86_64-osum-none/release/osum -f -C 0x…`
-  oder in `build/osum.map` nachschlagen.
-* Das serielle Log des letzten `--check`-Laufs liegt in `build/boot.log`.
-* Hängt QEMU, greift die Zeitgrenze in `run-qemu.sh` (25 s bis zur Abbruchmarke).
-* Kein Startdateisystem im Log? Dann fehlte beim Bauen `nasm`, `ld` oder
-  `python3` — `build.sh` sagt das in einer Zeile mit `Hinweis:`.
+  or look them up in `build/osum.map`.
+* The serial log of the last `--check` run lies in `build/boot.log`.
+* If QEMU hangs, the time limit in `run-qemu.sh` takes hold (25 s until the
+  abort mark).
+* No boot file system in the log? Then `nasm`, `ld` or `python3` was missing at
+  build time — `build.sh` says so in one line beginning with `Hinweis:`.

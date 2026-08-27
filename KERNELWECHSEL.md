@@ -1,441 +1,430 @@
-# Der Kernelwechsel
+# The kernel switch
 
-**Stand: 26.08.2026.** OrientOS hat seinen Rust-Kernel als Produkt
-aufgegeben. Der Kernel kommt jetzt aus dem Osum-Repo — in Firn, mit
-eigener Historie, festgenagelt über `vendor/osum/COMMIT`. OrientOS ist
-das **System darum herum**.
+**State: 2026-08-26.** OrientOS has given up its Rust kernel as a product.
+The kernel now comes from the Osum repository — in Firn, with a history of
+its own, pinned through `vendor/osum/COMMIT`. OrientOS is the **system
+around it**.
 
-Dieses Dokument ist kein Ankündigungstext. Es hält fest, **was verglichen
-wurde, bevor etwas ersetzt wurde**, was portiert ist, was gelöscht wurde
-— und was gemessen wurde.
+This document is not an announcement. It records **what was compared before
+anything was replaced**, what is ported, what was deleted — and what was
+measured.
 
-**Die Zeitrechnung in einem Absatz.** Am 25.08.2026 stand der Rust-Kernel
-noch vollständig da; die Auflage lautete: *nichts löschen, bevor der
-Ersatz nachweislich läuft*. Am 26.08.2026 wurden die letzten zwei offenen
-Punkte nach Firn portiert (SMEP/SMAP, Boot-Module) und der Rust-Kernel
-gelöscht — **18 255 Zeilen Rust** und **1 206 Zeilen C**, dazu 965 Zeilen
-Firn, die zu ihm gehörten. Abschnitt 7 sagt, was genau, und Abschnitt 4,
-was **nicht** portiert wurde und warum es trotzdem weg durfte.
+**The chronology in one paragraph.** On 2026-08-25 the Rust kernel still
+stood there complete; the condition was: *delete nothing before the
+replacement demonstrably runs*. On 2026-08-26 the last two open items were
+ported to Firn (SMEP/SMAP, boot modules) and the Rust kernel was deleted —
+**18,255 lines of Rust** and **1,206 lines of C**, plus 965 lines of Firn
+that belonged to it. Section 7 says what exactly, and section 4 says what
+was **not** ported and why it was allowed to go anyway.
 
-**Zu den Zahlen, einmal genau.** Gezählt ist, was `git` kannte
-(`git ls-tree -r 586ac70 --name-only | grep '\.rs$'`). Wer im
-Arbeitsverzeichnis zählt, findet 18 521 — die Differenz von 266 Zeilen
-sind erzeugte Dateien unter `build/`, die nie eingecheckt waren. Beide
-Zahlen sind richtig; diese Datei nennt durchgehend die eingecheckte.
-
----
-
-## 1. Warum überhaupt
-
-Es gab zwei Kernel mit demselben Namen.
-
-* **Osum** (eigenes Repo): 26 088 Zeilen Firn im Kern, 5 114 Zeilen Firn
-  im Userland, 1 598 Zeilen libc, 1 336 Zeilen Assembler. Eigenes
-  Dateisystem, ELF64-Lader von der Platte, NVMe über DMA, PCI, APIC, SMP,
-  TCP/IP, Signale, Terminals, Bildschirm, POSIX-Schicht mit den
-  Systemaufrufnummern von Linux, Shell mit 25 Werkzeugen.
-* **Der Kernel dieses Repos**: 18 255 Zeilen Rust (`kernel/src` 14 157,
-  `libs/` 3 860, `kernel/build.rs` 144, der ELF-Maßstab 94) und 965 Zeilen
-  Firn. `LANGUAGE.md` hatte am 21.08.2026 festgehalten:
-  *„osum wird Firn-only"*, und die Migration lief modulweise — bei rund
-  5 %.
-
-Die Rechnung war einfach. Der Weg von 5 % auf 100 % sind rund 18 000
-Zeilen Portierungsarbeit; das Ergebnis wäre ein Kernel, der weniger kann
-als der, der daneben schon fertig in Firn dasteht. Also ist die Frage
-nicht *ob*, sondern *was dabei verloren geht* — und genau darum geht
-Abschnitt 2, und zwar **vor** dem ersten gelöschten Byte.
+**About the figures, precisely once.** What is counted is what `git` knew
+(`git ls-tree -r 586ac70 --name-only | grep '\.rs$'`). Whoever counts in the
+working directory finds 18,521 — the difference of 266 lines are generated
+files under `build/` that were never checked in. Both figures are right;
+this file names the checked-in one throughout.
 
 ---
 
-## 2. Der Abgleich, Modul für Modul
+## 1. Why at all
 
-Die Tabelle vergleicht **Fähigkeiten**, nicht Zeilenzahlen. Ein Modul,
-das in Rust 800 Zeilen braucht und in Firn 500, ist deswegen nicht
-schlechter — die Frage ist immer: *wer kann mehr, und was ginge beim
-Wechsel verloren?*
+There were two kernels with the same name.
 
-Legende: **Osum** = das kann nur Osum · **OrientOS** = das konnte nur der
-Rust-Kernel · **beide** = gleichwertig vorhanden.
+* **Osum** (its own repository): 26,088 lines of Firn in the kernel, 5,114
+  lines of Firn in the userland, 1,598 lines of libc, 1,336 lines of
+  assembly. Its own file system, an ELF64 loader off the disk, NVMe over
+  DMA, PCI, APIC, SMP, TCP/IP, signals, terminals, a screen, a POSIX layer
+  with the system call numbers of Linux, a shell with 25 tools.
+* **The kernel of this repository**: 18,255 lines of Rust (`kernel/src`
+  14,157, `libs/` 3,860, `kernel/build.rs` 144, the ELF yardstick 94) and
+  965 lines of Firn. On 2026-08-21 `LANGUAGE.md` had recorded: *"osum
+  becomes Firn-only"*, and the migration was running module by module — at
+  about 5 %.
 
-Die Spalte ganz rechts ist der **Stand nach dem Schnitt vom 26.08.2026**.
+The arithmetic was simple. The way from 5 % to 100 % is about 18,000 lines
+of porting work; the result would be a kernel that can do less than the one
+that already stands finished in Firn next to it. So the question is not
+*whether* but *what gets lost in the process* — and that is exactly what
+section 2 is about, and it happened **before** the first deleted byte.
 
-### 2.1 Start und Architektur
+---
 
-| Modul (Rust) | Gegenstück in Osum | Wer kann mehr | Stand |
+## 2. The comparison, module by module
+
+The table compares **capabilities**, not line counts. A module that needs
+800 lines in Rust and 500 in Firn is not worse for it — the question is
+always: *who can do more, and what would be lost in the switch?*
+
+Legend: **Osum** = only Osum can do this · **OrientOS** = only the Rust
+kernel could do this · **both** = present in equal measure.
+
+The rightmost column is the **state after the cut of 2026-08-26**.
+
+### 2.1 Boot and architecture
+
+| module (Rust) | counterpart in Osum | who can do more | state |
 |---|---|---|---|
-| `boot/limine.rs` (206) — Limine-Protokoll: Memory-Map, HHDM, Framebuffer, Module, RSDP | `kernel/boot.s` + `mem.fi` — Multiboot 1, Memory-Map, Kommandozeile, **Rahmenpuffer, Module** | beide | **ERLEDIGT.** UEFI am 25.08. (Osum `c4427fa`), Boot-Module am 26.08. (Osum `kernel/bootmod.fi`). Gelöscht. |
-| `arch/x86_64/gdt.rs` (172), `idt.rs` (137), `interrupts.rs` (257) | `kernel/boot.s`, `idt.fi` (175), `trap.fi` (300), `isr.s` (501) | beide | gelöscht |
-| `arch/x86_64/paging.rs` (367) | `kernel/mem.fi` (532), `proc.fi` (777) | **Osum** (getrennte Adressräume je Prozess; OrientOS hatte einen) | gelöscht |
-| `arch/x86_64/context.rs` (132), `preempt.rs` (281) | `kernel/switch.s` (116), `sched.fi` (1 021) | beide | gelöscht |
-| `arch/x86_64/cpu.rs`, `msr.rs`, `port.rs`, `timer.rs` | `kernel/cpu.fi`, `hw.fi`, `apic.fi` | **Osum** (APIC/IOAPIC statt nur PIC/PIT) | gelöscht |
-| `arch/x86_64/serial.rs` (59) | `kernel/serial.fi` (171) | beide | gelöscht |
-| `arch/x86_64/user.rs` (797) — Ring 3, **SMEP/SMAP in CR4** | `kernel/user.fi` (268), `proc.fi`, `uprog.fi`, **`guard.fi` (328)** | beide | **ERLEDIGT** am 26.08., siehe 3.3. Gelöscht. |
-| `kcore/arch_iface.rs` (330) — die arch-Grenze als Traits, mit Testschritt, der x86-Begriffe außerhalb `arch/` verbietet | *nichts* | **OrientOS** | **NICHT PORTIERT.** Bleibt als `vorlage/arch_iface.rs` (378 Zeilen) stehen, nicht gebaut. Siehe 4.1. |
+| `boot/limine.rs` (206) — the Limine protocol: memory map, HHDM, framebuffer, modules, RSDP | `kernel/boot.s` + `mem.fi` — Multiboot 1, memory map, command line, **framebuffer, modules** | both | **DONE.** UEFI on 2026-08-25 (Osum `c4427fa`), boot modules on 2026-08-26 (Osum `kernel/bootmod.fi`). Deleted. |
+| `arch/x86_64/gdt.rs` (172), `idt.rs` (137), `interrupts.rs` (257) | `kernel/boot.s`, `idt.fi` (175), `trap.fi` (300), `isr.s` (501) | both | deleted |
+| `arch/x86_64/paging.rs` (367) | `kernel/mem.fi` (532), `proc.fi` (777) | **Osum** (separate address spaces per process; OrientOS had one) | deleted |
+| `arch/x86_64/context.rs` (132), `preempt.rs` (281) | `kernel/switch.s` (116), `sched.fi` (1,021) | both | deleted |
+| `arch/x86_64/cpu.rs`, `msr.rs`, `port.rs`, `timer.rs` | `kernel/cpu.fi`, `hw.fi`, `apic.fi` | **Osum** (APIC/IOAPIC instead of only PIC/PIT) | deleted |
+| `arch/x86_64/serial.rs` (59) | `kernel/serial.fi` (171) | both | deleted |
+| `arch/x86_64/user.rs` (797) — ring 3, **SMEP/SMAP in CR4** | `kernel/user.fi` (268), `proc.fi`, `uprog.fi`, **`guard.fi` (328)** | both | **DONE** on 2026-08-26, see 3.3. Deleted. |
+| `kcore/arch_iface.rs` (330) — the arch boundary as traits, with a test step that forbids x86 terms outside of `arch/` | *nothing* | **OrientOS** | **NOT PORTED.** Stays as `vorlage/arch_iface.rs` (378 lines), not built. See 4.1. |
 
-### 2.2 Speicher
+### 2.2 Memory
 
-| Modul (Rust) | Gegenstück in Osum | Wer kann mehr | Stand |
+| module (Rust) | counterpart in Osum | who can do more | state |
 |---|---|---|---|
-| `mm/frame.rs` (786), `mm/firn_bitmap.rs` (192), `kernel/firn/bitmap.fi` (344) | `kernel/mem.fi` (532) | beide | gelöscht |
-| `mm/heap.rs` (679), `libs/osum-mem/heap.rs` (829) | `kernel/mem.fi` (Halde) | beide | gelöscht. OrientOS' Halde war auf dem Wirt testbar (`cargo test`), Osums nur in QEMU — das ist der einzige echte Verlust dieses Blocks, und er kostet Prüfkomfort, keine Fähigkeit. |
-| `kcore/mem.rs` (461) — Typen `PhysAddr`/`VirtAddr`/`MapFlags` | *implizit* | **OrientOS** (Typsicherheit) | gelöscht; die fünf Typen stehen im Kopf von `vorlage/arch_iface.rs` |
+| `mm/frame.rs` (786), `mm/firn_bitmap.rs` (192), `kernel/firn/bitmap.fi` (344) | `kernel/mem.fi` (532) | both | deleted |
+| `mm/heap.rs` (679), `libs/osum-mem/heap.rs` (829) | `kernel/mem.fi` (the heap) | both | deleted. OrientOS' heap was testable on the host (`cargo test`), Osum's only in QEMU — that is the only real loss of this block, and it costs checking comfort, not a capability. |
+| `kcore/mem.rs` (461) — the types `PhysAddr`/`VirtAddr`/`MapFlags` | *implicit* | **OrientOS** (type safety) | deleted; the five types are in the header of `vorlage/arch_iface.rs` |
 
-### 2.3 Prozesse und Zeit
+### 2.3 Processes and time
 
-| Modul (Rust) | Gegenstück in Osum | Wer kann mehr | Stand |
+| module (Rust) | counterpart in Osum | who can do more | state |
 |---|---|---|---|
-| `kcore/sched.rs` (1 534) — Threads, Prioritäten, Zeitscheiben, Schlafen/Wecken, Leerlauf-Thread | `kernel/sched.fi` (1 021), `tasks.fi`, `proc.fi` | **Osum** | gelöscht. OrientOS: Threads in **einem** Adressraum. Osum: Prozesse mit **eigenem** Adressraum, `fork`, `execve`, `wait4`. |
-| `kcore/preempt.rs` (248) | `sched.fi` + Zeitgeber | beide | gelöscht |
-| — | `kernel/smp.fi` (994), `smp.s` (159), `apic.fi`, `acpi.fi` | **Osum** | **Mehrere Prozessoren.** OrientOS hat das nie gehabt. |
-| — | `kernel/signal.fi` (1 134), `tty.fi` (727), `time.fi`, `rand.fi` | **Osum** | **Signale, Terminals, Uhr, Zufall.** OrientOS hatte davon nichts. |
+| `kcore/sched.rs` (1,534) — threads, priorities, time slices, sleep/wake, an idle thread | `kernel/sched.fi` (1,021), `tasks.fi`, `proc.fi` | **Osum** | deleted. OrientOS: threads in **one** address space. Osum: processes with **their own** address space, `fork`, `execve`, `wait4`. |
+| `kcore/preempt.rs` (248) | `sched.fi` + the timer | both | deleted |
+| — | `kernel/smp.fi` (994), `smp.s` (159), `apic.fi`, `acpi.fi` | **Osum** | **Multiple processors.** OrientOS never had that. |
+| — | `kernel/signal.fi` (1,134), `tty.fi` (727), `time.fi`, `rand.fi` | **Osum** | **Signals, terminals, clock, randomness.** OrientOS had none of it. |
 
-### 2.4 Dateien, Geräte, Userland
+### 2.4 Files, devices, userland
 
-| Modul (Rust) | Gegenstück in Osum | Wer kann mehr | Stand |
+| module (Rust) | counterpart in Osum | who can do more | state |
 |---|---|---|---|
-| `kcore/initramfs.rs` (428) — eigenes Archivformat, CRC32 je Eintrag, aus einem Bootloader-Modul | `kernel/fs.fi` (935) — OFS mit Inodes, Verzeichnissen, `getdents64`; **`kernel/bootmod.fi` (251)** — Boot-Modul mit CRC32 | **Osum** | **ERLEDIGT** am 26.08., siehe 3.4. Gelöscht. |
-| `kcore/elf.rs` (741), `kcore/firn_elf.rs` (265), `kernel/firn/elf.fi` (461) | `kernel/elf.fi` (803) | beide | gelöscht — **aber die 53 Prüffälle nicht.** Sie laufen jetzt gegen Osums Lader, siehe 7.3. |
-| — | `kernel/blk.fi`, `hw.fi`, `nvme.fi` (698), `pci.fi` (591), `virtio.fi` (925), `inet.fi` (1 135) | **Osum** | **Blockgeräte, PCI, NVMe über DMA, Netz.** OrientOS hatte keinen einzigen Treiber. |
-| `drivers/fbcon.rs` (154) + `drivers/font.rs` (221) — Textkonsole auf dem Framebuffer, eigener 8×16-Font | `kernel/fb.fi` (1 520), `font.fi` (130), `tty.fi` (727) | **Osum** | **ERLEDIGT** durch Osums Runde K7/K7B (76 geprüfte Zusagen, gemessen an echten Bildschirmfotos). Gelöscht. |
-| — | `kernel/kbd.fi`, `kernel/user/*.fi` (5 114): Shell mit Röhren und Umlenkung, 25 Werkzeuge | **Osum** | OrientOS' Userland war **ein** Programm in Assembler (`hello.asm`, 64 Zeilen). Siehe 7.2. |
+| `kcore/initramfs.rs` (428) — an archive format of its own, CRC32 per entry, out of a bootloader module | `kernel/fs.fi` (935) — OFS with inodes, directories, `getdents64`; **`kernel/bootmod.fi` (251)** — a boot module with CRC32 | **Osum** | **DONE** on 2026-08-26, see 3.4. Deleted. |
+| `kcore/elf.rs` (741), `kcore/firn_elf.rs` (265), `kernel/firn/elf.fi` (461) | `kernel/elf.fi` (803) | both | deleted — **but not the 53 test cases.** They now run against Osum's loader, see 7.3. |
+| — | `kernel/blk.fi`, `hw.fi`, `nvme.fi` (698), `pci.fi` (591), `virtio.fi` (925), `inet.fi` (1,135) | **Osum** | **Block devices, PCI, NVMe over DMA, network.** OrientOS had not a single driver. |
+| `drivers/fbcon.rs` (154) + `drivers/font.rs` (221) — a text console on the framebuffer, an 8×16 font of its own | `kernel/fb.fi` (1,520), `font.fi` (130), `tty.fi` (727) | **Osum** | **DONE** through Osum's round K7/K7B (76 checked assertions, measured against real screenshots). Deleted. |
+| — | `kernel/kbd.fi`, `kernel/user/*.fi` (5,114): a shell with pipes and redirection, 25 tools | **Osum** | OrientOS' userland was **one** program in assembly (`hello.asm`, 64 lines). See 7.2. |
 
-### 2.5 Die ABIs
+### 2.5 The ABIs
 
-| Modul (Rust) | Gegenstück in Osum | Wer kann mehr | Stand |
+| module (Rust) | counterpart in Osum | who can do more | state |
 |---|---|---|---|
-| `abi/posix.rs` (188) + `libs/osum-abi-posix` (672) — POSIX als abtrennbare Übersetzungsschicht auf die native ABI | `kernel/sys.fi` (3 252) + `lib/libc/` (1 598) — Systemaufrufe **mit den Nummern von Linux x86-64**, libc in Firn | **Osum** | gelöscht. OrientOS' Schicht war sauberer geschnitten (per Feature abwählbar), Osums ist ungleich vollständiger und trägt ein echtes Userland. |
-| `abi/native.rs` (2 013) + `libs/osum-abi-native` (1 643) — **Capability-Handles**: Slot+Generation, 10 Rechtebits, 8 Objektarten, Kanäle, Ports, Namensräume, `ProcessSpawn` | `kernel/cap.fi` (357) + `sys.fi` ab Nummer 2000 | geteilt | Handle-Modell **portiert** (3.2), die Objekte daran **nicht** (4.2). Gelöscht. |
+| `abi/posix.rs` (188) + `libs/osum-abi-posix` (672) — POSIX as a separable translation layer onto the native ABI | `kernel/sys.fi` (3,252) + `lib/libc/` (1,598) — system calls **with the numbers of Linux x86-64**, a libc in Firn | **Osum** | deleted. OrientOS' layer was more cleanly cut (deselectable by feature), Osum's is incomparably more complete and carries a real userland. |
+| `abi/native.rs` (2,013) + `libs/osum-abi-native` (1,643) — **capability handles**: slot+generation, 10 rights bits, 8 object kinds, channels, ports, namespaces, `ProcessSpawn` | `kernel/cap.fi` (357) + `sys.fi` from number 2000 on | split | The handle model is **ported** (3.2), the objects on it are **not** (4.2). Deleted. |
 
-### 2.6 Alles oberhalb des Kernels — bleibt bei OrientOS
+### 2.6 Everything above the kernel — stays with OrientOS
 
-| Teil | Rolle nach dem Wechsel |
+| part | role after the switch |
 |---|---|
-| `brands/*.toml`, `brand.sh`, `BRANDING.md`, `rename.sh` | **bleibt.** Ein Quellbaum, zwei Produkte — wie in FreeViewer. Der Kernel heißt in jeder Marke `osum`, so wie NT in jeder Windows-Ausgabe NT heißt. |
-| `userland/`, `PACKAGING.md` | **bleibt, mit neuer Rolle.** Aus „ein Programm in Assembler" ist die **Zusammenstellung des Produkt-Userlands** geworden (`userland/PROGRAMME`). Siehe 7.2. |
-| `ARCHITECTURE.md`, `ASSISTENT.md`, `ROADMAP.md` | **bleibt.** Die Architektur des Systems und die Schnittstelle für einen Assistenten. |
-| `test.sh`, `tests/step-*.sh` | **bleibt.** Die Abnahme des **Gesamtsystems**. Osum nimmt seinen Kernel selbst ab (dort `./test.sh`, 15 Abschnitte). |
-| `build.sh`, `vendor/limine/` | **bleibt.** OrientOS verpackt Kernel und Userland zu einem bootfähigen Produkt. |
+| `brands/*.toml`, `brand.sh`, `BRANDING.md`, `rename.sh` | **stays.** One source tree, two products — as in FreeViewer. The kernel is called `osum` in every brand, the way NT is called NT in every Windows edition. |
+| `userland/`, `PACKAGING.md` | **stays, with a new role.** "One program in assembly" has become the **assembly of the product userland** (`userland/PROGRAMME`). See 7.2. |
+| `ARCHITECTURE.md`, `ASSISTENT.md`, `ROADMAP.md` | **stays.** The architecture of the system and the interface for an assistant. |
+| `test.sh`, `tests/step-*.sh` | **stays.** The acceptance suite of the **whole system**. Osum accepts its kernel itself (its own `./test.sh`, 15 sections). |
+| `build.sh`, `vendor/limine/` | **stays.** OrientOS packs the kernel and the userland into a bootable product. |
 
 ---
 
-## 3. Was portiert wurde
+## 3. What was ported
 
-### 3.1 Der UEFI-Boot-Pfad → Osum-Commit `c4427fa`
+### 3.1 The UEFI boot path → Osum commit `c4427fa`
 
-Osum bootete nur über BIOS. Die Ursache war **eine Zahl**: im
-Multiboot-Kopf stand `MB_FLAGS = 0x3` (ausgerichtete Module +
-Speicherkarte). Ein Lader liest daraus, dass der Kern keinen
-Bildschirmwunsch hat, und nimmt den **Textmodus** an. Unter UEFI gibt es
-keinen Textmodus — Limine bricht ab:
+Osum booted only through BIOS. The cause was **one number**: the Multiboot
+header said `MB_FLAGS = 0x3` (aligned modules + memory map). A loader reads
+from that that the kernel has no screen request, and assumes **text mode**.
+Under UEFI there is no text mode — Limine aborts:
 
 ```
 PANIC: multiboot1: Cannot use text mode with UEFI.
 ```
 
-Gemessen, bevor die Änderung entstand. Mit Flag-Bit 2 und `mode_type = 0`
-verlangt der Kern einen **linearen Rahmenpuffer**, den die Firmware
-setzen kann. Danach bootet **dasselbe Abbild** über SeaBIOS und über
-OVMF.
+Measured before the change came into being. With flag bit 2 and
+`mode_type = 0` the kernel demands a **linear framebuffer** that the
+firmware can set. After that **the same image** boots through SeaBIOS and
+through OVMF.
 
-Nachgemessen in `tests/step-30-boot.sh`: Beendigungscode 21 auf beiden
-Wegen, und die Speicherkarten unterscheiden sich — es waren wirklich zwei
-verschiedene Starts.
+Measured afterwards in `tests/step-30-boot.sh`: exit code 21 on both paths,
+and the memory maps differ — these really were two different boots.
 
-### 3.2 Die Capability-Handles → Osum-Commit `2d89634`
+### 3.2 The capability handles → Osum commit `2d89634`
 
-Der inhaltlich wertvollste Teil des Rust-Kernels. Portiert ist der
-**Kern des Modells**, aus `libs/osum-abi-native/` (Rust, no_std) nach
-`kernel/cap.fi` (Firn, 357 Zeilen) — **mit denselben Zahlen und
-denselben Bedeutungen**: 10 Rechtebits, Handle = Slot + Generation, 8
-Objektarten, prozesseigener Würfelwert, 9 Fehlerwerte.
+The most valuable part of the Rust kernel in substance. What is ported is
+the **core of the model**, from `libs/osum-abi-native/` (Rust, no_std) to
+`kernel/cap.fi` (Firn, 357 lines) — **with the same numbers and the same
+meanings**: 10 rights bits, handle = slot + generation, 8 object kinds, a
+per-process random value, 9 error values.
 
-Die drei Zusagen, und jede ist **aus Ring 3** gemessen:
+The three assertions, and every one of them is measured **from ring 3**:
 
-1. **Eine frische Tabelle ist leer.** Es wird nichts geerbt.
-2. **Ein geschlossenes Handle trifft nie wieder etwas**, auch nicht nach
-   Wiederverwendung des Platzes.
-3. **Rechte können nur kleiner werden.**
+1. **A fresh table is empty.** Nothing is inherited.
+2. **A closed handle never hits anything again**, not even after the slot
+   has been reused.
+3. **Rights can only get smaller.**
 
-Der Unterschied zu POSIX in einer Zeile: ein **gültiges** Handle ohne das
-nötige Recht ist `RightsDenied` (−2), ein **gefälschtes** ist
-`BadHandle` (−1). POSIX hat für beides nur `-EBADF`.
+The difference from POSIX in one line: a **valid** handle without the
+required right is `RightsDenied` (−2), a **forged** one is `BadHandle`
+(−1). POSIX has only `-EBADF` for both.
 
-Gemessen in `tests/step-50-schutz.sh`: 18 Zusagen, einzeln nachgelesen,
-plus die Gegenprobe, dass ohne das Wort `caps` niemand etwas meldet.
+Measured in `tests/step-50-schutz.sh`: 18 checks, read back individually,
+plus the counter-check that without the word `caps` nobody reports
+anything.
 
-### 3.3 SMEP/SMAP → Osum, `kernel/guard.fi` (26.08.2026)
+### 3.3 SMEP/SMAP → Osum, `kernel/guard.fi` (2026-08-26)
 
-Der Punkt, der bis zum 26.08. als § 4.1 offen stand. `guard.fi` (328
-Zeilen Firn) setzt beide Bits in CR4, sobald CPUID sie meldet — **auf
-jedem Kern**, denn CR4 ist pro Prozessor, und `smp.ap_main` zieht sie
-nach. Das `stac`/`clac`-Fenster steht an genau vier Stellen (`sys.peek`,
-`sys.poke`, `sys.copy_in`, `sys.copy_out`) plus am Signalrahmen
+The item that stood open as § 4.1 until 2026-08-26. `guard.fi` (328 lines
+of Firn) sets both bits in CR4 as soon as CPUID reports them — **on every
+core**, because CR4 is per processor, and `smp.ap_main` sets them too. The
+`stac`/`clac` window stands in exactly four places (`sys.peek`, `sys.poke`,
+`sys.copy_in`, `sys.copy_out`) plus at the signal frame
 (`signal.poke64`/`peek64`).
 
-Was der Rust-Kernel dabei besser hatte: nichts. Was diese Portierung
-zusätzlich hat: **die Gegenproben**, und sie sind der eigentliche Inhalt.
+What the Rust kernel had better here: nothing. What this port has in
+addition: **the counter-checks**, and they are the real content.
 
-| Kommandozeile | Erwartet | Gemessen |
+| command line | expected | measured |
 |---|---|---|
 | `-cpu max` | CR4 = `0x300020` | ✔ |
-| QEMU-Vorgabe `qemu64` | CR4 = `0x20`, `smep=0 smap=0`, Lauf endet trotzdem mit 21 | ✔ |
-| `smapraw` mit SMAP | `#PF err=0x1`, Code **63** | ✔ |
-| `smapraw nosmap` | kommt zurück, liest `0x5a`, Code **21** | ✔ |
-| `smepraw` mit SMEP | `#PF err=0x11` (Bit 4 = Instruktionsabruf), Code **63** | ✔ |
-| `smepraw nosmep` | `smep: came back (!)`, Code **21** | ✔ |
-| `-smp 4` | `guard: aps=3` — alle drei weiteren Kerne tragen die Bits, zurückgelesen | ✔ |
-| `caps` mit SMAP | `windows=312` — das Fenster wird wirklich benutzt | ✔ |
+| the QEMU default `qemu64` | CR4 = `0x20`, `smep=0 smap=0`, the run still ends with 21 | ✔ |
+| `smapraw` with SMAP | `#PF err=0x1`, code **63** | ✔ |
+| `smapraw nosmap` | comes back, reads `0x5a`, code **21** | ✔ |
+| `smepraw` with SMEP | `#PF err=0x11` (bit 4 = instruction fetch), code **63** | ✔ |
+| `smepraw nosmep` | `smep: came back (!)`, code **21** | ✔ |
+| `-smp 4` | `guard: aps=3` — all three further cores carry the bits, read back | ✔ |
+| `caps` with SMAP | `windows=312` — the window really is used | ✔ |
 
-Der Unterschied zwischen dem Lauf, der stehenbleibt, und dem, der
-durchläuft, ist **ein Bit in CR4**.
+The difference between the run that stops and the run that goes through is
+**one bit in CR4**.
 
-### 3.4 Boot-Module und Prüfsummen → Osum, `kernel/bootmod.fi` (26.08.2026)
+### 3.4 Boot modules and checksums → Osum, `kernel/bootmod.fi` (2026-08-26)
 
-Der Punkt, der bis zum 26.08. als § 4.4 offen stand — und der einzige,
-der nicht nur eine Eigenschaft war, sondern **den Unterschied zwischen
-einem ISO mit Userland und einem ohne** ausmachte.
+The item that stood open as § 4.4 until 2026-08-26 — and the only one that
+was not just a property but made **the difference between an ISO with a
+userland and one without**.
 
-`bootmod.fi` (251 Zeilen Firn) liest die Modultabelle des Laders
-(Multiboot 1, Flag-Bit 3), rechnet **CRC32** (IEEE, reflektiert,
-tabellenlos — dasselbe Polynom wie in `kcore/initramfs.rs`) über das
-ganze Modul, vergleicht sie mit `modcrc=` und mountet es als
-Wurzelplatte. Für `fs.fi` ändert sich dabei nichts: dieselben 512 Oktette
-je Block, nur aus einem anderen Gerät.
+`bootmod.fi` (251 lines of Firn) reads the loader's module table (Multiboot
+1, flag bit 3), computes **CRC32** (IEEE, reflected, table-free — the same
+polynomial as in `kcore/initramfs.rs`) over the whole module, compares it
+with `modcrc=` and mounts it as the root disk. For `fs.fi` nothing changes
+in the process: the same 512 bytes per block, only out of a different
+device.
 
-Drei Dinge, die dabei gemessen werden und ohne die es eine Behauptung
-wäre:
+Three things that are measured in the process and without which it would be
+a claim:
 
-1. **Ohne Vorgabe ist die Summe eine Angabe, mit Vorgabe eine
-   Bedingung.** Ein falsches `modcrc=` lässt das Modul liegen; der Kernel
-   sagt `ok=0` und läuft weiter.
-2. **Ein Modul, das niemand angefordert hat, wird nicht heimlich zur
-   Wurzel.** Ohne `modfs` wird es gesehen, gerechnet und nicht benutzt.
-3. **Der Bereich gehört dem Modul.** Der Lader legt es in Speicher, den
-   die Karte als *nutzbar* führt — `mem.scan` nimmt ihn zurück. Die
-   Gegenprobe dazu: die Summe wird am **Ende** des Laufs noch einmal
-   gerechnet, nach Prozessen, Seitenabbildungen und Haldenbenutzung.
+1. **Without a given value the checksum is a statement, with one it is a
+   condition.** A wrong `modcrc=` leaves the module alone; the kernel says
+   `ok=0` and carries on.
+2. **A module nobody asked for does not quietly become the root.** Without
+   `modfs` it is seen, computed and not used.
+3. **The region belongs to the module.** The loader puts it in memory that
+   the map lists as *usable* — `mem.scan` takes it back. The counter-check
+   for that: the checksum is computed once more at the **end** of the run,
+   after processes, page mappings and heap usage.
    `mod: recheck crc=… same=1`.
 
-Das ist der Grund, warum OrientOS' ISO seit dem 26.08.2026 eine Shell
-hat.
+That is the reason why OrientOS' ISO has had a shell since 2026-08-26.
 
 ---
 
-## 4. Was NOCH offen ist
+## 4. What is STILL open
 
-Zwei Punkte. Beide sind **nicht** portiert, beide stehen im Produkt als
-fehlend da, und keiner von beiden hat den Rust-Kernel am Leben gehalten.
+Two items. Both are **not** ported, both stand in the product as missing,
+and neither of them kept the Rust kernel alive.
 
-### 4.1 Die Architekturgrenze — der eine Rest, der stehen bleibt
+### 4.1 The architecture boundary — the one remainder that stays
 
-`kcore/arch_iface.rs` beschrieb als Traits, was eine Architektur können
-muss; ein Testschritt suchte x86-Begriffe außerhalb von `arch/` und ließ
-den Lauf fallen, wenn er welche fand. Osum hat diese Grenze nicht — es
-ist x86-64-only, obwohl Firn auch aarch64 kann.
+`kcore/arch_iface.rs` described as traits what an architecture has to be
+able to do; a test step searched for x86 terms outside of `arch/` and
+failed the run when it found any. Osum does not have this boundary — it is
+x86-64 only, although Firn can do aarch64 as well.
 
-**Nicht portiert, und der Grund steht in einem Satz:** das wäre keine
-Portierung, sondern eine Umbauarbeit an jedem Modul jenes Kernels. Die
-x86-Einzelheiten stehen dort über `kmain.fi`, `proc.fi`, `mem.fi`,
-`apic.fi`, `smp.fi`, `user.fi` und `guard.fi` verteilt, und eine Grenze
-zieht man nicht, indem man Traits danebenlegt.
+**Not ported, and the reason fits in one sentence:** that would not be a
+port but a rebuild of every module of that kernel. The x86 details are
+spread there across `kmain.fi`, `proc.fi`, `mem.fi`, `apic.fi`, `smp.fi`,
+`user.fi` and `guard.fi`, and you do not draw a boundary by laying traits
+down next to it.
 
-**Deshalb bleibt genau diese eine Datei stehen** — als
-`vorlage/arch_iface.rs`, 378 Zeilen, **nicht gebaut**: es gibt in diesem
-Repo kein `cargo` und kein `Cargo.toml` mehr. Sie ist die Anforderung an
-die Runde, die diese Grenze in Osum ziehen wird, in der Form, in der sie
-schon einmal funktioniert hat. Der eigentliche Inhalt ist nicht der
-Trait-Text, sondern die **Regel**: kein x86-Begriff außerhalb von
-`arch/`, und ein Testschritt, der das erzwingt.
+**That is why exactly this one file stays** — as `vorlage/arch_iface.rs`,
+378 lines, **not built**: there is no `cargo` and no `Cargo.toml` in this
+repository any more. It is the requirement for the round that will draw
+this boundary in Osum, in the form in which it has worked once before. The
+real content is not the trait text but the **rule**: no x86 term outside of
+`arch/`, and a test step that enforces it.
 
-Der Zustand steht außerdem in Osums README unter „Was ihm fehlt" und in
-`ROADMAP.md` als eigener Punkt. Er verschwindet nicht stillschweigend.
+The state is additionally in Osum's README under "What it lacks" and in
+`ROADMAP.md` as an item of its own. It does not disappear quietly.
 
-### 4.2 Der Rest der nativen ABI
+### 4.2 The rest of the native ABI
 
-Portiert ist das Handle-Modell (3.2). **Nicht** portiert sind die
-Objekte, die daran hängen:
+The handle model is ported (3.2). What is **not** ported are the objects
+that hang off it:
 
-| Aufruf | Zustand in Osum |
+| call | state in Osum |
 |---|---|
 | `ChannelCreate`, `ChannelSend`, `ChannelRecv` | `NotSupported` (−9) |
-| `PortCreate`, `PortWait`, `PortBind` (der Ersatz für Signale) | `NotSupported` |
+| `PortCreate`, `PortWait`, `PortBind` (the replacement for signals) | `NotSupported` |
 | `NamespaceOpen`, `NamespaceCreate` | `NotSupported` |
-| `ProcessSpawn` mit expliziter Handle-Liste | `NotSupported` |
+| `ProcessSpawn` with an explicit handle list | `NotSupported` |
 | `MemoryCreate`, `MemoryMap`, `MemoryUnmap` | `NotSupported` |
 
-`NotSupported` und nicht `ENOSYS`: der Aufruf **existiert** in dieser
-ABI, dieser Kernel bietet ihn nur nicht an. Die **Nummern, die
-Fehlerwerte und die Bedeutungen** sind portiert und stehen in
-`kernel/sys.fi` ab 2000 — was fehlt, sind die Objekte dahinter.
+`NotSupported` and not `ENOSYS`: the call **exists** in this ABI, this
+kernel just does not offer it. The **numbers, the error values and the
+meanings** are ported and are in `kernel/sys.fi` from 2000 on — what is
+missing are the objects behind them.
 
-**Warum die Rust-Fassung trotzdem gelöscht wurde.** Sie wäre eine Vorlage
-von 3 656 Zeilen gewesen, für Objekte, die in Firn ohnehin anders
-aussehen werden (Stufe 0 hat keine globalen veränderlichen Variablen; ein
-Kanal wird ein Bereich in der Datenregion, kein `Vec<Message>`). Eine
-Vorlage, die man Zeile für Zeile umschreiben muss, ist eine
-Spezifikation — und die steht kürzer und genauer in Osums `sys.fi`, wo
-jeder dieser Aufrufe seine Nummer und seinen `NotSupported`-Zweig schon
-hat. In der Historie steht die Rust-Fassung vollständig:
+**Why the Rust version was deleted anyway.** It would have been a template
+of 3,656 lines, for objects that will look different in Firn regardless
+(stage 0 has no global mutable variables; a channel will be a region in the
+data area, not a `Vec<Message>`). A template you have to rewrite line by
+line is a specification — and that one is shorter and more precise in
+Osum's `sys.fi`, where each of these calls already has its number and its
+`NotSupported` branch. The Rust version is complete in the history:
 `git show 91182a0:kernel/src/abi/native.rs`.
 
-### 4.3 Was noch fehlt, aber nie am Rust-Kernel hing
+### 4.3 What is still missing but never hung on the Rust kernel
 
-Zur Vollständigkeit, damit die Liste nicht besser aussieht, als sie ist:
-Osum hat kein Fenstersystem, keine Namensauflösung, kein USB, kein
-SATA/AHCI, keinen Partitionstabellen-Leser, kein Journal, keine
-Benutzer/Rechte, keine dynamische Bindung. Der Rust-Kernel hatte davon
-ebenfalls nichts. Das steht in Osums README und in `ROADMAP.md`.
+For completeness, so that the list does not look better than it is: Osum
+has no window system, no name resolution, no USB, no SATA/AHCI, no
+partition table reader, no journal, no users/permissions, no dynamic
+linking. The Rust kernel had none of that either. It is in Osum's README
+and in `ROADMAP.md`.
 
 ---
 
-## 5. Wie beides zusammenhängt
+## 5. How the two fit together
 
 ```
-osum (eigenes Repo, Firn)                orientos (dieses Repo)
-├── kernel/*.fi   der Kern       ──┐     ├── vendor/osum/COMMIT   ← festgenagelt
-├── kernel/user/  Shell, 25 Werkz. │     ├── brands/*.toml        Marken
-├── lib/libc/     libc in Firn     └──►  ├── userland/PROGRAMME   was ins ISO kommt
-├── vendor/firn/COMMIT (eigener          ├── userland/dateien/    was OrientOS beisteuert
-│                       Übersetzer)      ├── PACKAGING.md         Pakete
-└── test.sh       15 Abschnitte          ├── ASSISTENT.md         Schnittstelle
-                                         ├── build.sh             Kernel + Userland → ISO
-                                         └── test.sh              Abnahme des Systems
+osum (own repo, Firn)                    orientos (this repo)
+├── kernel/*.fi   the kernel     ──┐     ├── vendor/osum/COMMIT   ← pinned
+├── kernel/user/  shell, 25 tools  │     ├── brands/*.toml        brands
+├── lib/libc/     libc in Firn     └──►  ├── userland/PROGRAMME   what goes into the ISO
+├── vendor/firn/COMMIT (its own          ├── userland/dateien/    what OrientOS contributes
+│                       compiler)        ├── PACKAGING.md         packages
+└── test.sh       15 sections            ├── ASSISTENT.md         interface
+                                         ├── build.sh             kernel + userland → ISO
+                                         └── test.sh              acceptance of the system
 ```
 
-`vendor/osum/hole-osum.sh` baut aus dem festgenagelten Commit **beides**:
-den Kernel und die unprivilegierten Programme — **mit Osums eigenem
-Firn-Übersetzer**, nicht mit dem dieses Repos. Die beiden Repos nageln
-unterschiedliche Firn-Commits fest, und das soll auch so bleiben: zwei
-Projekte, zwei Nägel, keine stille Vermischung.
+`vendor/osum/hole-osum.sh` builds **both** from the pinned commit: the
+kernel and the unprivileged programs — **with Osum's own Firn compiler**,
+not with this repository's. The two repositories pin different Firn
+commits, and it is meant to stay that way: two projects, two pins, no quiet
+mixing.
 
-Eingecheckt ist nur der Hash. Kein Abbild, kein Programm, kein Kopieren
-ohne Herkunft.
-
----
-
-## 6. Die Geschichte dieses Wechsels
-
-* **19.–21.08.2026** — `LANGUAGE.md` hält fest: *„osum wird Firn-only"*.
-  Die Migration beginnt modulweise: `serial.fi` (117 Zeilen), dann der
-  Bitmap-Rahmenverwalter (`bitmap.fi`, 344), dann der ELF-Prüfteil
-  (`elf.fi`, 461). Nach drei Runden: 922 Zeilen Firn gegen 17 993 Zeilen
-  Rust — rund 5 %.
-* **25.08.2026, vormittags** — Osum wird ein eigenes Repository. Damit
-  stehen zwei Kernel mit demselben Namen nebeneinander, und der eine ist
-  bereits das, was der andere werden will.
-* **25.08.2026** — Entscheidung: *Osum ist der Kernel, OrientOS ist das
-  Betriebssystem drumherum.*
-* **25.08.2026** — dieser Abgleich (Abschnitt 2), **vor** jeder Löschung.
-  Ergebnis: zwei Dinge, die wirklich verloren gegangen wären (UEFI,
-  Capabilities), plus vier kleinere (SMEP/SMAP, arch-Grenze,
-  Rahmenpufferkonsole, Boot-Module).
-* **25.08.2026** — UEFI und das Handle-Modell nach Firn portiert
-  (Osum `c4427fa` und `2d89634`). **Nichts gelöscht**: der Rust-Kernel
-  steht vollständig da und wird bei jedem Testlauf gebaut, gebootet und
-  gemessen.
-* **25.08.2026, abends** — Osums Runde K7/K7B liefert den Bildschirm:
-  Rahmenpuffer, Textkonsole, eigener 8×16-Zeichensatz, `/dev/fb`, 76
-  Zusagen an echten Bildschirmfotos gemessen. Damit ist der dritte der
-  vier kleineren Punkte erledigt, ohne dass jemand ihn portiert hätte —
-  er wurde in Osum ohnehin gebraucht.
-* **26.08.2026** — die letzten zwei Punkte portiert: SMEP/SMAP
-  (`kernel/guard.fi`) und Boot-Module mit CRC32 (`kernel/bootmod.fi`),
-  zusammen 579 Zeilen Firn, abgenommen mit 55 Zusagen in Osums
-  `tools/guard/run.sh` (dort Abschnitt 15 von `./test.sh`).
-* **26.08.2026** — **der Schnitt.** 18 255 Zeilen Rust, 1 206 Zeilen C und 965 Zeilen Firn
-  gelöscht, eine Datei bleibt als Vorlage stehen. Abschnitt 7.
-* **26.08.2026** — und der Gewinn, der nicht in der Löschliste steht: das
-  Produkt-ISO hat zum ersten Mal ein **Userland**. `build.sh` stellt aus
-  Osums Programmen und `userland/PROGRAMME` ein OFS-Dateisystem zusammen,
-  legt es als Boot-Modul neben den Kern, und `/bin/sh` läuft daraus in
-  Ring 3 — mit SMEP und SMAP an.
+Only the hash is checked in. No image, no program, no copying without
+provenance.
 
 ---
 
-## 7. Der Schnitt vom 26.08.2026
+## 6. The history of this switch
 
-**Die Auflage lautete: nichts löschen, bevor der Ersatz nachweislich
-läuft.** Sie ist eingehalten worden — der Ersatz ist ein Repo mit 15
-Testabschnitten und über 1 100 Zusagen, und die vier offenen Punkte sind
-abgearbeitet, bevor der erste `git rm` lief: zwei portiert (3.3, 3.4),
-einer war ohnehin erledigt (Bildschirm, K7), einer bleibt begründet
-stehen (4.1).
+* **2026-08-19 to 2026-08-21** — `LANGUAGE.md` records: *"osum becomes
+  Firn-only"*. The migration begins module by module: `serial.fi` (117
+  lines), then the bitmap frame allocator (`bitmap.fi`, 344), then the ELF
+  checking part (`elf.fi`, 461). After three rounds: 922 lines of Firn
+  against 17,993 lines of Rust — about 5 %.
+* **2026-08-25, in the morning** — Osum becomes a repository of its own.
+  With that two kernels of the same name stand side by side, and one of
+  them already is what the other wants to become.
+* **2026-08-25** — the decision: *Osum is the kernel, OrientOS is the
+  operating system around it.*
+* **2026-08-25** — this comparison (section 2), **before** any deletion.
+  Result: two things that would really have been lost (UEFI,
+  capabilities), plus four smaller ones (SMEP/SMAP, the arch boundary, the
+  framebuffer console, boot modules).
+* **2026-08-25** — UEFI and the handle model ported to Firn (Osum
+  `c4427fa` and `2d89634`). **Nothing deleted**: the Rust kernel stands
+  there complete and is built, booted and measured in every test run.
+* **2026-08-25, in the evening** — Osum's round K7/K7B delivers the screen:
+  framebuffer, text console, an 8×16 font of its own, `/dev/fb`, 76
+  assertions measured against real screenshots. With that the third of the
+  four smaller items is done without anybody having ported it — it was
+  needed in Osum anyway.
+* **2026-08-26** — the last two items ported: SMEP/SMAP
+  (`kernel/guard.fi`) and boot modules with CRC32 (`kernel/bootmod.fi`),
+  together 579 lines of Firn, accepted with 55 checks in Osum's
+  `tools/guard/run.sh` (section 15 of its `./test.sh`).
+* **2026-08-26** — **the cut.** 18,255 lines of Rust, 1,206 lines of C and
+  965 lines of Firn deleted, one file stays as a template. Section 7.
+* **2026-08-26** — and the gain that is not on the deletion list: for the
+  first time the product ISO has a **userland**. `build.sh` assembles an
+  OFS file system from Osum's programs and `userland/PROGRAMME`, puts it
+  next to the kernel as a boot module, and `/bin/sh` runs out of it in
+  ring 3 — with SMEP and SMAP on.
 
-### 7.1 Was gelöscht wurde
+---
 
-| Weg | Zeilen | Ersatz |
+## 7. The cut of 2026-08-26
+
+**The condition was: delete nothing before the replacement demonstrably
+runs.** It was kept — the replacement is a repository with 15 test sections
+and over 1,100 checks, and the four open items were worked off before the
+first `git rm` ran: two ported (3.3, 3.4), one was done anyway (the screen,
+K7), one stays with a stated reason (4.1).
+
+### 7.1 What was deleted
+
+| gone | lines | replacement |
 |---|---:|---|
-| `kernel/src/` — der ganze Rust-Kernel | 14 157 | Osum `kernel/*.fi`, 26 088 Zeilen Firn |
-| `libs/osum-abi-native/`, `libs/osum-abi-posix/`, `libs/osum-mem/` | 3 860 | Osum `cap.fi`, `sys.fi`, `mem.fi` |
-| `kernel/build.rs`, `tests/firn-elf/rust-massstab.rs` | 238 | nichts — es wird hier kein Rust mehr übersetzt |
-| `tests/firn-elf/*.c`, `tests/firn-bitmap/`, `tests/firn-fehler/` | 1 206 C | Osums eigene Prüfstände; die **53 ELF-Fälle bleiben** (7.3) |
-| `kernel/firn/{serial,bitmap,elf}.fi` und `tests/firn-fehler/*.fi` | 965 Firn | Osum `serial.fi`, `mem.fi`, `elf.fi` |
-| `Cargo.toml`, `Cargo.lock`, `.cargo/config.toml`, `kernel/Cargo.toml`, `kernel/build.rs`, `kernel/linker-x86_64.ld`, `x86_64-osum-none.json` | — | kein cargo mehr im Baum |
-| `run-qemu.sh`, `limine.conf` | — | `run-osum.sh`; `limine.conf` erzeugt `build.sh` |
-| `userland/hello.asm`, `user.ld`, `mkinitramfs.py`, `mkbroken.py` | — | Osums 25 Werkzeuge im Boot-Modul (7.2) |
-| `tests/step-16`…`step-23`, `tests/verweise.py` | — | neue Schritte, die das **Produkt** messen |
+| `kernel/src/` — the whole Rust kernel | 14,157 | Osum `kernel/*.fi`, 26,088 lines of Firn |
+| `libs/osum-abi-native/`, `libs/osum-abi-posix/`, `libs/osum-mem/` | 3,860 | Osum `cap.fi`, `sys.fi`, `mem.fi` |
+| `kernel/build.rs`, `tests/firn-elf/rust-massstab.rs` | 238 | nothing — no Rust is compiled here any more |
+| `tests/firn-elf/*.c`, `tests/firn-bitmap/`, `tests/firn-fehler/` | 1,206 C | Osum's own test harnesses; the **53 ELF cases stay** (7.3) |
+| `kernel/firn/{serial,bitmap,elf}.fi` and `tests/firn-fehler/*.fi` | 965 Firn | Osum `serial.fi`, `mem.fi`, `elf.fi` |
+| `Cargo.toml`, `Cargo.lock`, `.cargo/config.toml`, `kernel/Cargo.toml`, `kernel/build.rs`, `kernel/linker-x86_64.ld`, `x86_64-osum-none.json` | — | no cargo in the tree any more |
+| `run-qemu.sh`, `limine.conf` | — | `run-osum.sh`; `limine.conf` is generated by `build.sh` |
+| `userland/hello.asm`, `user.ld`, `mkinitramfs.py`, `mkbroken.py` | — | Osum's 25 tools in the boot module (7.2) |
+| `tests/step-16`…`step-23`, `tests/verweise.py` | — | new steps that measure the **product** |
 
-**Alles mit `git rm`.** Die Historie hat jede Zeile davon; `test.sh`
-prüft das nach (`git log -- kernel/src` muss Commits liefern). Ein
-gelöschter Kernel ist nicht vergessen, er ist nur nicht mehr im Weg.
+**All of it with `git rm`.** The history has every line of it; `test.sh`
+checks that (`git log -- kernel/src` has to deliver commits). A deleted
+kernel is not forgotten, it is only out of the way.
 
-Was **nicht** gelöscht wurde, obwohl es C ist: `vendor/limine/*.c` — das
-ist der Bootloader, nicht der Kernel, und er wird weiter gebraucht.
+What was **not** deleted although it is C: `vendor/limine/*.c` — that is
+the bootloader, not the kernel, and it is still needed.
 
-### 7.2 Was aus `userland/` geworden ist
+### 7.2 What became of `userland/`
 
-Vorher: **ein** Programm, `hello.asm`, 64 Zeilen Assembler, in einem
-eigenen Archivformat, das nur der Rust-Kernel lesen konnte.
+Before: **one** program, `hello.asm`, 64 lines of assembly, in an archive
+format of its own that only the Rust kernel could read.
 
-Nachher: `userland/PROGRAMME` — die **Zusammenstellung des
-Produkt-Userlands**. Osum schreibt und baut die Programme, OrientOS
-entscheidet, welche ins Produkt kommen und was sonst noch auf der Wurzel
-liegt (`userland/dateien/`). Daraus wird ein OFS-Dateisystem, das als
-Boot-Modul im ISO liegt.
+After: `userland/PROGRAMME` — the **assembly of the product userland**.
+Osum writes and builds the programs, OrientOS decides which ones go into
+the product and what else lies on the root (`userland/dateien/`). Out of it
+comes an OFS file system that lies in the ISO as a boot module.
 
-Der Nachweis, dass das keine Umbenennung ist, steht in
-`tests/step-40-userland.sh`: `/bin/sh` startet **aus dem Modul**, `ls
-/bin` zeigt die Werkzeuge, `cat /etc/ausgabe.txt` liest eine Datei, die
-aus **diesem** Repo kommt, und `wc -l` zählt darin dieselbe Zeilenzahl
-wie der Wirt.
+The proof that this is not a rename is in `tests/step-40-userland.sh`:
+`/bin/sh` starts **out of the module**, `ls /bin` shows the tools,
+`cat /etc/ausgabe.txt` reads a file that comes from **this** repository,
+and `wc -l` counts the same number of lines in it as the host does.
 
-Was daraus werden soll, steht in `userland/README.md` und `PACKAGING.md`:
-markenabhängige Listen, dann ein Paketindex mit Inhalts-Hashes, dann ein
-Schreibpfad auf eine echte Platte.
+What is to become of it is in `userland/README.md` and `PACKAGING.md`:
+brand-dependent lists, then a package index with content hashes, then a
+write path to a real disk.
 
-### 7.3 Was aus dem ELF-Korpus geworden ist
+### 7.3 What became of the ELF corpus
 
-`tests/firn-elf/faelle/` — 53 von Hand gebaute ELF64-Köpfe, jeder mit
-genau **einem** Fehler — ist das einzige Stück des Rust-Kernels, das
-nicht gelöscht wurde und trotzdem noch etwas tut. Der Code, der sie
-geprüft hat, ist weg. Die Fälle sind besser als der Code, der sie
-hervorgebracht hat.
+`tests/firn-elf/faelle/` — 53 hand-built ELF64 headers, each with exactly
+**one** defect — is the only piece of the Rust kernel that was not deleted
+and still does something. The code that checked them is gone. The cases are
+better than the code that produced them.
 
-Sie liegen jetzt im **Produkt-ISO** unter `/f/`, und die Shell versucht in
-**einem** Boot jedes davon zu starten
-(`tests/step-60-elf-korpus.sh`). Gemessen wird nicht „alle werden
-abgelehnt" — Osums Lader hat andere Grenzen für `USER_BASE` und
-`USER_LIMIT` als der Rust-Kernel, und eine Zahl, die man nicht
-nachgerechnet hat, gehört nicht in eine Zusage. Gemessen wird: der Kernel
-**überlebt alle 53**, die Ablehnungen tragen Fehlerwerte statt Abstürze,
-der Lader nennt mehr als einen Grund, und die Shell arbeitet danach
-weiter.
+They now lie in the **product ISO** under `/f/`, and the shell tries to
+start every one of them in **one** boot (`tests/step-60-elf-korpus.sh`).
+What is measured is not "all of them are rejected" — Osum's loader has
+different limits for `USER_BASE` and `USER_LIMIT` than the Rust kernel, and
+a number nobody has recomputed does not belong in a check. What is
+measured: the kernel **survives all 53**, the rejections carry error values
+instead of crashes, the loader names more than one reason, and the shell
+carries on working afterwards.
 
-### 7.4 Die Zahlen nach dem Schnitt
+### 7.4 The figures after the cut
 
-| | vorher (25.08.) | nachher (26.08.) |
+| | before (08-25) | after (08-26) |
 |---|---:|---:|
-| Rust in `orientos` (eingecheckt) | 18 255 | **0** (+ 378 Zeilen Vorlage, nicht gebaut) |
-| C in `orientos` (ohne `vendor/limine`) | 1 206 | **0** |
-| Firn in `orientos` | 965 | **0** — Firn steht jetzt vollständig in Osum |
-| Firn in `osum` (Kern) | 25 509 | **26 088** |
-| Programme im Produkt-ISO | 1 (`hello`) | **26** |
-| Testabschnitte `orientos` | 19 | 8 |
-| Zusagen `orientos` | 166 | **151**, alle mit Gegenprobe |
-| Testabschnitte `osum` | 14 | **15** |
+| Rust in `orientos` (checked in) | 18,255 | **0** (+ 378 lines of template, not built) |
+| C in `orientos` (without `vendor/limine`) | 1,206 | **0** |
+| Firn in `orientos` | 965 | **0** — Firn now stands completely in Osum |
+| Firn in `osum` (kernel) | 25,509 | **26,088** |
+| programs in the product ISO | 1 (`hello`) | **26** |
+| test sections in `orientos` | 19 | 8 |
+| checks in `orientos` | 166 | **151**, all with a counter-check |
+| test sections in `osum` | 14 | **15** |
 
-Die Abschnittszahl von OrientOS sinkt, und das ist richtig so: dreizehn
-davon haben einen Kernel gemessen, der in diesem Repo nicht mehr
-geschrieben wird. Sie sind nicht verschwunden — sie stehen in Osums
-`./test.sh`, und dort sind es mehr geworden.
+The section count of OrientOS drops, and that is as it should be: thirteen
+of them measured a kernel that is not written in this repository any more.
+They have not disappeared — they are in Osum's `./test.sh`, and there they
+have become more.

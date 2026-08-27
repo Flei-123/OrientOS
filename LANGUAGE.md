@@ -1,711 +1,716 @@
-# Logbuch: der Weg von Rust nach Firn
+# Logbook: the road from Rust to Firn
 
-> **ÜBERHOLT AM 25.08.2026, ERLEDIGT AM 26.08.2026 — und zwar auf die
-> gute Art.** Der Weg, den dieses Dokument beschreibt, ist nicht
-> gescheitert; er ist **abgekürzt** worden. Statt 18 000 Zeilen Rust
-> modulweise nach Firn zu übersetzen, benutzt OrientOS den Kernel, der in
-> Firn bereits fertig dasteht: **Osum**, eigenes Repository, eingebunden
-> über `vendor/osum/COMMIT`.
+> **SUPERSEDED ON 2026-08-25, SETTLED ON 2026-08-26 — and in the good
+> way.** The road this document describes did not fail; it was **cut
+> short**. Instead of translating 18,000 lines of Rust to Firn module by
+> module, OrientOS uses the kernel that already stands finished in Firn:
+> **Osum**, its own repository, embedded through `vendor/osum/COMMIT`.
 >
-> **Der Migrationsstand in M-00 unten ist Geschichte, keine Angabe.** Am
-> 25.08.2026 stand er bei 5 %. Am 26.08.2026 wurde der Rust-Kernel
-> gelöscht — 18 255 Zeilen Rust, 1 206 Zeilen C und 965 Zeilen Firn,
-> nachdem jeder offene Punkt abgearbeitet war. **Der heutige Stand ist: 0 Zeilen Rust in
-> diesem Repo** (plus 378 Zeilen unübersetzte Vorlage), 0 Zeilen Firn in
-> diesem Repo — Firn steht vollständig in Osum, 32 800 Zeilen.
+> **The migration state in M-00 below is history, not a statement of
+> fact.** On 2026-08-25 it stood at 5 %. On 2026-08-26 the Rust kernel
+> was deleted — 18,255 lines of Rust, 1,206 lines of C and 965 lines of
+> Firn, after every open item had been worked off. **Today's state is: 0
+> lines of Rust in this repository** (plus 378 lines of uncompiled
+> template), 0 lines of Firn in this repository — Firn stands completely
+> in Osum, 32,800 lines.
 >
-> **Was jetzt gilt, steht in [KERNELWECHSEL.md](KERNELWECHSEL.md):** der
-> Abgleich Modul für Modul, was portiert wurde (UEFI-Boot,
-> Capability-Handles, SMEP/SMAP, Boot-Module), was gelöscht wurde und was
-> offen bleibt (die arch-Grenze; Kanäle/Ports/Namensräume).
+> **What holds now is in [KERNELWECHSEL.md](KERNELWECHSEL.md):** the
+> comparison module by module, what was ported (UEFI boot, capability
+> handles, SMEP/SMAP, boot modules), what was deleted and what stays open
+> (the arch boundary; channels/ports/namespaces).
 >
-> **Warum dieses Dokument trotzdem stehen bleibt:** es ist das Logbuch
-> der Reibungspunkte zwischen Rust und einem Kernel, und jeder Eintrag
-> darin ist eine Anforderung an Firn. Diese Einträge (M-02 abwärts,
-> L-*) gelten unverändert — sie sind der Grund, warum es Firn gibt, und
-> sie werden nicht dadurch falsch, dass der Rust-Code weg ist. Nur die
-> **Zahlen** in M-00 sind Geschichte, und sie stehen dort ausdrücklich
-> als solche.
+> **Why this document stays anyway:** it is the logbook of the friction
+> points between Rust and a kernel, and every entry in it is a
+> requirement for Firn. Those entries (M-02 downwards, L-*) hold
+> unchanged — they are the reason Firn exists, and they do not become
+> wrong just because the Rust code is gone. Only the **figures** in M-00
+> are history, and they stand there explicitly as such.
 
-**Entschieden (21.08.2026): osum wird Firn-only.** Kein Rust, kein übernommener
-Fremdcode. Dieses Dokument hieß bis dahin „wo Rust im Kernel im Weg steht" und
-sammelte Belege dafür, dass eine eigene Sprache **gerechtfertigt** wäre. Diese
-Frage ist beantwortet — die Sprache heißt **Firn**, sie existiert, und der
-Umbau hat begonnen. Ab hier ist das Dokument zweierlei: der **Migrationsstand**
-und weiterhin das Logbuch der Reibungspunkte, denn jeder davon ist eine
-Anforderung an Firn.
+**Decided (2026-08-21): osum becomes Firn-only.** No Rust, no adopted foreign
+code. Until then this document was called "where Rust gets in the way in the
+kernel" and collected evidence that a language of our own would be
+**justified**. That question is answered — the language is called **Firn**, it
+exists, and the rebuild has begun. From here on the document is two things: the
+**migration state**, and still the logbook of the friction points, because
+every one of them is a requirement for Firn.
 
-> **Der alte Zweck, zur Einordnung:** „Die Sprache wird jetzt nicht gebaut — eine
-> Sprache samt Backend, Werkzeugen und Bibliothek zu schreiben, während der
-> Kernel noch keinen Userspace hat, ist der klassische Yak-Shave, an dem
-> Projekte sterben." Das war zum Zeitpunkt von Runde 3 richtig. Es ist überholt,
-> weil Firn inzwischen sich selbst übersetzt und in Runde 62 einen eigenen
-> Kernel mit Adressräumen, Scheduler und Dateisystem getragen hat.
+> **The old purpose, for context:** "The language is not being built now —
+> writing a language together with a backend, tooling and a library while the
+> kernel does not even have a userspace is the classic yak shave that projects
+> die of." That was right at the time of round 3. It is superseded, because
+> Firn has since compiled itself and carried a kernel of its own with address
+> spaces, a scheduler and a file system in round 62.
 
 ---
 
-## M-00 · Migrationsstand — **erledigt durch den Kernelwechsel**
+## M-00 · Migration state — **settled by the kernel switch**
 
-Der Stand, der hier bis zum 25.08.2026 stand, war:
-
-| | |
-|---|---|
-| **In Firn** | `serial.fi` (117) · `bitmap.fi` (344) · `elf.fi` (461) — 922 Zeilen |
-| **Noch in Rust** | 17 993 Zeilen in `kernel/`, `libs/`, `userland/` |
-
-Also rund **5 %** nach drei Runden. Der Rest wären etwa 18 000 Zeilen
-Übersetzungsarbeit gewesen — mit dem Ergebnis eines Kernels, der
-**weniger** kann als der, der daneben schon fertig in Firn steht.
-
-Diese beiden Zahlen sind **Geschichte**. Sie beschreiben den 25.08.2026
-und werden nicht nachgeführt; wer den heutigen Stand sucht, findet ihn in
-der Tabelle darunter.
-
-**Der Stand seit dem 26.08.2026:**
+The state that stood here until 2026-08-25 was:
 
 | | |
 |---|---|
-| **Kernel** | kommt aus dem **Osum-Repo**, festgenagelt über `vendor/osum/COMMIT`. 15 495 Zeilen Firn im Kern, 3 592 im Userland, 1 234 libc, 1 204 Assembler. |
-| **Übersetzer des Kernels** | Osums eigener Nagel (dort `vendor/firn/COMMIT`) — ein **anderer** Commit als der dieses Repos. Zwei Projekte, zwei Nägel. |
-| **Firn in diesem Repo** | **keines mehr.** `kernel/firn/serial.fi`, `bitmap.fi`, `elf.fi` (922 Zeilen) gehörten zum Rust-Kernel und sind mit ihm gelöscht; ihre Gegenstücke stehen in Osum (`serial.fi`, `mem.fi`, `elf.fi`). |
-| **Noch in Rust** | **0 Zeilen.** Am 26.08.2026 gelöscht (18 255 Zeilen, eingecheckt gezählt). Eine Datei bleibt als **unübersetzte Vorlage** stehen: `vorlage/arch_iface.rs`, 378 Zeilen, mit Begründung im Kopf — es gibt in diesem Repo kein `cargo` und kein `Cargo.toml` mehr, sie ist Text und kein Code. Warum: [KERNELWECHSEL.md](KERNELWECHSEL.md) § 4.1. |
-| **Übersetzer dieses Repos** | `vendor/firn/COMMIT` — wird hier nicht mehr zum Übersetzen gebraucht, seit kein Firn-Modul mehr in diesem Baum liegt. Osum nagelt seinen eigenen fest. |
-| **Aufrufrichtung** | gegenstandslos: es gibt keine Sprachgrenze mehr in diesem Repo. Der Eintrag M-02 bleibt trotzdem gültig — er beschreibt, was Firn fehlte, nicht was OrientOS tut. |
+| **In Firn** | `serial.fi` (117) · `bitmap.fi` (344) · `elf.fi` (461) — 922 lines |
+| **Still in Rust** | 17,993 lines in `kernel/`, `libs/`, `userland/` |
 
-**Was der Wechsel an diesem Dokument NICHT ändert.** Die Reibungspunkte
-M-02 und L-* sind Erfahrungen mit Rust im Kernel; sie bleiben gültig und
-sind weiterhin Anforderungen an Firn. Was sich geändert hat, ist die
-Antwort auf die Frage *„wer schreibt den Kernel"* — nicht die auf
-*„welche Sprache".*
+So about **5 %** after three rounds. The rest would have been some 18,000
+lines of translation work — with the result of a kernel that can do **less**
+than the one that already stands finished in Firn next to it.
 
-### Warum der Übersetzer festgenagelt ist
+These two figures are **history**. They describe 2026-08-25 and are not kept
+up to date; whoever is looking for today's state finds it in the table below.
 
-Firn wird gerade aktiv weiterentwickelt. Würde osum immer gegen den neuesten
-Stand bauen, wäre bei jedem Fehler unklar, ob er aus dem Kernel oder aus dem
-Übersetzer kommt. Deshalb: **ein Commit**, eingetragen in `vendor/firn/COMMIT`,
-und nachgezogen wird **erst, wenn `./test.sh` grün ist**. Die Binärdatei ist
-nicht eingecheckt — nur der Hash und das Bauskript.
+**The state since 2026-08-26:**
 
-## M-01 · Brückenkopf: die serielle Konsole
+| | |
+|---|---|
+| **Kernel** | comes from the **Osum repository**, pinned through `vendor/osum/COMMIT`. 15,495 lines of Firn in the kernel, 3,592 in the userland, 1,234 libc, 1,204 assembly. |
+| **Compiler of the kernel** | Osum's own pin (there `vendor/firn/COMMIT`) — a **different** commit from this repository's. Two projects, two pins. |
+| **Firn in this repository** | **none any more.** `kernel/firn/serial.fi`, `bitmap.fi`, `elf.fi` (922 lines) belonged to the Rust kernel and were deleted with it; their counterparts are in Osum (`serial.fi`, `mem.fi`, `elf.fi`). |
+| **Still in Rust** | **0 lines.** Deleted on 2026-08-26 (18,255 lines, counted as checked in). One file stays as an **uncompiled template**: `vorlage/arch_iface.rs`, 378 lines, with the reasoning in its header — there is no `cargo` and no `Cargo.toml` in this repository any more, so it is text and not code. Why: [KERNELWECHSEL.md](KERNELWECHSEL.md) § 4.1. |
+| **Compiler of this repository** | `vendor/firn/COMMIT` — no longer needed here for compiling, since no Firn module lies in this tree any more. Osum pins its own. |
+| **Call direction** | moot: there is no language boundary in this repository any more. The entry M-02 stays valid nevertheless — it describes what Firn lacked, not what OrientOS does. |
 
-**Erledigt und gemessen.** `kernel/src/arch/x86_64/serial.rs` enthält keine
-Logik mehr; der 16550-UART wird von `kernel/firn/serial.fi` bedient.
+**What the switch does NOT change about this document.** The friction points
+M-02 and L-* are experiences with Rust in a kernel; they stay valid and are
+still requirements for Firn. What changed is the answer to the question *"who
+writes the kernel"* — not the one to *"which language".*
 
-* **Warum ausgerechnet dieses Modul:** es ist ein **Blatt**. Es ruft nichts
-  außerhalb seiner selbst auf und hält keinen Zustand — als einziges Modul
-  trifft es damit keine der beiden Sprachgrenzen aus M-02.
-* **Aufrufkonvention:** Firn erzeugt gewöhnliches SysV-AMD64 (Argumente in
-  `rdi`/`rsi`, Rückgabe in `rax`, `rbp` und `r12`–`r15` werden gerettet).
-  `extern "C"` genügt, es braucht keine Sonderbehandlung.
-* **Symbolschema:** `firnc` vergibt `_F0.<name>`. Der Punkt ist in Rust kein
-  gültiger Bezeichner, deshalb `#[link_name = "_F0.serial_init"]`.
-* **Bauweg:** `build.sh` übersetzt die Firn-Module **vor** cargo und prüft, dass
-  das Objekt **null undefinierte Symbole** hat; `kernel/build.rs` reicht es an
-  den Linker weiter und bricht mit klarer Meldung ab, wenn es fehlt.
-* **Nachweis:** `./test.sh` — **alle 21 Abschnitte bestanden**, 14 QEMU-Boots.
-  Jede Zeile Bootausgabe in diesem Lauf ist durch den Firn-Code gegangen; ein
-  Fehler dort hätte den gesamten Testlauf blind gemacht.
-* **Erster Übersetzerwechsel überstanden (21.08.2026):** von `1bd95ceb` auf
-  `c889170a` — 13 Firn-Runden Abstand, darunter Typ-Aliase, Standardtyp für
-  Zahlliterale, `+=`, `str` und die Aufteilung von `std`. Das erzeugte Objekt
-  ist **bitgleich** zum vorherigen (gleicher SHA-256), und `./test.sh` läuft
-  unverändert 21/21 durch. Damit ist die Zusage aus dem Firn-Projekt — additive
-  Runden brechen bestehenden Code nicht — für osum einmal **gemessen** statt
-  geglaubt. Log: `build/testlauf-firn-c889170a.log`.
-* **Reproduzierbar:** derselbe Übersetzer erzeugt aus derselben Quelle
-  byteweise dasselbe Objekt (geprüft mit `cmp`). Ein Unterschied im Objekt ist
-  damit immer ein Unterschied in Quelle oder Übersetzer, nie Rauschen.
+### Why the compiler is pinned
 
-## M-02 · Die zwei Grenzen, die den nächsten Schritt blockieren
+Firn is under active development. If osum always built against the newest
+state, then with every bug it would be unclear whether it comes from the
+kernel or from the compiler. Hence: **one commit**, entered in
+`vendor/firn/COMMIT`, and it is moved forward **only when `./test.sh` is
+green**. The binary is not checked in — only the hash and the build script.
 
-Stage 0 von Firn kennt **kein `extern fn`** und **kein `static`**. Beides wird
-vom Übersetzer abgewiesen. Daraus folgt hart:
+## M-01 · Bridgehead: the serial console
 
-1. **Firn kann nicht nach Rust zurückrufen.** Ein Firn-Modul kann aufgerufen
-   werden, aber nichts außerhalb seiner Übersetzungseinheit aufrufen.
-2. **Firn kann keinen globalen veränderlichen Zustand halten.** Der Firn-eigene
-   Demo-Kernel umgeht das mit einem Zustandsblock, dessen Adresse der
-   Startcode übergibt — eine funktionierende Krücke, keine Lösung.
+**Done and measured.** `kernel/src/arch/x86_64/serial.rs` contains no logic any
+more; the 16550 UART is driven by `kernel/firn/serial.fi`.
 
-**Solange das so ist, bleibt es bei Blattmodulen.** Jeder Treiber will
-irgendwann beides. Die Sprachrunde dafür liegt bei Firn und ist eingeplant;
-bis dahin wird hier nichts erzwungen und nichts nachgebaut.
+* **Why this module of all things:** it is a **leaf**. It calls nothing outside
+  itself and holds no state — as the only module it therefore meets neither of
+  the two language boundaries from M-02.
+* **Calling convention:** Firn produces ordinary SysV AMD64 (arguments in
+  `rdi`/`rsi`, return value in `rax`, `rbp` and `r12`–`r15` are saved).
+  `extern "C"` is enough, no special treatment is needed.
+* **Symbol scheme:** `firnc` assigns `_F0.<name>`. The dot is not a valid
+  identifier in Rust, hence `#[link_name = "_F0.serial_init"]`.
+* **Build path:** `build.sh` compiles the Firn modules **before** cargo and
+  checks that the object has **zero undefined symbols**; `kernel/build.rs`
+  passes it on to the linker and aborts with a clear message when it is
+  missing.
+* **Proof:** `./test.sh` — **all 21 sections passed**, 14 QEMU boots. Every
+  line of boot output in that run went through the Firn code; a bug there would
+  have blinded the entire test run.
+* **First compiler change survived (2026-08-21):** from `1bd95ceb` to
+  `c889170a` — 13 Firn rounds apart, among them type aliases, a default type
+  for number literals, `+=`, `str` and the splitting of `std`. The produced
+  object is **bit-identical** to the previous one (same SHA-256), and
+  `./test.sh` runs through 21/21 unchanged. With that, the promise from the
+  Firn project — additive rounds do not break existing code — has been
+  **measured** once for osum instead of believed. Log:
+  `build/testlauf-firn-c889170a.log`.
+* **Reproducible:** the same compiler produces byte-wise the same object from
+  the same source (checked with `cmp`). A difference in the object is therefore
+  always a difference in the source or the compiler, never noise.
 
-Das ist übrigens genau **L-04** aus der Liste unten, nur von der anderen Seite:
-Rust hat für „gehört der CPU" keine Kategorie und drängt zu `static mut`
-(16 Vorkommen). Firn hat die Kategorie auch noch nicht — aber es ist die
-Sprache, in der sie noch entstehen kann.
+## M-02 · The two boundaries that block the next step
 
-## M-03 · Was Firn Runde 73 freigibt — und warum es den Fahrplan ändert
+Stage 0 of Firn knows **no `extern fn`** and **no `static`**. Both are refused
+by the compiler. From that follows, hard:
 
-Bis Runde 73 verbot `profile kernel` **jedes** `import std.*`. Ein Firn-Modul im
-Kernel hatte also die Sprache, aber keine Bibliothek. Das ist aufgehoben:
+1. **Firn cannot call back into Rust.** A Firn module can be called but cannot
+   call anything outside its compilation unit.
+2. **Firn cannot hold global mutable state.** Firn's own demo kernel gets
+   around this with a state block whose address the startup code passes in — a
+   working crutch, not a solution.
 
-* **`std.core` ist im Kernelprofil erlaubt.** Darin liegt alles, was weder
-  Speicher anfordert noch einen Systemaufruf macht: die Span-Schicht (`find`,
-  `trim`, `starts_with`, `compare`, Zerlegen), UTF-8-Lesen, Zahlenumwandlung
-  (`text_to_i64`/`u64`/`f64`), Mathematik (`isqrt`, `gcd`, `ilog2`). Der
-  Übersetzer **prüft die Behauptung nach** — ein Modul, das doch allokiert,
-  bleibt verboten, mit Gegenprobe im Firn-Testlauf.
-* **Der Allokator ist ein sichtbarer Parameter** (der Weg, den Zig geht): kein
-  globaler Zuteiler, keine versteckte Anforderung. An der Aufrufstelle ist
-  ablesbar, ob eine Funktion Speicher kostet. Es gibt eine Arena-Implementierung
-  **ohne** Systemaufruf, die ein Kernel benutzen kann.
+**As long as that is so, it stays with leaf modules.** Every driver wants both
+sooner or later. The language round for it is Firn's and is planned; until then
+nothing is forced here and nothing is faked.
 
-**Warum das mehr ist als Komfort:** es ist die Antwort auf **L-06**, und zwar
-die, die dort schon als Wunsch steht — „Allokator als explizites Argument, ohne
-Sonderweg für die Standarddatentypen". Firn hat sie gebaut, bevor osum sie
-gebraucht hat.
+That is, by the way, exactly **L-04** from the list below, only from the other
+side: Rust has no category for "belongs to the CPU" and pushes towards
+`static mut` (16 occurrences). Firn does not have the category yet either — but
+it is the language in which it can still come into being.
 
-**Und es dreht M-02 vom Blocker zum Entwurfsprinzip.** „Kein globaler
-veränderlicher Zustand" war als Mangel notiert. Wenn Zustand konsequent als
-Parameter durchgereicht wird — Allokator wie Gerätezustand —, ist das kein
-Umgehen des fehlenden `static`, sondern der bessere Entwurf. Der osum-eigene
-`frame_alloc` kann die Schnittstelle erfüllen; damit kann die Speicherverwaltung
-nach Firn wandern, **ohne** auf eine Sprachrunde zu warten.
+## M-03 · What Firn round 73 releases — and why it changes the plan
 
-Was dadurch **nicht** gelöst ist: `extern fn`. Solange Rust-Code existiert, den
-ein Firn-Modul aufrufen muss, bleibt die Richtung einseitig. Das erledigt sich
-mit dem letzten Rust-Modul — oder mit der geplanten Sprachrunde, je nachdem, was
-zuerst kommt.
+Until round 73 `profile kernel` forbade **every** `import std.*`. A Firn module
+in the kernel therefore had the language but no library. That is lifted:
 
-*(Nachtrag 23.08.2026: Runde 75 hat `extern fn` gebracht, in beide Richtungen.
-Die Grenze aus M-02 ist damit zur Hälfte gefallen. `static` fehlt weiterhin.)*
+* **`std.core` is allowed in the kernel profile.** In it lies everything that
+  neither requests memory nor makes a system call: the span layer (`find`,
+  `trim`, `starts_with`, `compare`, splitting), UTF-8 reading, number
+  conversion (`text_to_i64`/`u64`/`f64`), maths (`isqrt`, `gcd`, `ilog2`). The
+  compiler **verifies the claim** — a module that does allocate after all stays
+  forbidden, with a counter-check in the Firn test run.
+* **The allocator is a visible parameter** (the way Zig goes): no global
+  allocator, no hidden request. At the call site you can read off whether a
+  function costs memory. There is an arena implementation **without** a system
+  call that a kernel can use.
 
-## M-04 · Zweiter Baustein: der Bitmap-Rahmenverwalter
+**Why that is more than comfort:** it is the answer to **L-06**, and precisely
+the one that already stands there as a wish — "the allocator as an explicit
+argument, without a special path for the standard data types". Firn built it
+before osum needed it.
 
-**`libs/osum-mem/src/bitmap.rs` (593 Zeilen Rust) ist ausgebaut**, an seiner
-Stelle steht `kernel/firn/bitmap.fi` (335 Zeilen Firn), angebunden über
+**And it turns M-02 from a blocker into a design principle.** "No global
+mutable state" was noted as a shortcoming. If state is consistently passed
+through as a parameter — allocator as well as device state — that is not a way
+around the missing `static` but the better design. osum's own `frame_alloc` can
+satisfy the interface; with that the memory management can move to Firn
+**without** waiting for a language round.
+
+What is **not** solved by it: `extern fn`. As long as Rust code exists that a
+Firn module has to call, the direction stays one-way. That settles itself with
+the last Rust module — or with the planned language round, whichever comes
+first.
+
+*(Addendum 2026-08-23: round 75 brought `extern fn`, in both directions. The
+boundary from M-02 has thereby half fallen. `static` is still missing.)*
+
+## M-04 · Second building block: the bitmap frame allocator
+
+**`libs/osum-mem/src/bitmap.rs` (593 lines of Rust) has been removed**, and in
+its place stands `kernel/firn/bitmap.fi` (335 lines of Firn), attached through
 `kernel/src/mm/firn_bitmap.rs`.
 
-### Warum ausgerechnet dieses Modul
+### Why this module of all things
 
-* Es hält **keinen globalen Zustand**. Bitspeicher und Verwaltungsblock gehören
-  dem Aufrufer und werden als Zeiger hereingereicht — die Rust-Fassung machte
-  es mit `&'a mut [u64]` genauso. Damit trifft es die verbliebene Grenze
-  (`static`) **nicht**.
-* Es ist **reine Logik**: Bitrechnerei, Next-Fit mit Umlauf, Bereichsoperationen.
-  Kein Portgefummel, keine Hardware.
-* Es hatte **23 Testfälle**, darunter einen Eigenschaftstest gegen ein
-  Referenzmodell. Damit war objektiv prüfbar, ob die Neufassung dasselbe tut.
-* Es läuft in **jedem Boot**. Ein Fehler fällt sofort auf, nicht irgendwann.
+* It holds **no global state**. The bit storage and the control block belong to
+  the caller and are handed in as pointers — the Rust version did it exactly
+  the same way with `&'a mut [u64]`. It therefore does **not** meet the
+  remaining boundary (`static`).
+* It is **pure logic**: bit arithmetic, next-fit with wraparound, range
+  operations. No port fiddling, no hardware.
+* It had **23 test cases**, among them a property test against a reference
+  model. That made it objectively checkable whether the new version does the
+  same thing.
+* It runs in **every boot**. A bug shows up immediately, not at some point.
 
-### Was Firn hier beiträgt, was Rust nicht tat
+### What Firn contributes here that Rust did not
 
-Die Rechnungen sind **geprüft**. In Rusts Release-Bau läuft `used -= 1` still
-um; ab da meldet der Verwalter Milliarden freier Rahmen und vergibt Speicher,
-den es nicht gibt. Dieselbe Zeile bricht in Firn mit Datei, Zeile, Spalte und
-**beiden Zahlen** ab.
+The arithmetic is **checked**. In Rust's release build `used -= 1` silently
+wraps; from then on the allocator reports billions of free frames and hands out
+memory that does not exist. The same line aborts in Firn with the file, the
+line, the column and **both numbers**.
 
-Wo ein Überlauf **kein** Fehler ist — Bereichsgrenzen aus der Memory-Map dürfen
-über das Ende der Bitmap hinausragen —, steht das ausdrücklich im Quelltext: die
-Grenze wird vorher gekappt (`kappen`), und `bm_free` prüft `anzahl > U64MAX -
-index`, statt die Summe zu bilden. Der Unterschied zwischen „darf überlaufen"
-und „darf nicht" ist damit **lesbar**, statt eine Konvention zu sein.
+Where an overflow is **not** a bug — range boundaries from the memory map are
+allowed to reach past the end of the bitmap — that is stated explicitly in the
+source text: the boundary is clamped beforehand (`kappen`), and `bm_free`
+checks `anzahl > U64MAX - index` instead of forming the sum. The difference
+between "may overflow" and "may not" is thereby **readable** instead of being a
+convention.
 
-### Nachweis
+### Proof
 
-* **23 von 23** Fällen bestanden — `tests/firn-bitmap/`, ein C-Prüfstand gegen
-  **dasselbe** Objekt, das im Kernelabbild landet (Kernelprofil, freistehend).
-  Derselbe Zufallsgenerator wie die Rust-Fassung, also dieselbe Folge von
-  Anforderungen.
-* `test.sh` Abschnitt 22 prüft zusätzlich, dass der Verwaltungsblock auf beiden
-  Seiten denselben Aufbau hat (mit Gegenprobe) und dass die Rust-Fassung
-  wirklich weg ist.
-* Im Kernel: **8/8** Memory-Map-Zusagen, **28/28** Frame-Zusagen, in jedem Boot.
+* **23 of 23** cases passed — `tests/firn-bitmap/`, a C test harness against
+  **the same** object that ends up in the kernel image (kernel profile,
+  freestanding). The same random generator as the Rust version, so the same
+  sequence of requests.
+* `test.sh` section 22 additionally checks that the control block has the same
+  layout on both sides (with a counter-check) and that the Rust version really
+  is gone.
+* In the kernel: **8/8** memory map checks, **28/28** frame checks, in every
+  boot.
 
-### Was dabei verloren ging — ehrlich benannt
+### What was lost in the process — named honestly
 
-Vier Host-Tests in `libs/osum-mem/src/lib.rs` prüften den Übergang
-Memory-Map → Bitmap. Zwei davon (unsortierte überlappende Karte, nicht
-ausgerichtete Ränder) sind nach `mm::frame::map_selftest()` gewandert und laufen
-jetzt in **jedem Boot** gegen das echte Objekt — das ist eine Verbesserung.
+Four host tests in `libs/osum-mem/src/lib.rs` checked the transition memory map
+→ bitmap. Two of them (an unsorted overlapping map, unaligned edges) have moved
+into `mm::frame::map_selftest()` and now run in **every boot** against the real
+object — that is an improvement.
 
-**Ersatzlos entfallen** ist ein Eigenschaftstest über **200 zufällig zerrissene
-Memory-Maps**. Er brauchte `Vec` und einen Host. Die Zufallsbreite fehlt seitdem.
+**Gone without replacement** is a property test over **200 randomly shredded
+memory maps**. It needed `Vec` and a host. The randomness coverage has been
+missing since.
 
-### Der Preis: Tempo
+### The price: speed
 
-Gemessen unter identischer Last (40 000 Anforderungen/Rückgaben, 65 536 Rahmen,
-dieselbe Folge, bestes von 7 Läufen):
+Measured under identical load (40,000 requests/returns, 65,536 frames, the same
+sequence, best of 7 runs):
 
-| Fassung | Zeit | Verhältnis |
+| version | time | ratio |
 |---|---|---|
-| Rust-Verfahren, ungeprüft | 0,081 s | 1,00× |
-| **Firn `dev-fast`** (was osum baut) | **0,415 s** | **5,11×** |
-| Firn `release-fast` (Prüfungen aus) | 0,098 s | 1,22× |
+| Rust method, unchecked | 0.081 s | 1.00× |
+| **Firn `dev-fast`** (what osum builds) | **0.415 s** | **5.11×** |
+| Firn `release-fast` (checks off) | 0.098 s | 1.22× |
 
-**Das ist kein Rundungsfehler und wird hier nicht schöngeredet.** Die Aufteilung
-sagt aber, woher es kommt: mit abgeschalteten Prüfungen liegt Firn bei 1,22× —
-der Rest sind die Prüfungen selbst plus ein Codegen, der noch jede lokale
-Variable über den Stapel führt statt über Register.
+**That is not a rounding error and it is not being talked up here.** The
+breakdown does say where it comes from, though: with the checks switched off
+Firn is at 1.22× — the rest is the checks themselves plus a code generator that
+still routes every local variable through the stack instead of through
+registers.
 
-**Warum es trotzdem vertretbar ist:** der Rahmenverwalter wird im Boot einige
-tausend Mal aufgerufen, nicht einige Millionen. 5× auf einer Operation im
-Mikrosekundenbereich ist im Boot-Log nicht messbar. Sollte sich das ändern —
-etwa wenn der Verwalter in einem heißen Pfad landet —, ist die Zahl hier
-festgehalten und muss dann neu bewertet werden.
+**Why it is defensible anyway:** the frame allocator is called a few thousand
+times during the boot, not a few million. 5× on an operation in the microsecond
+range is not measurable in the boot log. Should that change — for instance if
+the allocator ends up in a hot path — the figure is recorded here and will have
+to be re-evaluated then.
 
-### Ein Übersetzerfehler, dabei gefunden
+### A compiler bug found along the way
 
-`--opt-level=release-safe` erzeugt falschen Code: eine geprüfte Multiplikation
-benutzt `mul`, das implizit `rdx` überschreibt, und der Registerallokator
-rechnet nicht damit. Ein Wert, der in `rdx` liegt und die Rechnung überleben
-soll, ist danach zerstört. Die Bitmap fällt auf dieser Stufe in **19 von 23**
-Fällen um und ist auf allen anderen fehlerfrei.
+`--opt-level=release-safe` produces wrong code: a checked multiplication uses
+`mul`, which implicitly overwrites `rdx`, and the register allocator does not
+account for it. A value that lies in `rdx` and is supposed to survive the
+computation is destroyed afterwards. The bitmap falls over at this level in
+**19 of 23** cases and is faultless at all the others.
 
-Minimalfall (20 Zeilen), Disassemblat und Analyse: `tests/firn-fehler/`.
-osum baut mit `dev-fast` und ist nicht betroffen; `release-safe` bleibt gesperrt.
+Minimal case (20 lines), disassembly and analysis: `tests/firn-fehler/`. osum
+builds with `dev-fast` and is not affected; `release-safe` stays blocked.
 
-## M-05 · Dritter Baustein: der ELF64-Prüfteil
+## M-05 · Third building block: the ELF64 checking part
 
-**Der Prüfteil von `kernel/src/kcore/elf.rs` (268 Zeilen Rust) ist ausgebaut**,
-an seiner Stelle steht `kernel/firn/elf.fi` (415 Zeilen Firn), angebunden über
-`kernel/src/kcore/firn_elf.rs`.
+**The checking part of `kernel/src/kcore/elf.rs` (268 lines of Rust) has been
+removed**, and in its place stands `kernel/firn/elf.fi` (415 lines of Firn),
+attached through `kernel/src/kcore/firn_elf.rs`.
 
-### Warum ausgerechnet dieser Teil
+### Why this part of all things
 
-Ein ELF kommt **von außen**. Jede Zahl darin ist die Behauptung eines Fremden:
-„meine Tabelle beginnt bei Offset X", „mein Segment ist Y lang". Wer damit
-ungeprüft rechnet, baut sich genau die Lücke, die Angreifer suchen — ein
-`off + filesz`, das umläuft, ergibt eine kleine Zahl, die Bereichsprüfung geht
-durch, und danach wird an einer Adresse gelesen, die nie geprüft wurde.
+An ELF comes **from outside**. Every number in it is a stranger's claim: "my
+table begins at offset X", "my segment is Y long". Whoever computes with that
+unchecked builds himself exactly the hole attackers look for — an
+`off + filesz` that wraps around yields a small number, the range check passes,
+and afterwards something is read at an address that was never checked.
 
-Der **Ladeteil** bleibt in Rust. Er hängt an Seitentabellen, Rahmenverwalter und
-Direct-Map-Fenster — ein Dutzend Rückrufe. Er fasst aber auch keine fremden
-Bytes an: er arbeitet mit den bereits geprüften Werten. Das ist keine
-Bequemlichkeit, sondern der richtige Schnitt.
+The **loading part** stays in Rust. It hangs on page tables, the frame
+allocator and the direct map window — a dozen callbacks. But it also does not
+touch any foreign bytes: it works with the already checked values. That is not
+convenience, it is the right cut.
 
-### Erst der Maßstab, dann die Portierung
+### First the yardstick, then the port
 
-`elf.rs` hatte **null `#[test]`**. Es gab einen Selbsttest im Kernel mit
-16 Fällen — besser als nichts, aber kein Maßstab, an dem sich eine Neufassung
-messen lässt: die Fälle standen als Rust-Code **in** der Datei, die ersetzt
-werden sollte.
+`elf.rs` had **zero `#[test]`**. There was a self-test in the kernel with 16
+cases — better than nothing, but not a yardstick against which a new version
+can be measured: the cases stood as Rust code **inside** the file that was to
+be replaced.
 
-Deshalb wurde der Maßstab **zuerst** gebaut und gegen die **alte** Fassung
-belegt, bevor eine Zeile Firn entstand:
+That is why the yardstick was built **first** and evidenced against the **old**
+version before a single line of Firn came into being:
 
-* **53 Falldateien**, erzeugt von `tests/firn-elf/faelle.py` — 8 gültige,
-  45 abzuweisende
-* Abgedeckt: abgeschnittene Dateien an jeder interessanten Stelle, jedes
-  Kopffeld einzeln verfälscht, lügende Offsets und Größen, **Werte dicht an
-  `u64::MAX`, die erst beim Addieren überlaufen**, überlappende Segmente,
-  Segmente in derselben Seite, Grenzfälle der Ausrichtung, genau 16 gegen 17
-  Segmente
-* **Die alte Rust-Fassung besteht 53 von 53** — belegt, nicht behauptet
+* **53 case files**, produced by `tests/firn-elf/faelle.py` — 8 valid, 45 to be
+  refused
+* Covered: files truncated at every interesting place, every header field
+  corrupted individually, lying offsets and sizes, **values close to
+  `u64::MAX` that only overflow on addition**, overlapping segments, segments
+  in the same page, edge cases of alignment, exactly 16 against 17 segments
+* **The old Rust version passes 53 of 53** — evidenced, not claimed
 
-Die alte Fassung liegt als **Referenzmaßstab** in
-`tests/firn-elf/alter-pruefteil.rs.txt`. Sie wird nicht mehr gebaut, aber in
-jedem Testlauf **gefahren**: solange beide Fassungen zu jedem Fall dasselbe
-sagen, ist die Portierung nachweislich **verhaltensgleich** — nicht bloß
-„besteht auch Tests".
+The old version lies as a **reference yardstick** in
+`tests/firn-elf/alter-pruefteil.rs.txt`. It is no longer built, but it is
+**driven** in every test run: as long as both versions say the same thing about
+every case, the port is demonstrably **behaviourally identical** — not merely
+"passes tests too".
 
-### Nachweis
+### Proof
 
-* **53 von 53** gegen die Firn-Fassung (`tests/firn-elf/lauf.sh`)
-* **53 von 53** gegen die Rust-Fassung (`tests/firn-elf/lauf-rust.sh`)
-* `test.sh` Abschnitt 23: beide Läufe, `MAX_SEGMENTS`-Abgleich,
-  Strukturaufbau mit Gegenprobe, Symbole im Abbild, „der Rust-Prüfteil ist weg"
-* Im Kernel: **16/16** ELF-Negativfälle, **5/5** Ladefälle, jeder Boot — das
-  echte `hello` aus dem Startdateisystem wird über den Firn-Parser geladen
+* **53 of 53** against the Firn version (`tests/firn-elf/lauf.sh`)
+* **53 of 53** against the Rust version (`tests/firn-elf/lauf-rust.sh`)
+* `test.sh` section 23: both runs, the `MAX_SEGMENTS` comparison, the struct
+  layout with a counter-check, the symbols in the image, "the Rust checking
+  part is gone"
+* In the kernel: **16/16** ELF negative cases, **5/5** loading cases, every
+  boot — the real `hello` from the boot file system is loaded through the Firn
+  parser
 
-### Was Firn hier beiträgt
+### What Firn contributes here
 
-Die Rust-Fassung hat die Überläufe mit `checked_add` von Hand abgefangen, an
-jeder einzelnen Stelle, und der Modulkopf sagte ausdrücklich dazu: *„alle
-Additionen sind überlaufsicher"*. Das war **Disziplin**, und sie hat gehalten.
+The Rust version caught the overflows by hand with `checked_add`, at every
+single place, and the module header said so explicitly: *"all additions are
+overflow-safe"*. That was **discipline**, and it held.
 
-In Firn ist es die **Sprache**: jede Rechnung, die überläuft, bricht ab — auch
-die, an die niemand gedacht hat. Wo ein Überlauf ein *erwarteter Fehlerfall*
-ist und kein Programmfehler, steht das ausdrücklich da: `passt_dazu(a, b)`
-bildet die Summe gar nicht erst, sondern prüft `b <= U64MAX - a`. Der
-Unterschied zwischen „darf nicht überlaufen" und „muss einen Fehlerwert
-liefern" ist damit **lesbar**.
+In Firn it is the **language**: every computation that overflows aborts — even
+the one nobody thought of. Where an overflow is an *expected error case* and
+not a programming mistake, that is stated explicitly: `passt_dazu(a, b)` does
+not form the sum at all but checks `b <= U64MAX - a`. The difference between
+"must not overflow" and "has to deliver an error value" is thereby
+**readable**.
 
-### Der Preis: Tempo
+### The price: speed
 
-1 060 000 Aufrufe über alle 53 Fälle, bestes von 5 Läufen:
+1,060,000 calls across all 53 cases, best of 5 runs:
 
-| Fassung | je Aufruf | Verhältnis |
+| version | per call | ratio |
 |---|---|---|
-| Rust-Verfahren (`checked_*`, `cc -O2`) | 79 ns | 1,00× |
-| **Firn `dev-fast`** (was osum baut) | **651 ns** | **8,25×** |
-| Firn `release-fast` (Prüfungen aus) | 136 ns | 1,97× |
+| Rust method (`checked_*`, `cc -O2`) | 79 ns | 1.00× |
+| **Firn `dev-fast`** (what osum builds) | **651 ns** | **8.25×** |
+| Firn `release-fast` (checks off) | 136 ns | 1.97× |
 
-**Das ist schlechter als bei der Bitmap** (dort 5,11× / 1,22×), und der Grund
-ist klar: ein Parser rechnet in jeder Zeile.
+**That is worse than with the bitmap** (5.11× / 1.22× there), and the reason is
+clear: a parser computes in every line.
 
-**Warum es trotzdem tragbar ist:** der Prüfteil läuft im Boot **fünfmal** —
-einmal je Programm plus die Selbsttests. 651 statt 79 Nanosekunden sind
-zusammen unter drei Mikrosekunden. Sollte osum je Programme im Sekundentakt
-starten, ist die Zahl hier festgehalten und muss neu bewertet werden.
+**Why it is bearable anyway:** the checking part runs **five times** during the
+boot — once per program plus the self-tests. 651 instead of 79 nanoseconds add
+up to under three microseconds. Should osum ever start programs by the second,
+the figure is recorded here and will have to be re-evaluated.
 
-**Die Ursache ist gefunden und aufgeschrieben**, nicht hingenommen:
-`tests/firn-fehler/TEMPO.md` benennt drei Codegen-Befunde mit Minimalbeispiel
-und Disassemblat gegen `cc -O2`. Der größte — **die geprüfte Addition legt
-beide Operanden auf den Stapel, auf dem Erfolgspfad** — erklärt rund drei
-Viertel des Aufschlags und lässt sich beheben, ohne die Semantik anzufassen.
+**The cause is found and written down**, not accepted: `tests/firn-fehler/TEMPO.md`
+names three codegen findings with a minimal example and a disassembly against
+`cc -O2`. The largest one — **the checked addition puts both operands on the
+stack, on the success path** — explains about three quarters of the overhead
+and can be fixed without touching the semantics.
 
-### Was verloren ging — ehrlich benannt
+### What was lost — named honestly
 
-**Nichts an Testabdeckung.** Das ist hier ausnahmsweise die ganze Wahrheit: der
-Kernel-Selbsttest mit seinen 16 Fällen läuft unverändert weiter (jetzt gegen die
-Firn-Fassung), und dazu kamen 53 Falldateien, die es vorher nicht gab.
+**Nothing in test coverage.** For once that is the whole truth here: the kernel
+self-test with its 16 cases runs on unchanged (now against the Firn version),
+and 53 case files that did not exist before were added.
 
-Was **nicht** portiert ist und offen bleibt: der Ladeteil (Seiten anlegen,
-Inhalte kopieren, Zurückrollen), rund 440 Zeilen. Er braucht Rückrufe nach
-`mm` und `arch` — machbar seit Runde 75, aber ein eigener Brocken.
+What is **not** ported and stays open: the loading part (create pages, copy
+contents, roll back), about 440 lines. It needs callbacks into `mm` and `arch`
+— doable since round 75, but a chunk of its own.
 
 ---
 
-## Die Reibungspunkte mit Rust
+## The friction points with Rust
 
-Weiterhin gültig als **Anforderungsliste an Firn**: jeder Eintrag beschreibt
-eine Stelle, die in der neuen Sprache besser gelöst werden muss als in der
-alten. Stand der Messwerte (21.08.2026): **438** `unsafe`-Vorkommen in
+Still valid as a **list of requirements for Firn**: every entry describes a
+place that has to be solved better in the new language than in the old one.
+State of the measurements (2026-08-21): **438** `unsafe` occurrences in
 `kernel/src`, **16** `static mut`.
 
-**Regel:** Wer einen Workaround schreibt, trägt ihn hier ein. Kein Eintrag ohne
-Datei und Zeile. Jeder Verweis hat die Form `` `datei.rs:Zeile` (`Anker`) `` und
-wird von `test.sh` (Schritt „Doku-Verweise") maschinell geprüft.
+**Rule:** whoever writes a workaround enters it here. No entry without a file
+and a line. Every reference has the form `` `datei.rs:Zeile` (`Anker`) `` and is
+checked mechanically by `test.sh` (the step "Doku-Verweise").
 
-## L-01 · `abi_x86_interrupt` — nightly für etwas Fundamentales
+## L-01 · `abi_x86_interrupt` — nightly for something fundamental
 
-* **Datei:** `kernel/src/main.rs:26` (`abi_x86_interrupt`), benutzt in `kernel/src/arch/x86_64/interrupts.rs`
-* **Problem:** Ausnahmehandler brauchen eine eigene Aufrufkonvention (die CPU
-  legt einen anderen Rahmen ab, es endet mit `iretq`, bei manchen Vektoren liegt
-  ein Fehlercode auf dem Stack). Rust kann das nur über ein **instabiles**
-  Feature. Ein Kernel ohne Interrupt-Handler ist kein Kernel — das heißt: für
-  eine Kernaufgabe ist die stabile Sprache nicht ausreichend.
-* **Workaround:** `#![feature(abi_x86_interrupt)]`, dokumentiert in
-  ARCHITECTURE.md § 9. Die Alternative wären handgeschriebene Assembler-Stubs
-  für 256 Vektoren.
-* **Eigene Sprache:** Aufrufkonventionen müssen **deklarierbar** sein, nicht
-  eingebaut. Etwas wie „diese Funktion erhält ihren Rahmen von der Hardware,
-  kehrt mit Instruktion X zurück, Register-Rettung nach Liste Y" — als
-  Sprachmittel, nicht als Compiler-Sonderfall pro Architektur.
+* **File:** `kernel/src/main.rs:26` (`abi_x86_interrupt`), used in `kernel/src/arch/x86_64/interrupts.rs`
+* **Problem:** exception handlers need a calling convention of their own (the
+  CPU lays down a different frame, it ends with `iretq`, on some vectors an
+  error code sits on the stack). Rust can do that only through an **unstable**
+  feature. A kernel without interrupt handlers is not a kernel — which means:
+  for a core task the stable language is not sufficient.
+* **Workaround:** `#![feature(abi_x86_interrupt)]`, documented in
+  ARCHITECTURE.md § 9. The alternative would be hand-written assembly stubs for
+  256 vectors.
+* **A language of our own:** calling conventions have to be **declarable**, not
+  built in. Something like "this function receives its frame from the hardware,
+  returns with instruction X, saves registers according to list Y" — as a
+  language construct, not as a compiler special case per architecture.
 
-## L-02 · `alloc_error_handler` — nightly für eine Fehlermeldung
+## L-02 · `alloc_error_handler` — nightly for an error message
 
-* **Datei:** `kernel/src/main.rs:30` (`alloc_error_handler`)
-* **Problem:** Wir wollen bei erschöpftem Heap eine **lesbare** Meldung mit
-  Heap-Statistik statt eines nackten Panics. Das erfordert ein weiteres
-  instabiles Feature.
+* **File:** `kernel/src/main.rs:30` (`alloc_error_handler`)
+* **Problem:** on an exhausted heap we want a **readable** message with heap
+  statistics instead of a bare panic. That requires another unstable feature.
 * **Workaround:** `#![feature(alloc_error_handler)]`.
-* **Eigene Sprache:** Speicherbeschaffung sollte gar keine „Sprachhaken"
-  brauchen. Allokation ist eine gewöhnliche Operation mit einem gewöhnlichen
-  Ergebnis (`Result`), kein globaler Zustand mit einem globalen Fehlerhaken.
-  Siehe auch L-06.
+* **A language of our own:** getting memory should not need "language hooks" at
+  all. Allocation is an ordinary operation with an ordinary result (`Result`),
+  not global state with a global error hook. See also L-06.
 
-## L-03 · `naked` + `naked_asm` für den Kontextwechsel
+## L-03 · `naked` + `naked_asm` for the context switch
 
-* **Datei:** `kernel/src/arch/x86_64/context.rs:100` (`fn switch`)
-* **Problem:** Ein Kontextwechsel darf **keinen** vom Compiler erzeugten Prolog
-  und Epilog haben — er tauscht den Stack unter sich selbst aus. Rust braucht
-  dafür `#[unsafe(naked)]` plus `naked_asm!` und verbietet in solchen Funktionen
-  praktisch alles andere.
-* **Workaround:** funktioniert, ist aber eine Insel: der Compiler weiß nichts
-  über das, was dort passiert, und kann nichts prüfen.
-* **Eigene Sprache:** Der Kontextwechsel ist eine der zehn wichtigsten
-  Operationen eines Kernels. Er sollte ein **verstandenes Sprachkonstrukt** sein
-  („diese Funktion wechselt den Ausführungskontext von A nach B"), damit der
-  Compiler die Register-Rettung selbst korrekt erzeugt und prüfen kann, statt
-  dass ein Mensch sie in Assembler aufschreibt und hofft.
+* **File:** `kernel/src/arch/x86_64/context.rs:100` (`fn switch`)
+* **Problem:** a context switch must have **no** compiler-generated prologue and
+  epilogue — it swaps the stack out from under itself. Rust needs
+  `#[unsafe(naked)]` plus `naked_asm!` for that and forbids practically
+  everything else in such functions.
+* **Workaround:** it works, but it is an island: the compiler knows nothing
+  about what happens in there and can check nothing.
+* **A language of our own:** the context switch is one of the ten most
+  important operations of a kernel. It should be an **understood language
+  construct** ("this function switches the execution context from A to B"), so
+  that the compiler generates the register saving correctly itself and can
+  check it, instead of a human writing it down in assembly and hoping.
 
-## L-04 · `static mut` überall dort, wo Hardware die Adresse vorgibt
+## L-04 · `static mut` everywhere the hardware dictates the address
 
-* **Dateien:** 13 Stellen, u. a.
+* **Files:** 13 places, among them
   `kernel/src/arch/x86_64/idt.rs:50` (`static mut IDT`),
   `kernel/src/arch/x86_64/gdt.rs:36` (`static mut DF_STACK`),
   `kernel/src/boot/limine.rs:68` (`static mut REGIONS`),
   `kernel/src/kcore/sched.rs:734` (`static mut ACTIVE`),
   `kernel/src/kcore/print.rs:31` (`static mut SINK_OBJ`)
-* **Problem:** Diese Objekte haben **genau eine** Instanz, ihre Adresse wird der
-  Hardware übergeben (`lidt`, `lgdt`, `ltr`), und sie werden aus
-  Interrupt-Kontext gelesen. Rusts Eigentumsmodell hat dafür keine Kategorie:
-  es gibt kein „gehört der CPU". Man landet bei `static mut` + `addr_of_mut!`
-  (25 Stellen) oder baut Zeigergymnastik.
-* **Workaround:** `static mut` mit `addr_of_mut!`, um keine Referenzen zu
-  erzeugen; jeder Zugriff ist `unsafe`.
-* **Eigene Sprache:** Ein Eigentümerbegriff für **Hardware-Eigentum**. Etwa
-  `hardware static IDT: [Gate; 256] @ align(16)` — der Compiler weiß dann: eine
-  Instanz, Adresse stabil, Zugriff nur über eine definierte Schnittstelle, keine
-  Referenzen nach draußen. Das ist kein Sicherheitsloch, sondern eine fehlende
-  Kategorie.
+* **Problem:** these objects have **exactly one** instance, their address is
+  handed to the hardware (`lidt`, `lgdt`, `ltr`), and they are read from
+  interrupt context. Rust's ownership model has no category for that: there is
+  no "belongs to the CPU". You end up with `static mut` + `addr_of_mut!` (25
+  places) or you build pointer gymnastics.
+* **Workaround:** `static mut` with `addr_of_mut!` so as not to create
+  references; every access is `unsafe`.
+* **A language of our own:** a notion of ownership for **hardware ownership**.
+  Something like `hardware static IDT: [Gate; 256] @ align(16)` — the compiler
+  then knows: one instance, a stable address, access only through a defined
+  interface, no references leaving. That is not a security hole, it is a
+  missing category.
 
-## L-05 · Seitentabellen: 34 `unsafe`-Vorkommen für eine Baumstruktur
+## L-05 · Page tables: 34 `unsafe` occurrences for a tree structure
 
-* **Datei:** `kernel/src/arch/x86_64/paging.rs` (34), `mm/mod.rs` (9)
-* **Problem:** Eine Seitentabelle ist ein Baum aus 512er-Feldern, die über
-  **physische** Adressen verkettet sind und nur über ein
-  Direct-Map-Fenster (`phys + HHDM`) erreichbar sind. Rusts Referenzen können
-  physische Adressen nicht ausdrücken; jeder Abstieg im Baum ist eine
-  Rohzeigerrechnung. Der Borrow-Checker hilft hier nirgends.
-* **Workaround:** `PhysAddr`/`VirtAddr` als eigene Typen, `phys_to_virt()`,
-  Rohzeiger, alles `unsafe`.
-* **Eigene Sprache:** **Adressräume als Typen erster Klasse.** Ein Zeiger sollte
-  wissen, in welchem Adressraum er gilt (`phys`, `virt`, `virt@prozess-7`), und
-  der Compiler sollte die Umwandlung erzwingen statt sie zu erlauben. Dann wäre
-  „physische Adresse dereferenziert ohne HHDM" ein Typfehler statt eines Absturzes.
+* **File:** `kernel/src/arch/x86_64/paging.rs` (34), `mm/mod.rs` (9)
+* **Problem:** a page table is a tree of 512-entry arrays chained through
+  **physical** addresses and reachable only through a direct map window
+  (`phys + HHDM`). Rust's references cannot express physical addresses; every
+  descent in the tree is raw pointer arithmetic. The borrow checker helps
+  nowhere here.
+* **Workaround:** `PhysAddr`/`VirtAddr` as types of their own,
+  `phys_to_virt()`, raw pointers, everything `unsafe`.
+* **A language of our own:** **address spaces as first-class types.** A pointer
+  should know in which address space it is valid (`phys`, `virt`,
+  `virt@prozess-7`), and the compiler should enforce the conversion instead of
+  permitting it. Then "a physical address dereferenced without HHDM" would be a
+  type error instead of a crash.
 
-## L-06 · Der globale Allokator ist ein globaler Zustand
+## L-06 · The global allocator is global state
 
-* **Datei:** `kernel/src/mm/heap.rs` (37 `unsafe`-Vorkommen)
-* **Problem:** `#[global_allocator]` ist genau ein Allokator für den ganzen
-  Prozess. Ein Kernel will mehrere: früher Boot-Allokator, Kernel-Heap,
-  DMA-tauglicher Speicher (physisch zusammenhängend, unterhalb einer Grenze),
-  Per-CPU-Bereiche, später Per-Prozess. `Vec::new_in(alloc)` existiert nur
-  hinter `allocator_api` (wieder nightly), und `Box`/`String`/`format!` benutzen
-  weiter den globalen.
-* **Workaround:** ein einziger globaler Heap; alles andere geht am `alloc`-Crate
-  vorbei und arbeitet direkt mit Frames.
-* **Eigene Sprache:** Allokator als **explizites Argument** oder als Kontext im
-  Typ, ohne Sonderweg für die Standarddatentypen. „Woher kommt dieser Speicher"
-  ist im Kernel eine Kernfrage, keine Randnotiz.
+* **File:** `kernel/src/mm/heap.rs` (37 `unsafe` occurrences)
+* **Problem:** `#[global_allocator]` is exactly one allocator for the whole
+  process. A kernel wants several: an early boot allocator, the kernel heap,
+  DMA-capable memory (physically contiguous, below a boundary), per-CPU areas,
+  later per-process. `Vec::new_in(alloc)` exists only behind `allocator_api`
+  (nightly again), and `Box`/`String`/`format!` keep using the global one.
+* **Workaround:** a single global heap; everything else goes past the `alloc`
+  crate and works with frames directly.
+* **A language of our own:** the allocator as an **explicit argument** or as
+  context in the type, without a special path for the standard data types.
+  "Where does this memory come from" is a core question in a kernel, not a
+  footnote.
 
-## L-07 · Interrupt-Kontext ist im Typsystem unsichtbar
+## L-07 · Interrupt context is invisible in the type system
 
-* **Dateien:** `arch/x86_64/interrupts.rs`, `arch/x86_64/serial.rs` (bewusst
-  ungesperrt), `kcore/print.rs`
-* **Problem:** Manche Funktionen dürfen aus einem Interrupt-Handler nicht
-  aufgerufen werden (alles, was eine Sperre nimmt, die der unterbrochene Code
-  schon hält). Rust kann das nicht ausdrücken — es bleibt bei Kommentaren.
-  Konkrete Folge in diesem Baum: die serielle Ausgabe läuft **ohne Sperre**,
-  damit der Panic-Handler nicht verklemmt (`serial.rs`, Modulkommentar). Das ist
-  eine bewusste Entscheidung, die niemand prüft.
-* **Workaround:** Disziplin und Kommentare.
-* **Eigene Sprache:** **Effekte im Typsystem.** Eine Funktion trägt „darf im
-  Interrupt-Kontext laufen" oder „nimmt Sperre L"; der Compiler weist
-  Verletzungen ab. Verklemmungen sind eine statisch entscheidbare Klasse von
-  Fehlern, sobald die Sperrhierarchie deklariert ist.
+* **Files:** `arch/x86_64/interrupts.rs`, `arch/x86_64/serial.rs`
+  (deliberately unlocked), `kcore/print.rs`
+* **Problem:** some functions must not be called from an interrupt handler
+  (everything that takes a lock the interrupted code already holds). Rust
+  cannot express that — it stays with comments. The concrete consequence in
+  this tree: the serial output runs **without a lock**, so that the panic
+  handler does not deadlock (`serial.rs`, module comment). That is a deliberate
+  decision that nobody checks.
+* **Workaround:** discipline and comments.
+* **A language of our own:** **effects in the type system.** A function carries
+  "may run in interrupt context" or "takes lock L"; the compiler refuses
+  violations. Deadlocks are a statically decidable class of bugs as soon as the
+  lock hierarchy is declared.
 
-## L-08 · `transmute` für einen Funktionszeiger auf Daten
+## L-08 · `transmute` for a function pointer to data
 
-* **Datei:** `kernel/src/arch/x86_64/selftest.rs:71` (`transmute`)
-* **Problem:** Der NX-Selbsttest muss absichtlich in einen Datenpuffer springen.
-  Rust kennt keinen Weg, aus einer Adresse einen aufrufbaren Zeiger zu machen,
-  außer `transmute` — dem stumpfsten Werkzeug der Sprache, das alles erlaubt.
-* **Workaround:** `core::mem::transmute`, eng gekapselt.
-* **Eigene Sprache:** Ein **gezielter** Operator „Adresse als Code
-  interpretieren", der genau das erlaubt und sonst nichts. Ein Werkzeug, das
-  alles kann, verhindert nichts.
+* **File:** `kernel/src/arch/x86_64/selftest.rs:71` (`transmute`)
+* **Problem:** the NX self-test has to jump into a data buffer on purpose. Rust
+  knows no way to turn an address into a callable pointer other than
+  `transmute` — the bluntest tool in the language, the one that permits
+  everything.
+* **Workaround:** `core::mem::transmute`, tightly encapsulated.
+* **A language of our own:** a **targeted** operator "interpret an address as
+  code" that permits exactly that and nothing else. A tool that can do
+  everything prevents nothing.
 
-## L-09 · Verlorene Typinformation an der Fassade `arch`
+## L-09 · Lost type information at the `arch` façade
 
-* **Dateien:** `kernel/src/arch/mod.rs`, `kcore/arch_iface.rs`
-* **Problem:** Die arch-Grenze ist als Trait mit assoziierten Typen gebaut
-  (`ArchOps::AddressSpace`, `::Timer`, `::IntCtl`). Damit der Core sie ohne
-  Generics benutzen kann, gibt es in `arch/mod.rs` freie Funktionen, die
-  weiterreichen. Das ist Verdopplung von Hand: jede neue Traitmethode muss an
-  drei Stellen eingetragen werden (Trait, Fassade, Implementierung).
-  Sichtbar geworden bei `fault_stack_top()` in dieser Runde.
-* **Workaround:** Disziplin; `test.sh` Schritt 15 fängt wenigstens Lecks.
-* **Eigene Sprache:** Etwas wie „Modul erfüllt Schnittstelle, wird beim Bauen
-  ausgewählt" (Signaturen wie in ML/OCaml, nur mit statischer Auswahl) — dann
-  entfällt die Fassade ersatzlos.
+* **Files:** `kernel/src/arch/mod.rs`, `kcore/arch_iface.rs`
+* **Problem:** the arch boundary is built as a trait with associated types
+  (`ArchOps::AddressSpace`, `::Timer`, `::IntCtl`). So that the core can use it
+  without generics, there are free functions in `arch/mod.rs` that pass through.
+  That is duplication by hand: every new trait method has to be entered in three
+  places (trait, façade, implementation). It became visible with
+  `fault_stack_top()` in this round.
+* **Workaround:** discipline; `test.sh` step 15 at least catches leaks.
+* **A language of our own:** something like "a module satisfies an interface and
+  is selected at build time" (signatures as in ML/OCaml, only with static
+  selection) — then the façade goes away without replacement.
 
-## L-10 · Kein `core` ohne Kunstgriffe: `build-std` und Target-JSON
+## L-10 · No `core` without contrivances: `build-std` and target JSON
 
-* **Dateien:** `build.sh`, `.cargo/config.toml`, `x86_64-osum-none.json`
-* **Problem:** Für ein eigenes Ziel muss `core`/`alloc` aus den Quellen neu
-  gebaut werden (`-Z build-std`, instabil). Zusätzlich musste `build-std` aus
-  `.cargo/config.toml` **heraus**, weil `[unstable]` für **jedes** Ziel gilt und
-  die Host-Tests dann an einem zweiten `core` scheitern
-  (`duplicate lang item: sized`) — ein Werkzeugproblem, das eine halbe Stunde
-  Suche gekostet hat.
-* **Workaround:** `build-std` als Flag in `build.sh`, dokumentiert in
+* **Files:** `build.sh`, `.cargo/config.toml`, `x86_64-osum-none.json`
+* **Problem:** for a target of our own, `core`/`alloc` have to be rebuilt from
+  source (`-Z build-std`, unstable). On top of that, `build-std` had to come
+  **out** of `.cargo/config.toml`, because `[unstable]` applies to **every**
+  target and the host tests then fail on a second `core`
+  (`duplicate lang item: sized`) — a tooling problem that cost half an hour of
+  searching.
+* **Workaround:** `build-std` as a flag in `build.sh`, documented in
   ARCHITECTURE.md § 9.
-* **Eigene Sprache/Werkzeugkette:** Ein Ziel ist eine **Beschreibung**, keine
-  privilegierte Liste im Compiler. Die Standardbibliothek wird für jedes Ziel
-  gleich behandelt — es gibt keinen „eingebauten" und keinen „selbstgebauten"
-  Fall.
+* **A language / toolchain of our own:** a target is a **description**, not a
+  privileged list inside the compiler. The standard library is treated the same
+  way for every target — there is no "built-in" and no "self-built" case.
 
-## L-11 · Der volle Registersatz ist Handarbeit — und niemand prüft ihn
+## L-11 · The full register set is hand work — and nobody checks it
 
-* **Dateien:** `kernel/src/arch/x86_64/preempt.rs:244` (`fn irq0_entry`,
-  `naked_asm!`), Struktur `kernel/src/arch/x86_64/preempt.rs:90`
-  (`struct FullFrame`) derselben Datei
-* **Problem:** Für Präemption muss der Einsprung **alle 15** GPR retten (der
-  kooperative Wechsel kommt mit den callee-saved aus). Der Assemblerteil pusht
-  sie in einer Reihenfolge; die Rust-Struktur `FullFrame`, mit der der Verteiler
-  sie liest, muss **exakt die umgekehrte** Reihenfolge auflisten. Beide stehen
-   zwar untereinander in einer Datei, sind aber durch nichts verbunden: vertauscht
-  jemand zwei Zeilen im Assembler und nicht in der Struktur, liest der Kernel
-  `r11` als `rax` — und zwar erst dann falsch, wenn ein Tick genau dort landet.
-  Der Compiler sieht davon nichts.
-* **Workaround:** Kommentar über der Struktur („umgekehrte Push-Reihenfolge"),
-  ein Selbsttest, der nach 60 Ticks prüft, dass alle drei Threads unversehrt
-  weiterrechnen.
-* **Eigene Sprache:** Registerrettung gehört **abgeleitet**, nicht abgeschrieben.
-  Aus einer Deklaration „dieser Einsprung erhält den Hardware-Rahmen X und
-  rettet Registersatz Y" sollte der Compiler Prolog, Epilog *und* den Typ, mit
-  dem man den Rahmen liest, gemeinsam erzeugen. Zwei Beschreibungen desselben
-  Sachverhalts, die von Hand synchron gehalten werden, sind ein Sprachmangel.
+* **Files:** `kernel/src/arch/x86_64/preempt.rs:244` (`fn irq0_entry`,
+  `naked_asm!`), the struct `kernel/src/arch/x86_64/preempt.rs:90`
+  (`struct FullFrame`) in the same file
+* **Problem:** for preemption the entry point has to save **all 15** GPRs (the
+  cooperative switch gets by with the callee-saved ones). The assembly part
+  pushes them in one order; the Rust struct `FullFrame`, with which the
+  dispatcher reads them, has to list **exactly the reverse** order. The two do
+  stand below each other in one file, but nothing connects them: if somebody
+  swaps two lines in the assembly and not in the struct, the kernel reads `r11`
+  as `rax` — and only reads it wrong once a tick lands exactly there. The
+  compiler sees none of it.
+* **Workaround:** a comment above the struct ("reverse push order"), a self-test
+  that checks after 60 ticks that all three threads carry on computing intact.
+* **A language of our own:** saving registers belongs **derived**, not copied
+  out. From a declaration "this entry point receives hardware frame X and saves
+  register set Y" the compiler should generate the prologue, the epilogue *and*
+  the type with which the frame is read, together. Two descriptions of the same
+  fact, kept in sync by hand, are a language deficiency.
 
-## L-12 · Systemaufruf-Einsprung: eine Konvention, die Rust nicht kennt
+## L-12 · System call entry: a convention Rust does not know
 
-* **Dateien:** `kernel/src/arch/x86_64/user.rs:773` (`fn syscall_entry`),
+* **Files:** `kernel/src/arch/x86_64/user.rs:773` (`fn syscall_entry`),
   `kernel/src/arch/x86_64/user.rs:656` (`fn enter_ring3`),
   `kernel/src/arch/x86_64/user.rs:702` (`fn resume_kernel`),
   `kernel/src/arch/x86_64/user.rs:724` (`fn resume_kernel_after_fault`)
-  — vier weitere `naked_asm!`-Rümpfe
-* **Problem:** Bei `syscall` liefert die CPU keinen Stapelrahmen, sondern legt
-  den Rücksprung in `rcx`, die Flags in `r11` und **behält den Stapel des
-  Aufrufers** — der Kernel muss selbst umschalten, vorher das Basisregister
-  tauschen und danach exakt in umgekehrter Reihenfolge zurück. Rust hat dafür
-  keine Aufrufkonvention; `extern "C"` wäre schlicht falsch. Ergebnis: fünf
-  nackte Funktionen in einer Datei, in denen der Compiler nichts prüfen kann,
-  und ein Per-CPU-Block als `static mut`
-  (`kernel/src/arch/x86_64/user.rs:117` (`static mut PERCPU`)), weil „gehört diesem
-  Prozessorkern" keine Kategorie im Eigentumsmodell ist.
-* **Workaround:** alles in eine Datei, ausführlicher Ablaufkommentar im
-  Modulkopf, Messwerte (CS, CPL, Stapel) aus einem **echten** Ausnahmerahmen
-  statt aus Behauptungen.
-* **Eigene Sprache:** siehe L-01 — Aufrufkonventionen als deklarierbares
-  Sprachmittel. Zusätzlich: **Privilegstufe als Effekt.** „Diese Funktion läuft
-  auf Kernelseite eines Übergangs" ist prüfbar, sobald die Sprache den Begriff
-  kennt.
+  — four more `naked_asm!` bodies
+* **Problem:** on `syscall` the CPU delivers no stack frame but puts the return
+  address in `rcx` and the flags in `r11`, and **keeps the caller's stack** —
+  the kernel has to switch itself, swap the base register beforehand and go
+  back afterwards in exactly the reverse order. Rust has no calling convention
+  for that; `extern "C"` would simply be wrong. The result: five naked
+  functions in one file in which the compiler can check nothing, and a per-CPU
+  block as `static mut` (`kernel/src/arch/x86_64/user.rs:117`
+  (`static mut PERCPU`)), because "belongs to this processor core" is no
+  category in the ownership model.
+* **Workaround:** everything in one file, a detailed sequence comment in the
+  module header, measured values (CS, CPL, stack) from a **real** exception
+  frame instead of from claims.
+* **A language of our own:** see L-01 — calling conventions as a declarable
+  language construct. In addition: **the privilege level as an effect.** "This
+  function runs on the kernel side of a transition" is checkable as soon as the
+  language knows the concept.
 
-## L-13 · Ein Zeiger aus Ring 3 sieht aus wie jeder andere Zeiger
+## L-13 · A pointer from ring 3 looks like every other pointer
 
-* **Dateien:** `kernel/src/kcore/user.rs:66` (`fn is_user_addr`),
-  `kernel/src/kcore/user.rs:254` (`aus Ring 3 abgewiesen`, Meldung im Log),
-  Pufferprüfung im Verteiler `kernel/src/abi/native.rs`
-* **Problem:** Ein Systemaufruf bekommt Adresse und Länge als zwei `u64`. Im
-  Typsystem ist nichts daran anders als an einer Kerneladresse — die Prüfung
-  „liegt im eigenen Bereich, Länge läuft nicht über" ist reine Disziplin an
-  jeder einzelnen Aufrufstelle. Vergisst man sie an einer Stelle, schreibt ein
-  unprivilegiertes Programm in den Kernel, und **kein Werkzeug meldet das**.
-* **Workaround:** Jeder Puffer aus Ring 3 läuft durch dieselbe Prüfung; der
-  Negativtest steht als Zusage im Boot-Log („Zeiger … aus Ring 3 abgewiesen").
-* **Eigene Sprache:** Fortsetzung von L-05: Zeiger sollten ihren **Adressraum
-  und ihre Herkunft** im Typ tragen (`virt@user(pid)` vs. `virt@kernel`). Eine
-  Umwandlung ist dann eine Prüfung mit Ergebnis — nicht eine Konvention, an die
-  man sich erinnern muss.
+* **Files:** `kernel/src/kcore/user.rs:66` (`fn is_user_addr`),
+  `kernel/src/kcore/user.rs:254` (`aus Ring 3 abgewiesen`, message in the log),
+  the buffer check in the dispatcher `kernel/src/abi/native.rs`
+* **Problem:** a system call gets an address and a length as two `u64`. In the
+  type system nothing about it differs from a kernel address — the check "lies
+  in its own area, the length does not overflow" is pure discipline at every
+  single call site. Forget it in one place and an unprivileged program writes
+  into the kernel, and **no tool reports it**.
+* **Workaround:** every buffer from ring 3 goes through the same check; the
+  negative test stands as a check in the boot log ("Zeiger … aus Ring 3
+  abgewiesen").
+* **A language of our own:** a continuation of L-05: pointers should carry
+  their **address space and their provenance** in the type (`virt@user(pid)`
+  vs. `virt@kernel`). A conversion is then a check with a result — not a
+  convention you have to remember.
 
-## L-14 · Bytes in Strukturen lesen: entweder `unsafe` oder von Hand
+## L-14 · Reading bytes into structs: either `unsafe` or by hand
 
-* **Datei:** `kernel/src/kcore/initramfs.rs:154` (`fn rd32`), daneben `rd64`
-  * *Stand 23.08.2026:* Die ELF-Seite dieses Eintrags ist weg — die Byteleser
-    des ELF-Kopfs liegen jetzt in `kernel/firn/elf.fi`. **Gelöst ist der Punkt
-    damit nicht:** dort stehen sie genauso von Hand, nur mit geprüfter
-    Arithmetik. Die Formatbeschreibung als Sprachmittel fehlt Firn ebenso.
-    Der Archivleser ist noch in Rust und hält den Eintrag offen.
-* **Problem:** Ein ELF-Kopf und ein Archiveintrag sind Bytefolgen fester Lage.
-  Rust bietet dafür genau zwei Wege: `transmute`/Zeigerspiel (unsicher, und bei
-  falscher Ausrichtung schlicht undefiniert) oder Feld für Feld
-  `u64::from_le_bytes([b[o], b[o+1], …])`. Wir haben den zweiten gewählt — das
-  ist sicher, aber es sind acht Indexzugriffe für **eine** Zahl, und die
-  Feldversätze stehen als Konstanten daneben, statt aus einer
-  Formatbeschreibung zu folgen. Eine Crate wie `zerocopy` wäre eine
-  Fremdabhängigkeit für etwas, das die Sprache können sollte.
-* **Workaround:** eigene kleine Leser mit vorheriger Längenprüfung; alle
-  Additionen `checked_*`; 11 + 7 Negativfälle im Boot-Log als Beweis.
-* **Eigene Sprache:** **Formatbeschreibungen als Sprachmittel.** „Diese
-  Struktur liegt little-endian ab Versatz N in diesem Puffer" sollte deklariert
-  werden, woraus der Compiler Prüfung und Zugriff erzeugt — sicher, ohne
-  Ausrichtungsannahme und ohne Fremdcrate.
+* **File:** `kernel/src/kcore/initramfs.rs:154` (`fn rd32`), next to it `rd64`
+  * *State 2026-08-23:* the ELF side of this entry is gone — the byte readers
+    of the ELF header now live in `kernel/firn/elf.fi`. **That does not solve
+    the point:** there they stand just as much by hand, only with checked
+    arithmetic. Firn lacks the format description as a language construct just
+    as much. The archive reader is still in Rust and keeps the entry open.
+* **Problem:** an ELF header and an archive entry are byte sequences at fixed
+  positions. Rust offers exactly two ways for that: `transmute`/pointer play
+  (unsafe, and on wrong alignment simply undefined) or field by field
+  `u64::from_le_bytes([b[o], b[o+1], …])`. We chose the second — that is safe,
+  but it is eight index accesses for **one** number, and the field offsets
+  stand next to it as constants instead of following from a format description.
+  A crate like `zerocopy` would be a foreign dependency for something the
+  language should be able to do.
+* **Workaround:** small readers of our own with a length check beforehand; all
+  additions `checked_*`; 11 + 7 negative cases in the boot log as proof.
+* **A language of our own:** **format descriptions as a language construct.**
+  "This struct lies little-endian from offset N in this buffer" should be
+  declared, from which the compiler generates the check and the access — safe,
+  without an alignment assumption and without a foreign crate.
 
-## L-15 · Im Interrupt darf nicht allokiert werden — sagt nur der Kommentar
+## L-15 · You must not allocate in an interrupt — only the comment says so
 
-* **Dateien:** `kernel/src/kcore/preempt.rs`, `kernel/src/kcore/sched.rs:734`
+* **Files:** `kernel/src/kcore/preempt.rs`, `kernel/src/kcore/sched.rs:734`
   (`static mut ACTIVE`)
-* **Problem:** Der Zeitgebereinsprung entscheidet über einen Threadwechsel. Er
-  darf dabei weder den Heap anfassen (der Sperren nimmt) noch eine Sperre
-  nehmen, die der verdrängte Code gerade hält. Der Planer ist deshalb über
-  einen rohen Zeiger erreichbar statt über eine Sperre — funktioniert, ist aber
-  wieder nur Disziplin. Rust kann „diese Funktion allokiert nicht" nicht
-  ausdrücken; `#[no_alloc]` gibt es nicht.
-* **Workaround:** Der verdrängende Pfad allokiert nachweislich nicht (alle
-  Thread-Stapel entstehen beim `spawn`, nicht im Tick), Kommentar im Modulkopf.
-* **Eigene Sprache:** Effektsystem wie in L-07, aber mit der Kategorie
-  **Allokation**. „Darf nicht allokieren" ist die häufigste ungeschriebene
-  Regel im Kernel und gehört in die Signatur.
+* **Problem:** the timer entry point decides on a thread switch. In doing so it
+  may neither touch the heap (which takes locks) nor take a lock that the
+  preempted code is currently holding. The scheduler is therefore reachable
+  through a raw pointer instead of through a lock — it works, but it is again
+  only discipline. Rust cannot express "this function does not allocate";
+  `#[no_alloc]` does not exist.
+* **Workaround:** the preempting path demonstrably does not allocate (all
+  thread stacks come into being at `spawn`, not in the tick), a comment in the
+  module header.
+* **A language of our own:** an effect system as in L-07, but with the category
+  **allocation**. "Must not allocate" is the most common unwritten rule in a
+  kernel and belongs in the signature.
 
 ---
 
-## Muster, die sich abzeichnen
+## Patterns that are emerging
 
-Nach Phase 1–3 wiederholen sich dieselben drei Themen — jetzt mit mehr Belegen:
+After phases 1–3 the same three themes repeat — now with more evidence:
 
-1. **Adressräume und Zeigerarten** (L-05, L-08, **L-13**) — Rust kennt genau
-   eine Art Zeiger. Ein Kernel braucht mindestens vier (physisch,
-   virtuell-eigener Raum, virtuell-fremder Raum, **aus Ring 3 hereingereicht**)
-   und will sie nicht verwechseln dürfen. Mit Ring 3 ist aus einem
-   Bequemlichkeitsproblem ein Sicherheitsproblem geworden.
-2. **Hardware-Eigentum und Einzelinstanzen** (L-04, **L-12**) — Objekte, deren
-   Eigentümer die CPU ist, passen in kein Eigentumsmodell, das nur Programmteile
-   kennt. Der Per-CPU-Block ist der dritte Fall derselben Art.
-3. **Ausführungskontext als Effekt** (L-03, L-07, **L-11**, **L-12**, **L-15**)
-   — „läuft im Interrupt", „wechselt den Kontext", „hält Sperre L", „allokiert
-   nicht", „läuft auf der Kernelseite eines Privilegübergangs" sind prüfbare
-   Eigenschaften, die heute alle nur in Kommentaren stehen. Dieses Muster ist in
-   dieser Runde am deutlichsten gewachsen.
+1. **Address spaces and kinds of pointer** (L-05, L-08, **L-13**) — Rust knows
+   exactly one kind of pointer. A kernel needs at least four (physical,
+   virtual in its own space, virtual in a foreign space, **handed in from ring
+   3**) and does not want to be allowed to confuse them. With ring 3 a
+   convenience problem has turned into a security problem.
+2. **Hardware ownership and single instances** (L-04, **L-12**) — objects whose
+   owner is the CPU fit into no ownership model that only knows parts of a
+   program. The per-CPU block is the third case of the same kind.
+3. **Execution context as an effect** (L-03, L-07, **L-11**, **L-12**,
+   **L-15**) — "runs in an interrupt", "switches the context", "holds lock L",
+   "does not allocate", "runs on the kernel side of a privilege transition" are
+   checkable properties that today all stand only in comments. This pattern has
+   grown the most clearly in this round.
 
-Neu hinzugekommen und (noch) kein Muster, aber notiert:
-**Formatbeschreibungen** (L-14) — ELF-Kopf, Archiveintrag, Seitentabelleneintrag
-sind alle „Bytes an festen Versätzen"; dreimal von Hand ausgelesen.
+Newly added and (not yet) a pattern, but noted: **format descriptions** (L-14)
+— an ELF header, an archive entry, a page table entry are all "bytes at fixed
+offsets"; read out by hand three times.
 
-Fünf neue Einträge in einer Runde, alle aus demselben Anlass (Präemption,
-Ring 3). Fünfzehn Einträge sind noch kein Zwang zur eigenen Sprache — aber die
-Richtung ist inzwischen eindeutig.
+Five new entries in one round, all from the same occasion (preemption, ring 3).
+Fifteen entries are not yet a compulsion towards a language of our own — but
+the direction is by now unambiguous.
 
-## Was gegen eine eigene Sprache spricht (auch das gehört hierher)
+## What speaks against a language of our own (that belongs here too)
 
-* Rust hat 413 `unsafe`-Vorkommen **nicht verhindert**, aber sie **sichtbar
-  gemacht**. Jede dieser Stellen ist markiert, begründet und auffindbar. Das ist
-  mehr, als C je geboten hat.
-* Der Borrow-Checker hat in `libs/osum-mem` (Bitmap, Heap, Regionen) und in
-  `libs/osum-abi-native` (Handle-Tabelle) real Fehler verhindert — dort liegt
-  die Logik, dort ist er wertvoll, dort laufen 151 Host-Tests. Die
-  Capability-Regeln dieser Runde waren auf dem Host fertig getestet, **bevor**
-  der Kernel sie zum ersten Mal ausgeführt hat.
-* Eine eigene Sprache heißt: Compiler, Optimierer, Debugger-Formate, Formatierer,
-  Editorunterstützung, Bibliothek. Jede Stunde daran ist eine Stunde nicht am
-  Betriebssystem.
-* Solange die Liste oben zehn Einträge hat und nicht hundert, ist die ehrliche
-  Antwort: **Rust reicht.**
+* Rust did **not prevent** 413 `unsafe` occurrences, but it **made them
+  visible**. Every one of those places is marked, justified and findable. That
+  is more than C ever offered.
+* The borrow checker really did prevent bugs in `libs/osum-mem` (bitmap, heap,
+  regions) and in `libs/osum-abi-native` (the handle table) — that is where the
+  logic lies, that is where it is valuable, that is where 151 host tests run.
+  The capability rules of this round were fully tested on the host **before**
+  the kernel executed them for the first time.
+* A language of our own means: a compiler, an optimiser, debugger formats, a
+  formatter, editor support, a library. Every hour on that is an hour not spent
+  on the operating system.
+* As long as the list above has ten entries and not a hundred, the honest
+  answer is: **Rust is enough.**
 
-## L-16 · Ein Ausnahmerahmen gehört zu einem Stapel — die Sprache weiß es nicht
+## L-16 · An exception frame belongs to a stack — the language does not know it
 
-* **Dateien:** `kernel/src/arch/x86_64/user.rs:162` (`const TRAP_GAP`),
+* **Files:** `kernel/src/arch/x86_64/user.rs:162` (`const TRAP_GAP`),
   `kernel/src/arch/x86_64/preempt.rs:60` (`static USER_PREEMPTIONS`),
   `kernel/src/kcore/user.rs:510` (`fn run_preemptible`)
-* **Problem:** Damit ein Programm in Ring 3 verdrängt und später **fortgesetzt**
-  werden kann, muss der Rahmen, den die CPU beim Privilegwechsel ablegt, auf dem
-  Kernelstapel **genau des Threads** liegen, der das Programm trägt. Liegt er auf
-  einem gemeinsamen Stapel, überschreibt ihn der nächste Wechsel — und das
-  Programm kehrt in einen Zustand zurück, den es nie hatte. Diese Bindung
-  „Rahmen ↔ Stapel ↔ Thread" ist im Typsystem nirgends sichtbar: `TSS.rsp0` ist
-  eine nackte Zahl, und ob sie gerade auf den richtigen Stapel zeigt, weiß nur
-  der Mensch. Ein Fehler hier äußert sich nicht als Absturz an der Fehlerstelle,
-  sondern als sporadisch falsches Register Millisekunden später.
-* **Workaround:** Der Stapel wird beim Eintritt in Ring 3 aus dem eigenen
-  Stapelzeiger abgeleitet (`TRAP_GAP` Abstand) und danach zurückgesetzt; ein
-  Schalter (`set_preemptible`) trennt die beiden Betriebsarten hart, und der
-  Nachweis läuft in jedem Boot mit (12 Unterbrechungen, Programm endet trotzdem
-  mit Code 0).
-* **Eigene Sprache:** Stapel sollten **Typen mit Kapazität und Besitzer** sein,
-  keine `u64`. „Diese Ausnahme legt ihren Rahmen auf Stapel S ab, S gehört
-  Thread T, T ist gerade eingelastet" ist eine Aussage, die eine Systemsprache
-  prüfen können sollte. Solange sie es nicht kann, ist Präemption in Ring 3
-  Handarbeit mit sehr scharfen Kanten.
+* **Problem:** for a program in ring 3 to be preempted and later **resumed**,
+  the frame the CPU lays down at the privilege change has to lie on the kernel
+  stack of **exactly the thread** that carries the program. If it lies on a
+  shared stack, the next switch overwrites it — and the program returns into a
+  state it never had. This binding "frame ↔ stack ↔ thread" is nowhere visible
+  in the type system: `TSS.rsp0` is a bare number, and whether it currently
+  points at the right stack is known only to the human. A mistake here does not
+  show up as a crash at the place of the mistake but as a sporadically wrong
+  register milliseconds later.
+* **Workaround:** the stack is derived at entry into ring 3 from the own stack
+  pointer (`TRAP_GAP` distance) and reset afterwards; a switch
+  (`set_preemptible`) separates the two operating modes hard, and the proof
+  runs along in every boot (12 interruptions, the program still ends with code
+  0).
+* **A language of our own:** stacks should be **types with a capacity and an
+  owner**, not `u64`. "This exception lays its frame down on stack S, S belongs
+  to thread T, T is currently scheduled" is a statement a systems language
+  should be able to check. As long as it cannot, preemption in ring 3 is hand
+  work with very sharp edges.
 
-## L-17 · `swapgs`: globaler Zustand, den kein Typ beschreibt
+## L-17 · `swapgs`: global state that no type describes
 
-* **Dateien:** `kernel/src/arch/x86_64/user.rs:688` (`swapgs` im Einsprung),
-  `kernel/src/arch/x86_64/preempt.rs:244` (`fn irq0_entry`, bewusst **ohne**
-  `swapgs`)
-* **Problem:** Ob `gs:` gerade auf den Kernel- oder auf den Programmblock zeigt,
-  hängt davon ab, wie oft `swapgs` auf dem Weg hierher ausgeführt wurde. Das ist
-  versteckter globaler Zustand: dieselbe Rust-Funktion ist je nach Aufrufweg
-  korrekt oder nicht. Rust hat dafür keinen Begriff, und `unsafe` sagt nur
-  „hier passiert etwas Gefährliches", nicht „hier gilt Zustand X".
-* **Workaround:** Genau eine Datei fasst `swapgs` an, der Modulkopf beschreibt
-  jeden Pfad einzeln, und der Verdrängungspfad kommt bewusst ohne aus (er
-  benutzt `gs:` nicht).
-* **Eigene Sprache:** So etwas gehört als **Effekt/Zustandsindex** in die
-  Signatur: `fn dispatch(...) requires gs = kernel`. Der Compiler weist dann den
-  Aufruf aus einem Pfad ab, der den Zustand nicht hergestellt hat — statt dass
-  ein Mensch drei Aufrufwege im Kopf behält.
+* **Files:** `kernel/src/arch/x86_64/user.rs:688` (`swapgs` at the entry
+  point), `kernel/src/arch/x86_64/preempt.rs:244` (`fn irq0_entry`,
+  deliberately **without** `swapgs`)
+* **Problem:** whether `gs:` currently points at the kernel block or at the
+  program block depends on how often `swapgs` was executed on the way here.
+  That is hidden global state: the same Rust function is correct or not
+  depending on the call path. Rust has no concept for it, and `unsafe` says
+  only "something dangerous happens here", not "state X holds here".
+* **Workaround:** exactly one file touches `swapgs`, the module header
+  describes every path individually, and the preemption path deliberately does
+  without it (it does not use `gs:`).
+* **A language of our own:** something like that belongs in the signature as an
+  **effect / state index**: `fn dispatch(...) requires gs = kernel`. The
+  compiler then refuses the call from a path that has not established the state
+  — instead of a human keeping three call paths in his head.

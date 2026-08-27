@@ -1126,6 +1126,15 @@ class Wurzel:
         if not os.path.exists(os.path.join(self.p, "system", "AKTUELL")):
             self.plan_schreiben(0, {}, "leer")
             self.aktuell_setzen(0)
+        # EVERY ROOT HAS AN IDENTITY OF ITS OWN, from the moment it
+        # exists. Not because anything reads it yet -- nothing in Osum
+        # does -- but because the alternative is that identity gets
+        # created lazily somewhere, and lazily created identity is how
+        # two machines end up with one. It lives OUTSIDE the generations
+        # so that no plan can carry it, which is the whole rule of the
+        # fourth addendum in one line of code.
+        if not os.path.exists(os.path.join(self.p, MACHINE_ID)):
+            new_identity(self)
 
     # ------------------------------------------------------- Generationen
     def aktuell(self):
@@ -2793,9 +2802,26 @@ def vault_index(verzeichnis):
     if not verzeichnis or not os.path.isdir(verzeichnis):
         return aus
     for datei in sorted(os.listdir(verzeichnis)):
+        pfad = os.path.join(verzeichnis, datei)
+        # A COPIED STORE DIRECTORY IS ALSO A PACKAGE, and accepting it
+        # here is what keeps the interface to round TRESOR one format
+        # instead of two: a backup program that copies `store/<hash>/`
+        # recursively -- which is what a block store wants -- produces
+        # something this reads back without conversion.
+        if os.path.isdir(pfad) and os.path.exists(os.path.join(pfad, "PAKET")):
+            try:
+                roh, h = dir_repack(pfad)
+            except SystemExit as e:
+                print("   vault: %s is not usable (%s) -- skipped"
+                      % (datei, e))
+                continue
+            meta, daten, _ = paket_lesen(roh)
+            felder, _, _ = meta_lesen(meta)
+            aus[h] = (felder.get("name", datei), felder.get("fassung", "-"),
+                      len(roh), ("dir:" + pfad), felder.get("arch") or "")
+            continue
         if not datei.endswith(".opk"):
             continue
-        pfad = os.path.join(verzeichnis, datei)
         try:
             meta, daten, h = paket_lesen(open(pfad, "rb").read())
         except ValueError as e:
@@ -2871,6 +2897,156 @@ def store_repack(w, h):
             "the package it came from are not the same octets any more -- "
             "writing this into a backup would archive the damage."
             % (kurz(h), ist[:16], h[:16]))
+    return roh, ist
+
+
+# ---------------------------------------------------------------------------
+# MOVING A SYSTEM TO ANOTHER MACHINE (round PLAN2, fourth addendum,
+# 27.08.2026)
+#
+# The owner's question: "if I have a backup on a USB stick -- can I set a
+# new device up from it WITHOUT signing in to an account? Just say: I
+# want this device to be like that one too."
+#
+# THE ANSWER IS YES, AND IT IS A PRINCIPLE AND NOT A FEATURE:
+#
+#     AN ACCOUNT IS A CONVENIENCE. IT IS NEVER A CONDITION.
+#
+# Whoever holds their system state on a stick can set a device up
+# completely from it: no sign-in, no network, no server asked. If a
+# server is ever added it may make this EASIER; it may never make it
+# POSSIBLE, because it already is. The stick is the measure and the
+# server would be the special case -- not the other way round. Anything
+# else is Windows 11, and being unlike that is a large part of why this
+# project exists.
+#
+# WHAT A `DEVICE` IS, AND WHY THAT MATTERS HERE. "I want this device to
+# be like that one" moves a state onto a DIFFERENT machine. Most of it
+# should follow. A small, named part must NOT, and it is exactly the part
+# that says WHICH MACHINE THIS IS. Two machines carrying one identity is
+# a fault that is quiet on the day it is made and very hard to find six
+# months later -- two hosts answering to one name, two static addresses
+# colliding on one network, two devices presenting one key.
+#
+# THE LINE IS DRAWN BY ONE SENTENCE:
+#
+#     THE PLAN HOLDS WISHES. AN IDENTITY IS NOT A WISH.
+#
+# So identity does not live in the plan at all -- not in a field that is
+# skipped on restore, not in a line that is filtered. It lives in
+# `system/`, OUTSIDE the generation, where a plan cannot carry it even by
+# accident. `machine-id` and the device key are generated on first use
+# and regenerated on restore, and there is no code path that copies them.
+#
+# The awkward case is the settings, because two of them are wishes on one
+# machine and identities on two: a HOSTNAME and a STATIC ADDRESS. They
+# are in the plan, they have to be -- a rebuild of the SAME machine must
+# put them back. They are dropped when the plan is carried to ANOTHER
+# machine, they are listed by name when that happens, and `--keep-identity`
+# says otherwise for the case where the old machine is gone for good.
+#
+# `net.mode=dhcp` travels. It is a policy, not an address: two machines
+# can both ask for a lease, and neither takes anything from the other.
+# ---------------------------------------------------------------------------
+MACHINE_ID = "system/machine-id"
+DEVICE_KEY = "system/device.key"
+DEVICE_PUB = "system/device.pub"
+
+# NEVER COPIED, BY ANY PATH. Not "skipped in the restore command" -- the
+# restore command does not copy `system/` at all, and these are here so
+# that the rule can be checked from outside and so that a future
+# `stick-write` cannot quietly start including them.
+IDENTITY_FILES = (MACHINE_ID, DEVICE_KEY, DEVICE_PUB)
+
+# Settings that are the MACHINE and not the wish, once there are two
+# machines. `net.*` is conditional -- see `identity_settings`.
+IDENTITY_KEYS = ("hostname", "net.address", "net.netmask", "net.gateway")
+
+
+def identity_settings(plan):
+    """Which of this plan's settings must not travel to another machine.
+
+    Returns {key: (value, why)}. `net.*` is in here only when the mode is
+    `static`: a fixed address is a claim on a network and two machines
+    cannot both make it. `dhcp` is a policy and travels.
+    """
+    aus = {}
+    for k in IDENTITY_KEYS:
+        if k not in plan.settings:
+            continue
+        if k.startswith("net.") and plan.settings.get("net.mode") != "static":
+            continue
+        if k == "hostname":
+            aus[k] = (plan.settings[k],
+                      "two machines answering to one name on one network")
+        else:
+            aus[k] = (plan.settings[k],
+                      "a fixed address is a claim on a network, and two "
+                      "machines cannot both make it")
+    if aus and plan.settings.get("net.mode") == "static":
+        aus["net.mode"] = (plan.settings["net.mode"],
+                           "without its address the static mode would "
+                           "describe nothing")
+    return aus
+
+
+def new_identity(w, alt_id=None):
+    """Give this root a machine identity of its very own.
+
+    Called on every restore, and never conditionally: a device that was
+    set up from a stick has a new identity, full stop. The old one is
+    PRINTED, not kept, so that the two can be told apart in a log
+    afterwards.
+    """
+    os.makedirs(os.path.join(w.p, "system"), exist_ok=True)
+    mid = os.urandom(16).hex()
+    with open(os.path.join(w.p, MACHINE_ID), "w", encoding="utf-8") as f:
+        f.write(mid + "\n")
+    sk = os.urandom(32)
+    pk = ed25519_public(sk)
+    kp = os.path.join(w.p, DEVICE_KEY)
+    with open(kp, "wb") as f:
+        f.write(sk)
+    os.chmod(kp, 0o600)
+    with open(os.path.join(w.p, DEVICE_PUB), "w", encoding="utf-8") as f:
+        f.write(pk.hex() + "\n")
+    return mid, pk.hex()
+
+
+def machine_id(w):
+    p = os.path.join(w.p, MACHINE_ID)
+    if not os.path.exists(p):
+        return None
+    return open(p, encoding="utf-8").read().strip()
+
+
+def dir_repack(d, erwartet=None):
+    """Pack an unpacked STORE DIRECTORY back into the `.opk` it came from.
+
+    The same operation as `store_repack`, but on any directory -- which
+    is what makes the interface to round TRESOR honest. A backup program
+    that copies `store/<hash>/` recursively (which is what a block store
+    wants) produces something this can read back, so there is ONE format
+    on the stick and not two: a `package` line may point at a `.opk` file
+    OR at a copied store directory, and both are the same package.
+    """
+    meta_p = os.path.join(d, "PAKET")
+    if not os.path.exists(meta_p):
+        raise SystemExit("opk: %s has no PAKET -- it is not a store entry" % d)
+    meta = open(meta_p, "rb").read()
+    tmp = d.rstrip("/") + ".repack"
+    if os.path.isdir(tmp):
+        shutil.rmtree(tmp)
+    shutil.copytree(d, tmp)
+    os.remove(os.path.join(tmp, "PAKET"))
+    daten = archiv_bauen(tmp)
+    shutil.rmtree(tmp)
+    roh, ist = paket_packen(meta, daten)
+    if erwartet and ist != erwartet:
+        raise SystemExit(
+            "opk: repacking %s gives %s, not the %s the list names -- the "
+            "copy and the package it came from are not the same octets."
+            % (d, ist[:16], erwartet[:16]))
     return roh, ist
 
 
@@ -3115,6 +3291,16 @@ def cmd_rebuild(args):
         name, fassung, groesse, datei, parch = index.get(h) or tresor[h]
         if not aus_quelle:
             aus_tresor += 1
+        if datei.startswith("dir:"):
+            roh, _ = dir_repack(datei[4:], h)
+            meta, daten, ist = paket_lesen(roh)
+            felder, _, _ = meta_lesen(meta)
+            if not arch_ok(plan.arch, felder.get("arch")):
+                raise SystemExit(arch_refusal(name, plan.arch,
+                                              felder.get("arch")))
+            w.store_schreiben(ist, meta, daten)
+            oktette += len(roh)
+            continue
         roh = open(datei, "rb").read()
         meta, daten, ist = paket_lesen(roh)     # the checksum falls here
         if ist != h:
@@ -3216,7 +3402,7 @@ def cmd_rebuild(args):
 
 
 # ----------------------------------------------------------------- snapshot
-def snapshot_lines(w):
+def snapshot_lines(w, mit_daten=False):
     """A canonical description of everything THE PLAN DETERMINES.
 
     What is in here: the plan itself, every store entry the plan names,
@@ -3235,6 +3421,13 @@ def snapshot_lines(w):
       * `users/<who>/{config,state,cache}/<app>` CONTENTS -- the
         documents. A plan describes a system, not the work done on it.
         The directories are compared, what is in them is not.
+
+        `mit_daten` turns that off, and it exists for exactly one
+        question: a MOVE is supposed to carry the documents, so measuring
+        a move with the default would go green on losing all of them.
+        The two questions are different and so are the two answers --
+        `rebuild` reproduces a SYSTEM, a stick carries a system AND the
+        work done on it.
       * `system/secrets/`. Credentials are not in a plan by construction.
     """
     plan = w.plan_full(w.aktuell())
@@ -3262,7 +3455,11 @@ def snapshot_lines(w):
             # not determine. It went unnoticed because the pots were
             # empty in the run that measured it. Fixed here, and named
             # here rather than quietly.
-            wege.append(("dir-only", os.path.join(w.users, nutzer, topf)))
+            p_topf = os.path.join(w.users, nutzer, topf)
+            if mit_daten and topf != "cache":
+                wege.append(p_topf)      # contents too -- see the docstring
+            else:
+                wege.append(("dir-only", p_topf))
         for rel in USER_GENERATED:
             wege.append(os.path.join(w.users, nutzer, rel))
 
@@ -3310,9 +3507,302 @@ def snapshot_lines(w):
     return [kopf] + rest
 
 
+def _stick_plan(stick):
+    """The PLAN of a stick, found through its own manifest."""
+    man = os.path.join(stick, "STICK")
+    if not os.path.exists(man):
+        raise SystemExit(
+            "opk: %s has no STICK file -- this is not a stick written by "
+            "`opk.py stick-write`. A directory of files is not a system "
+            "state; something has to say which of them is the plan."
+            % stick)
+    felder = {}
+    for z in open(man, encoding="utf-8"):
+        if z.startswith("#") or not z.strip():
+            continue
+        k, _, v = z.rstrip("\n").partition("\t")
+        felder.setdefault(k, v)
+    rel = felder.get("plan")
+    if not rel or not os.path.exists(os.path.join(stick, rel)):
+        raise SystemExit("opk: the STICK file names %r as the plan and it is "
+                         "not there" % rel)
+    text = open(os.path.join(stick, rel), encoding="utf-8").read()
+    return felder, Plan.parse(text, os.path.join(stick, rel))
+
+
+def cmd_stick_write(args):
+    """Write a whole system state to a directory -- a stick, a NAS, anywhere.
+
+    The layout is not a new format. It is the BACKUP SET, at the same
+    relative paths the machine uses, plus the package octets. A backup
+    program that reads `opk.py backup-set` and copies what it names
+    produces this directory without being told about it.
+    """
+    w = _root(args)
+    plan = _current(w)
+    n = w.aktuell()
+    if args.modus not in ("small", "full"):
+        raise SystemExit("opk: --mode is `small` or `full`, not %r"
+                         % args.modus)
+    persoenlich = not args.no_personal
+    daten = persoenlich and not args.no_data
+
+    zeilen, benutzt, verweigert = coverage(w, plan, args.source, None)
+    waisen = [z for z in zeilen if z["where"] is None]
+    # THE DECISION THIS ROUND HAD TO MAKE, and it is made by asking what
+    # the thing is FOR.
+    #
+    #   `small` carries what NO SOURCE CAN GIVE BACK. It is the nightly
+    #   backup: tiny, and it assumes a network exists on the day it is
+    #   read.
+    #
+    #   `full` carries EVERYTHING THE PLAN NAMES. It is the stick you set
+    #   a machine up from: it works in a room with no network, which is
+    #   the entire situation it was made for.
+    #
+    # `full` is the default HERE and `small` is the default in
+    # `backup-set`, because they are two jobs and one default for both
+    # would be wrong for one of them. A move that needs a network is not
+    # a move, it is a download with extra steps.
+    zu_tragen = waisen if args.modus == "small" else zeilen
+
+    if os.path.isdir(args.aus) and os.listdir(args.aus) and not args.trotzdem:
+        raise SystemExit("opk: %s is not empty -- refusing to mix two system "
+                         "states in one directory (--anyway overrides)"
+                         % args.aus)
+    os.makedirs(args.aus, exist_ok=True)
+    tresor = os.path.join(args.aus, "vault")
+    os.makedirs(tresor, exist_ok=True)
+
+    # -------------------------------------------------- the plan itself
+    rel_plan = os.path.relpath(os.path.join(w.gen, str(n), "PLAN"), w.p)
+    ziel = os.path.join(args.aus, rel_plan)
+    os.makedirs(os.path.dirname(ziel), exist_ok=True)
+    shutil.copyfile(os.path.join(w.gen, str(n), "PLAN"), ziel)
+
+    # ------------------------------------------------------ the octets
+    p_oktette = 0
+    for z in zu_tragen:
+        roh, h = store_repack(w, z["hash"])
+        with open(os.path.join(tresor, "%s.opk" % kurz(h)), "wb") as f:
+            f.write(roh)
+        p_oktette += len(roh)
+
+    # -------------------------------------- the person, if she comes along
+    d_oktette, n_dateien, toepfe = 0, 0, []
+    if persoenlich and os.path.isdir(w.users):
+        for wer in sorted(os.listdir(w.users)):
+            for topf in ("config", "state"):
+                if topf == "state" and not daten:
+                    continue
+                q = os.path.join(w.users, wer, topf)
+                if not os.path.isdir(q):
+                    continue
+                rel = os.path.relpath(q, w.p)
+                toepfe.append(rel)
+                for pfad, verz, namen in os.walk(q):
+                    verz.sort()
+                    for nn in sorted(namen):
+                        src = os.path.join(pfad, nn)
+                        dst = os.path.join(args.aus,
+                                           os.path.relpath(src, w.p))
+                        os.makedirs(os.path.dirname(dst), exist_ok=True)
+                        shutil.copyfile(src, dst)
+                        d_oktette += os.path.getsize(src)
+                        n_dateien += 1
+                    if not namen and not verz:
+                        os.makedirs(os.path.join(args.aus, os.path.relpath(
+                            pfad, w.p)), exist_ok=True)
+    n_geheim = 0
+    if persoenlich and os.path.isdir(w.secrets):
+        os.makedirs(os.path.join(args.aus, SECRET_DIR), exist_ok=True)
+        for name in sorted(os.listdir(w.secrets)):
+            dst = os.path.join(args.aus, SECRET_DIR, name)
+            shutil.copyfile(os.path.join(w.secrets, name), dst)
+            os.chmod(dst, 0o600)
+            n_geheim += 1
+
+    # ------------------------------------------------------------ SET
+    #
+    # The same file `backup-set` writes, with the package lines pointing
+    # into `vault/`. That is not a second format -- it is the same lines
+    # with the paths they have here.
+    satz = ["# opk stick, root %s, generation %d" % (w.p, n),
+            "# This is the backup set of that machine, at the same relative",
+            "# paths, plus vault/ for the package octets. Nothing else on",
+            "# the machine is irreplaceable.",
+            "plan\t%s" % rel_plan]
+    for name in (sorted(os.listdir(os.path.join(args.aus, SECRET_DIR)))
+                 if os.path.isdir(os.path.join(args.aus, SECRET_DIR)) else []):
+        satz.append("secret\t%s" % os.path.join(SECRET_DIR, name))
+    for rel in toepfe:
+        satz.append("tree\t%s" % rel)
+    for z in zu_tragen:
+        satz.append("package\t%s\t%s\t%s\t%s"
+                    % (z["hash"], z["name"].replace("\t", " "),
+                       z["arch"] or "-",
+                       os.path.join("vault", "%s.opk" % kurz(z["hash"]))))
+    with open(os.path.join(args.aus, "SET"), "w", encoding="utf-8") as f:
+        f.write("\n".join(satz) + "\n")
+
+    # ---------------------------------------------------------- STICK
+    ident = identity_settings(plan)
+    man = ["# opk stick manifest. `cat` reads it; so does stick-restore.",
+           "mode\t%s" % args.modus,
+           "plan\t%s" % rel_plan,
+           "generation\t%d" % n,
+           "arch\t%s" % (plan.arch or "unstated"),
+           "from-machine\t%s" % (machine_id(w) or "-"),
+           "packages\t%d" % len(zu_tragen),
+           "package-octets\t%d" % p_oktette,
+           "personal\t%s" % ("yes" if persoenlich else "no"),
+           "data\t%s" % ("yes" if daten else "no"),
+           "data-octets\t%d" % d_oktette]
+    for k in sorted(ident):
+        man.append("identity-setting\t%s\t%s" % (k, ident[k][0]))
+    with open(os.path.join(args.aus, "STICK"), "w", encoding="utf-8") as f:
+        f.write("\n".join(man) + "\n")
+
+    gesamt = 0
+    for pfad, _v, namen in os.walk(args.aus):
+        for nn in namen:
+            gesamt += os.path.getsize(os.path.join(pfad, nn))
+    print("stick %s, mode %s" % (args.aus, args.modus))
+    print("   plan          %s, %d octet(s)"
+          % (rel_plan, os.path.getsize(ziel)))
+    print("   packages      %d of %d named by the plan, %d octet(s)%s"
+          % (len(zu_tragen), len(zeilen), p_oktette,
+             "" if args.modus == "full" else
+             "  (small: only what NO source can give back)"))
+    print("   user data     %d file(s), %d octet(s) in %d pot(s)%s"
+          % (n_dateien, d_oktette, len(toepfe),
+             "" if daten else "  -- WITHOUT state/, by request"))
+    print("   credentials   %d" % n_geheim)
+    if ident:
+        print("   %d setting(s) are this MACHINE and will be dropped on "
+              "another one: %s" % (len(ident), ", ".join(sorted(ident))))
+    print("   TOTAL         %d octet(s)" % gesamt)
+    if args.modus == "small":
+        print("   NOTE: this stick needs a network when it is read -- %d "
+              "package(s) will be fetched from a source. `--mode full` "
+              "makes it work in a room with no network."
+              % (len(zeilen) - len(waisen)))
+    else:
+        print("   This stick needs NO network and NO account. That is the "
+              "point of it.")
+    return 0
+
+
+def cmd_stick_restore(args):
+    """Set a device up from a stick. No account, no network, no server.
+
+    Everything this does is already possible with `rebuild` and a few
+    copies; this exists so that it is ONE command, because a principle
+    that takes six steps is a principle people stop believing in.
+    """
+    stick = args.von
+    felder, plan = _stick_plan(stick)
+    print("stick %s: mode %s, generation %s, arch %s, from machine %s"
+          % (stick, felder.get("mode", "?"), felder.get("generation", "?"),
+             felder.get("arch", "?"), (felder.get("from-machine") or "-")[:16]))
+
+    # ---------------------------------------------------- the machine
+    ziel_arch = args.arch or plan.arch
+    if plan.arch and ziel_arch != plan.arch:
+        raise SystemExit(
+            "opk: this stick holds a %s system and you are setting up a %s "
+            "device. Nothing on it can run here: the packages are machine "
+            "code for another machine, and a backup cannot translate them. "
+            "What CAN be carried over is the plan itself -- the settings, "
+            "the accounts and the list of applications by NAME -- but every "
+            "package has to come from a %s source. This is refused rather "
+            "than half done." % (plan.arch, ziel_arch, ziel_arch))
+
+    # -------------------------------------------- what must not travel
+    plan = plan.copy()
+    ident = identity_settings(plan)
+    if ident and not args.keep_identity:
+        for k in ident:
+            del plan.settings[k]
+        print("   %d setting(s) NOT carried over, because they name a "
+              "machine and not a wish:" % len(ident))
+        for k in sorted(ident):
+            print("      %-14s %-18s %s" % (k, ident[k][0], ident[k][1]))
+        print("      (--keep-identity carries them anyway, for when the old "
+              "machine is gone for good)")
+    elif ident:
+        print("   --keep-identity: %d machine setting(s) carried over. Make "
+              "sure the other machine is really gone." % len(ident))
+
+    if args.no_personal:
+        n_p, n_a = len(plan.prefs), len(plan.accounts)
+        plan.prefs = {}
+        plan.accounts = {}
+        print("   --no-personal: %d preference(s) and %d account(s) dropped "
+              "from the plan -- this device is for somebody else" % (n_p, n_a))
+
+    # ------------------------------------------------------- rebuild
+    w = Wurzel(args.wurzel)
+    w.default_user = args.nutzer or "justin"
+    w.anlegen()
+    tmp_plan = os.path.join(w.p, ".stick-plan")
+    with open(tmp_plan, "w", encoding="utf-8") as f:
+        f.write(plan.text())
+    rb = argparse.Namespace(
+        wurzel=args.wurzel, nutzer=args.nutzer, quelle=None, schluessel=None,
+        plan=tmp_plan, source=args.source,
+        vault=os.path.join(stick, "vault"),
+        allow_missing=args.allow_missing,
+        # THE CREDENTIALS GO THROUGH `rebuild`, not around it. It hashes
+        # each one and compares it with what the plan claims -- so a
+        # stick whose secrets and whose plan come from two different days
+        # is caught here instead of producing an account nobody can log
+        # into. Copying them afterwards would have skipped that check and
+        # printed "accounts are LOCKED" one line before unlocking them.
+        secrets=(None if args.no_personal
+                 else os.path.join(stick, SECRET_DIR)))
+    rc = cmd_rebuild(rb)
+    os.remove(tmp_plan)
+    if rc:
+        return rc
+
+    # ---------------------------------------- the person, and the secrets
+    n_dateien, oktette, n_geheim = 0, 0, 0
+    if not args.no_personal:
+        q = os.path.join(stick, "users")
+        if os.path.isdir(q):
+            for pfad, verz, namen in os.walk(q):
+                verz.sort()
+                rel = os.path.relpath(pfad, stick)
+                if "/state" in rel.replace(os.sep, "/") and args.no_data:
+                    continue
+                if rel.replace(os.sep, "/").endswith("/state") and args.no_data:
+                    continue
+                os.makedirs(os.path.join(w.p, rel), exist_ok=True)
+                for nn in sorted(namen):
+                    src = os.path.join(pfad, nn)
+                    dst = os.path.join(w.p, os.path.relpath(src, stick))
+                    shutil.copyfile(src, dst)
+                    n_dateien += 1
+                    oktette += os.path.getsize(src)
+    n_geheim = len(os.listdir(w.secrets)) if os.path.isdir(w.secrets) else 0
+    print("   user data     %d file(s), %d octet(s)%s"
+          % (n_dateien, oktette,
+             "  -- WITHOUT state/, by request" if args.no_data else ""))
+    print("   credentials   %d restored" % n_geheim)
+
+    # ------------------------------------------------- a NEW identity
+    mid, pub = new_identity(w)
+    print("   machine-id    %s   (NEW -- the old one was %s and stays there)"
+          % (mid, (felder.get("from-machine") or "-")[:16]))
+    print("   device key    %s...  (NEW, %s, mode 0600)" % (pub[:16], DEVICE_KEY))
+    print("done. No account was asked for and no network was used.")
+    return 0
+
+
 def cmd_snapshot(args):
     w = _root(args)
-    for z in snapshot_lines(w):
+    for z in snapshot_lines(w, getattr(args, "with_data", False)):
         print(z)
     return 0
 
@@ -3621,7 +4111,39 @@ def main(argv):
     s = mit_wurzel(u.add_parser("arch")); s.add_argument("name", nargs="?")
     s.set_defaults(f=cmd_arch)
     s = mit_wurzel(u.add_parser("archs")); s.set_defaults(f=cmd_archs)
-    s = mit_wurzel(u.add_parser("snapshot")); s.set_defaults(f=cmd_snapshot)
+    s = mit_wurzel(u.add_parser("stick-write"))
+    s.add_argument("-o", "--aus", required=True)
+    s.add_argument("--mode", dest="modus", default="full",
+                   choices=("small", "full"),
+                   help="full (default): everything, works with no network. "
+                        "small: only what no source can give back.")
+    s.add_argument("--no-data", dest="no_data", action="store_true",
+                   help="leave the documents (state/) behind")
+    s.add_argument("--no-personal", dest="no_personal", action="store_true",
+                   help="leave config/, state/ and the credentials behind")
+    s.add_argument("--source", action="append")
+    s.add_argument("--anyway", "--trotzdem", dest="trotzdem",
+                   action="store_true")
+    s.set_defaults(f=cmd_stick_write)
+    s = mit_wurzel(u.add_parser("stick-restore"))
+    s.add_argument("--from", dest="von", required=True)
+    s.add_argument("--arch", default=None,
+                   help="the machine you are setting up, if it is not the "
+                        "one the stick came from")
+    s.add_argument("--keep-identity", dest="keep_identity",
+                   action="store_true",
+                   help="carry the hostname and static address over too -- "
+                        "only when the old machine is gone for good")
+    s.add_argument("--no-data", dest="no_data", action="store_true")
+    s.add_argument("--no-personal", dest="no_personal", action="store_true")
+    s.add_argument("--source", action="append")
+    s.add_argument("--allow-missing", dest="allow_missing",
+                   action="store_true")
+    s.set_defaults(f=cmd_stick_restore)
+    s = mit_wurzel(u.add_parser("snapshot"))
+    s.add_argument("--with-data", dest="with_data", action="store_true",
+                   help="compare the CONTENTS of config/ and state/ too")
+    s.set_defaults(f=cmd_snapshot)
     s = mit_wurzel(u.add_parser("verify")); s.set_defaults(f=cmd_verify)
     s = mit_wurzel(u.add_parser("rebuild"))
     s.add_argument("--plan", required=True)

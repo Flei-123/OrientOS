@@ -938,6 +938,28 @@ class Plan(object):
                 out.add(v)
         return out
 
+    def names_by_hash(self):
+        """A HUMAN NAME for every hash this plan names, from the PLAN ALONE.
+
+        This exists for one sentence in one error message, and that
+        sentence is the whole point of the third addendum: when a package
+        cannot be fetched, the failure has to say WHICH ONE. The obvious
+        place to look up a name is the package -- but the package is
+        exactly the thing that is missing. So the name has to come out of
+        the plan, and it can: `app explorer <hash>` carries it, `kernel
+        <hash>` is "the kernel", and `pref justin wallpaper <hash>` is
+        "the wallpaper of justin".
+        """
+        aus = {}
+        for name, h in self.apps.items():
+            aus.setdefault(h, []).append(name)
+        if self.kernel:
+            aus.setdefault(self.kernel, []).append("the kernel")
+        for (wer, k), v in self.prefs.items():
+            if k in USER_BLOB_KEYS:
+                aus.setdefault(v, []).append("the %s of %s" % (k, wer))
+        return {h: ", ".join(sorted(v)) for h, v in aus.items()}
+
     def users(self):
         """Everyone the plan mentions -- as an account or as a preference."""
         return sorted(set(self.accounts) | {w for (w, _) in self.prefs})
@@ -2668,6 +2690,347 @@ def cmd_archs(args):
     return 0
 
 
+# ---------------------------------------------------------------------------
+# PACKAGES WITH NO SOURCE (round PLAN2, third addendum of 27.08.2026)
+#
+# The owner's question: "what about programs that are not in the app
+# store, when I set up a new device and want my applications back?"
+#
+# It was a real hole. A PLAN names `app <name> <hash>`; the OCTETS have
+# to come from somewhere; and for a package that was built by hand and
+# installed from a file, there is no somewhere. `rebuild` said `4 of 39
+# hashes are in no source` and named none of them.
+#
+# THREE THINGS FOLLOW, and the first one is the actual answer.
+#
+# 1. THE MAIN ROAD IS A SECOND SOURCE, NOT AN EXCEPTION. A plan may name
+#    ANY NUMBER of sources -- that was already true, `plan.sources` is a
+#    dictionary and `source-add` appends -- so the right answer to "I
+#    build my own packages" is: run your own source. A directory with
+#    `.opk` files, an INDEX and an Ed25519 signature IS a source; it can
+#    sit on a NAS, on a server, or on a memory stick, and `opk.py quelle`
+#    makes one in a single command. Then nothing is orphaned, and
+#    everything below is machinery for the case where somebody did not do
+#    this.
+#
+# 2. ORPHANHOOD IS DECIDABLE, so nobody has to keep a list. A hash is
+#    covered if some recorded source's INDEX contains it, and orphaned if
+#    none does. That is a computation over the plan and the sources, and
+#    it is the difference between this design and one where "which of my
+#    programs are irreplaceable" is a question you answer by remembering.
+#
+# 3. WHAT IS ORPHANED GOES IN THE BACKUP, and only that. Everything with
+#    a source is fetched on restore and would be dead weight in an
+#    archive; everything without one is the only copy in the world. The
+#    rule stays "programs are not backed up" (BACKUP.md § 1) and gains
+#    one named exception that a machine decides, not a person.
+#
+# A NOTE ON WHY THE VAULT NEEDS NO SIGNATURE, since a source does. The
+# two are asked different questions:
+#
+#     a SOURCE is asked "give me the package called `explorer`"
+#         -- the answer is a CHOICE somebody else makes, and a name says
+#            nothing about content, so the answer must be signed.
+#
+#     a VAULT is asked "give me the octets whose SHA-256 is abc..."
+#         -- the answer is checkable against the QUESTION. A signature
+#            would add nothing that the hash does not already settle.
+#
+# That is why `--vault` takes a plain directory of `.opk` files and no
+# key, and why that is not a hole.
+# ---------------------------------------------------------------------------
+def source_places(plan, extra=None):
+    """Every source of a plan that THIS program can actually read."""
+    orte = []
+    for url in sorted(plan.sources):
+        p = _source_location(url)
+        if p is None:
+            orte.append((None, url, "only `file://` and local paths can be "
+                                    "read by this program, not %s"
+                                    % url.split(":")[0]))
+            continue
+        orte.append((p, url, None))
+    for e in (extra or []):
+        orte.append((e, "--source " + e, None))
+    return orte
+
+
+def source_index(plan, extra=None, leise=False):
+    """hash -> (name, fassung, size, file, arch) over ALL readable sources.
+
+    Returns (index, used, refused). Nothing here fails on a source that
+    cannot be opened: a plan may well name a server that is not reachable
+    from where the question is being asked, and the answer then is "this
+    much is covered from here", not an abort.
+    """
+    erlaubt = set(plan.sources.values())
+    index, benutzt, verweigert = {}, [], []
+    for p, woher, warum in source_places(plan, extra):
+        if p is None:
+            verweigert.append((woher, warum))
+            continue
+        got, warum = _open_source(p, erlaubt, woher)
+        if got is None:
+            verweigert.append((woher, warum))
+            continue
+        eintraege, key, woher = got
+        benutzt.append((woher, len(eintraege), key))
+        for h, v in eintraege.items():
+            index.setdefault(h, v)
+    return index, benutzt, verweigert
+
+
+def vault_index(verzeichnis):
+    """hash -> (name, fassung, size, file, arch) for a plain directory of .opk.
+
+    Every file is opened and its checksum recomputed (`paket_lesen`), so
+    a vault entry that has rotted is found HERE and not three steps later
+    with a confusing message. A file whose name does not match its
+    content is not an error -- the name of a file in a vault means
+    nothing, the hash means everything.
+    """
+    aus = {}
+    if not verzeichnis or not os.path.isdir(verzeichnis):
+        return aus
+    for datei in sorted(os.listdir(verzeichnis)):
+        if not datei.endswith(".opk"):
+            continue
+        pfad = os.path.join(verzeichnis, datei)
+        try:
+            meta, daten, h = paket_lesen(open(pfad, "rb").read())
+        except ValueError as e:
+            print("   vault: %s is not usable (%s) -- skipped" % (datei, e))
+            continue
+        felder, _, _ = meta_lesen(meta)
+        aus[h] = (felder.get("name", datei), felder.get("fassung", "-"),
+                  os.path.getsize(pfad), pfad, felder.get("arch") or "")
+    return aus
+
+
+def coverage(w, plan, extra=None, vault=None):
+    """For every hash the plan names: who could give it back?
+
+    Returns a list of dicts, sorted by name, one per hash. `where` is the
+    source that has it, or None -- and None is what `orphaned` means.
+    """
+    index, benutzt, verweigert = source_index(plan, extra)
+    tresor = vault_index(vault) if vault else {}
+    namen = plan.names_by_hash()
+    aus = []
+    for h in sorted(plan.hashes()):
+        eintrag = index.get(h)
+        aus.append({
+            "hash": h,
+            "name": namen.get(h, h[:12]),
+            "arch": _stored_arch(w, h) if w else None,
+            "where": eintrag[3] if eintrag else None,
+            "in_vault": h in tresor,
+            "size": _store_size(w, h) if w else 0,
+        })
+    aus.sort(key=lambda z: (z["where"] is not None, z["name"]))
+    return aus, benutzt, verweigert
+
+
+def _store_size(w, h):
+    d = os.path.join(w.store, kurz(h))
+    if not os.path.isdir(d):
+        return 0
+    gross = 0
+    for wurzel, _v, dateien in os.walk(d):
+        for f in dateien:
+            gross += os.path.getsize(os.path.join(wurzel, f))
+    return gross
+
+
+def store_repack(w, h):
+    """Turn a STORE ENTRY back into the `.opk` file it came from.
+
+    This is what makes an orphan rescuable at all: the octets are in the
+    store, but the store holds them UNPACKED, and a backup wants one
+    file. `archiv_bauen` is deterministic by construction (no timestamps,
+    no owners, modes from a rule and not from the host), so packing the
+    directory again has to give back the very same octets -- and if it
+    does not, that is refused here rather than written into an archive
+    somebody will trust later.
+    """
+    d = os.path.join(w.store, kurz(h))
+    if not os.path.isdir(d):
+        raise SystemExit("opk: the store has no entry %s" % h[:16])
+    meta = open(os.path.join(d, "PAKET"), "rb").read()
+    tmp = os.path.join(w.p, ".repack")
+    if os.path.isdir(tmp):
+        shutil.rmtree(tmp)
+    shutil.copytree(d, tmp)
+    os.remove(os.path.join(tmp, "PAKET"))
+    daten = archiv_bauen(tmp)
+    shutil.rmtree(tmp)
+    roh, ist = paket_packen(meta, daten)
+    if ist != h:
+        raise SystemExit(
+            "opk: repacking store/%s gives %s, not %s. The store entry and "
+            "the package it came from are not the same octets any more -- "
+            "writing this into a backup would archive the damage."
+            % (kurz(h), ist[:16], h[:16]))
+    return roh, ist
+
+
+def cmd_orphans(args):
+    """"Which of my programs could I NOT get back on a new device?"
+
+    Nobody asks that question until it is too late, which is why it is a
+    command and not a paragraph in a manual.
+    """
+    w = _root(args)
+    plan = _current(w)
+    zeilen, benutzt, verweigert = coverage(w, plan, args.source, args.vault)
+    print("generation %d, %d hash(es) named by the plan"
+          % (w.aktuell(), len(zeilen)))
+    for woher, n, key in benutzt:
+        print("   source %s: %d package(s), signed by %s..."
+              % (woher, n, key[:16]))
+    for woher, warum in verweigert:
+        print("   UNUSABLE %s: %s" % (woher, warum))
+    if not benutzt:
+        print("   no usable source at all -- from here, EVERYTHING looks "
+              "orphaned. That may be the network and not the truth.")
+
+    waisen = [z for z in zeilen if z["where"] is None]
+    gedeckt = [z for z in zeilen if z["where"] is not None]
+    for z in gedeckt:
+        print("  ok       %-28s %s  %-8s from %s"
+              % (z["name"], z["hash"][:12], z["arch"] or "-",
+                 os.path.basename(os.path.dirname(z["where"]))))
+    for z in waisen:
+        # THE ARCHITECTURE MAKES THIS WORSE, and it has to say so. An
+        # orphaned x86_64 package cannot be put on an ARM device even
+        # WITH the octets in hand -- the backup does not help, and
+        # pretending it might is the kind of half-truth that turns into a
+        # bad afternoon.
+        zusatz = ""
+        if plan.arch and z["arch"] and z["arch"] not in (ARCH_ANY, plan.arch):
+            zusatz = "  -- and it is %s, so it is not the build another " \
+                     "machine would need either" % z["arch"]
+        print("  ORPHANED %-28s %s  %-8s %d octet(s) in the store%s%s"
+              % (z["name"], z["hash"][:12], z["arch"] or "-", z["size"],
+                 "  [in the vault]" if z["in_vault"] else "", zusatz))
+    print("%d of %d covered by a source, %d ORPHANED"
+          % (len(gedeckt), len(zeilen), len(waisen)))
+    if waisen:
+        print("   An orphan exists in exactly one place: this store. "
+              "`opk.py vault-export` writes them out as .opk files for the "
+              "backup, and `opk.py rebuild --vault` puts them back.")
+        print("   The better answer is a source of your own: put your own "
+              "packages in a directory, run `opk.py quelle <dir> "
+              "--schluessel <key>`, and `opk.py source-add` it. Then "
+              "nothing is orphaned and none of this machinery runs.")
+    return 1 if (waisen and args.streng) else 0
+
+
+def cmd_backup_set(args):
+    """THE LIST A BACKUP PROGRAM GETS. Machine readable, on purpose.
+
+    This is the interface to round TRESOR, which is building `/bin/backup`
+    (content addressed, SHA-256 blocks, deduplicating). It gets a list of
+    paths and nothing else -- it does not have to know what a plan is,
+    what a source is or what an orphan is, and it must never have to
+    decide what is worth keeping. That decision is made here, where the
+    plan is, and it is made by computation.
+
+    THE FORMAT is the format of everything else in this system: one
+    tab-separated line per item, first field a type, comments on lines
+    starting with `#`, and readable with `cat`.
+
+        plan     <path>                     the system state itself
+        secret   <path>                     a credential, mode 0600
+        tree     <path>                     copy recursively
+        package  <sha256> <name> <arch> <path>   an ORPHANED package
+
+    A `package` line is the exception to "programs are never backed up",
+    and it is a decided exception, not a remembered one: it appears
+    exactly when no recorded source can give those octets back.
+    """
+    w = _root(args)
+    plan = _current(w)
+    n = w.aktuell()
+    zeilen, benutzt, verweigert = coverage(w, plan, args.source, None)
+    waisen = [z for z in zeilen if z["where"] is None]
+
+    aus = []
+    aus.append("# opk backup-set, root %s, generation %d" % (w.p, n))
+    aus.append("# Everything NOT listed here is deliberately not backed up: "
+               "programs with a source,")
+    aus.append("# the activated view under apps/, generated files under etc/, "
+               "and every cache/.")
+    if verweigert:
+        aus.append("# WARNING: %d source(s) could not be read from here, so "
+                   "this list may name" % len(verweigert))
+        aus.append("# packages as orphaned that are not. Named below.")
+        for woher, warum in verweigert:
+            aus.append("# unreachable\t%s\t%s" % (woher, warum))
+    aus.append("plan\t%s" % os.path.relpath(
+        os.path.join(w.gen, str(n), "PLAN"), w.p))
+    if os.path.isdir(w.secrets):
+        for name in sorted(os.listdir(w.secrets)):
+            aus.append("secret\t%s" % os.path.join(SECRET_DIR, name))
+    if os.path.isdir(w.users):
+        for wer in sorted(os.listdir(w.users)):
+            for topf in ("config", "state"):
+                d = os.path.join(w.users, wer, topf)
+                if os.path.isdir(d):
+                    aus.append("tree\t%s" % os.path.relpath(d, w.p))
+    for z in waisen:
+        aus.append("package\t%s\t%s\t%s\t%s"
+                   % (z["hash"], z["name"].replace("\t", " "),
+                      z["arch"] or "-",
+                      os.path.join("store", kurz(z["hash"]))))
+    text = "\n".join(aus) + "\n"
+    if args.aus:
+        with open(args.aus, "w", encoding="utf-8") as f:
+            f.write(text)
+        print("%s: %d line(s), %d octet(s), %d orphaned package(s)"
+              % (args.aus, len(aus), len(text), len(waisen)))
+    else:
+        sys.stdout.write(text)
+    return 0
+
+
+def cmd_vault_export(args):
+    """Write the orphaned packages out as `.opk` files, for the backup.
+
+    A store entry is UNPACKED; a backup wants a file. `store_repack`
+    packs it again and refuses if the result is not the very same hash --
+    so nothing enters an archive that cannot be checked against the plan
+    that will later ask for it.
+    """
+    w = _root(args)
+    plan = _current(w)
+    zeilen, benutzt, verweigert = coverage(w, plan, args.source, None)
+    waisen = [z for z in zeilen if z["where"] is None]
+    if verweigert and not args.trotzdem:
+        raise SystemExit(
+            "opk: %d source(s) could not be read from here (%s), so this "
+            "machine cannot tell what is really orphaned. Writing a vault "
+            "now would either miss something or archive packages that are "
+            "perfectly fetchable. --trotzdem does it anyway."
+            % (len(verweigert), "; ".join(w for w, _ in verweigert)))
+    os.makedirs(args.aus, exist_ok=True)
+    oktette = 0
+    for z in waisen:
+        roh, h = store_repack(w, z["hash"])
+        ziel = os.path.join(args.aus, "%s.opk" % kurz(h))
+        with open(ziel, "wb") as f:
+            f.write(roh)
+        oktette += len(roh)
+        print("  %-28s %s  %8d octet(s) -> %s"
+              % (z["name"], h[:12], len(roh), os.path.basename(ziel)))
+    print("%d orphaned package(s), %d octet(s) in %s"
+          % (len(waisen), oktette, args.aus))
+    if not waisen:
+        print("   nothing to carry -- every package this plan names can be "
+              "fetched from a source. That is the state to aim for.")
+    return 0
+
+
 def cmd_rebuild(args):
     """Build a whole system tree FROM A PLAN, on a machine that has none.
 
@@ -2681,54 +3044,77 @@ def cmd_rebuild(args):
     if plan.legacy_lines:
         print("   %d line(s) in the old two-field shape" % plan.legacy_lines)
 
-    erlaubt = set(plan.sources.values())
-    if not erlaubt:
-        raise SystemExit("opk: this plan names no source and no key -- it "
-                         "cannot be rebuilt anywhere. That is a property of "
-                         "the plan, not a failure of this program.")
-
-    orte = []
-    for url in sorted(plan.sources):
-        p = _source_location(url)
-        if p is None:
-            print("   source %s: this program can only read `file://` and "
-                  "local paths, not %s -- skipped"
-                  % (url, url.split(":")[0]))
-            continue
-        orte.append((p, url))
-    for extra in (args.source or []):
-        orte.append((extra, "--source " + extra))
-
-    index, benutzt = {}, []
-    for p, woher in orte:
-        got, warum = _open_source(p, erlaubt, woher)
-        if got is None:
-            print("   REFUSED %s" % warum)
-            continue
-        eintraege, key, woher = got
-        benutzt.append((woher, len(eintraege), key))
-        for h, v in eintraege.items():
-            index.setdefault(h, v)
-    if not benutzt:
-        raise SystemExit("opk: not one usable source -- nothing to rebuild "
-                         "from")
+    index, benutzt, verweigert = source_index(plan, args.source)
+    for woher, warum in verweigert:
+        print("   REFUSED %s: %s" % (woher, warum))
     for woher, n, key in benutzt:
         print("   source %s: %d package(s), signature by %s..."
               % (woher, n, key[:16]))
 
+    # THE VAULT: a plain directory of `.opk` files, no signature, no
+    # INDEX. It is asked "give me the octets whose SHA-256 is this", and
+    # that question checks its own answer -- which is exactly what a
+    # source, asked for a NAME, cannot do. See the block above
+    # `source_places` for the whole argument.
+    tresor = vault_index(args.vault)
+    if args.vault:
+        print("   vault %s: %d package(s), each verified against its own "
+              "checksum" % (args.vault, len(tresor)))
+    if not benutzt and not tresor:
+        raise SystemExit(
+            "opk: not one usable source and no vault -- nothing to rebuild "
+            "from. A plan that names no source is not self-bearing; a plan "
+            "whose sources cannot be reached from here may just be on the "
+            "wrong network. Both look the same from this program, which is "
+            "why it says both.")
+
+    namen = plan.names_by_hash()
     gebraucht = sorted(plan.hashes())
-    fehlt = [h for h in gebraucht if h not in index]
+    fehlt = [h for h in gebraucht if h not in index and h not in tresor]
     if fehlt:
-        raise SystemExit("opk: %d of %d hash(es) are in no source: %s"
-                         % (len(fehlt), len(gebraucht),
-                            ", ".join(h[:12] for h in fehlt)))
+        # NEVER SILENTLY. A system that claims to be rebuilt while three
+        # programs are missing is worse than one that stops -- so the
+        # names come out, one per line, and continuing has to be asked
+        # for by hand.
+        print()
+        print("%d of %d package(s) can be fetched from NOWHERE:"
+              % (len(fehlt), len(gebraucht)))
+        for h in sorted(fehlt, key=lambda x: namen.get(x, x)):
+            print("   MISSING  %-28s %s" % (namen.get(h, "?"), h[:16]))
+        print("   These are orphans: no source of this plan has them and no "
+              "vault was given.")
+        print("   On the machine they came from, `opk.py vault-export` "
+              "writes them out; a backup made with `opk.py backup-set` "
+              "already contains them.")
+        if not args.allow_missing:
+            raise SystemExit(
+                "opk: refusing to build a system that is missing %d of its "
+                "%d package(s). --allow-missing builds the rest and records "
+                "what is absent in system/INCOMPLETE -- but then this tree "
+                "is NOT the machine the plan describes, and it will say so "
+                "every time anyone asks." % (len(fehlt), len(gebraucht)))
+        print("   --allow-missing: building the rest, and writing "
+              "system/INCOMPLETE so that nothing can later claim this tree "
+              "is complete.")
+        plan = plan.copy()
+        for h in fehlt:
+            for n_ in [k for k, v in plan.apps.items() if v == h]:
+                del plan.apps[n_]
+            if plan.kernel == h:
+                plan.kernel = None
+            for k in [k for k, v in plan.prefs.items() if v == h]:
+                del plan.prefs[k]
+        gebraucht = sorted(plan.hashes())
 
     w = Wurzel(args.wurzel)
     w.default_user = args.nutzer or "justin"
     w.anlegen()
-    oktette, geteilt = 0, 0
+    oktette, geteilt, aus_tresor = 0, 0, 0
     for h in gebraucht:
-        name, fassung, groesse, datei, parch = index[h]
+        aus_quelle = h in index
+        name, fassung, groesse, datei, parch = index.get(h) or tresor[h]
+        if not aus_quelle:
+            aus_tresor += 1
         roh = open(datei, "rb").read()
         meta, daten, ist = paket_lesen(roh)     # the checksum falls here
         if ist != h:
@@ -2740,14 +3126,32 @@ def cmd_rebuild(args):
         # first package that does not fit.
         felder, _, _ = meta_lesen(meta)
         if not arch_ok(plan.arch, felder.get("arch")):
+            # AN ORPHAN FOR THE WRONG MACHINE IS A DIFFERENT PROBLEM, and
+            # saying the usual thing here would be bad advice. For a
+            # package with a source, "fetch the other build" is an
+            # instruction. For an orphan there IS no other build -- the
+            # octets in hand are the only ones in the world, and they are
+            # for the wrong machine. The way out is the source code, not
+            # the backup.
+            if not aus_quelle:
+                raise SystemExit(
+                    "opk: %s is for %s and this system is %s -- and it is an "
+                    "ORPHAN: no source of this plan has it, so there is no "
+                    "%s build to fetch instead. The octets in the vault are "
+                    "the only ones there are and they cannot run here. This "
+                    "package has to be BUILT AGAIN from its source code for "
+                    "%s; a backup cannot solve it, and it is not pretending "
+                    "to." % (name, felder.get("arch") or "an unstated machine",
+                             plan.arch, plan.arch, plan.arch))
             raise SystemExit(arch_refusal(name, plan.arch,
                                           felder.get("arch")))
         if felder.get("arch") == ARCH_ANY:
             geteilt += len(roh)
         w.store_schreiben(ist, meta, daten)
         oktette += len(roh)
-    print("   %d package(s) fetched and verified, %d octet(s)"
-          % (len(gebraucht), oktette))
+    print("   %d package(s) fetched and verified, %d octet(s)%s"
+          % (len(gebraucht), oktette,
+             ", %d of them from the vault" % aus_tresor if aus_tresor else ""))
     if plan.arch:
         print("   every one of them checked against arch %s; %d octet(s) of "
               "that is `any` and would be the SAME file on the other machine"
@@ -2775,8 +3179,30 @@ def cmd_rebuild(args):
         print("   %d credential(s) restored and checked against the plan"
               % n_geheim)
 
-    n = w.neue_generation(plan, "rebuilt from %s" % os.path.basename(args.plan))
+    n = w.neue_generation(plan, "rebuilt from %s%s"
+                          % (os.path.basename(args.plan),
+                             " WITHOUT %d package(s)" % len(fehlt)
+                             if fehlt else ""))
     w.aktivieren(n)
+    # THE EVIDENCE STAYS IN THE TREE. A missing package that was only
+    # mentioned once, in a terminal that has since been closed, is a
+    # missing package nobody will remember. This file is what `verify`
+    # reads and what makes "it was rebuilt" checkable rather than
+    # remembered.
+    unvoll = os.path.join(w.p, "system", "INCOMPLETE")
+    if fehlt:
+        with open(unvoll, "w", encoding="utf-8") as f:
+            f.write("# This tree was rebuilt from %s with --allow-missing.\n"
+                    "# It is NOT the machine that plan describes. The\n"
+                    "# following package(s) could be fetched from no source\n"
+                    "# and were in no vault, and have been left out:\n"
+                    % os.path.basename(args.plan))
+            for h in sorted(fehlt, key=lambda x: namen.get(x, x)):
+                f.write("missing\t%s\t%s\n" % (h, namen.get(h, "?")))
+        print("   system/INCOMPLETE names the %d package(s) that are not "
+              "here" % len(fehlt))
+    elif os.path.exists(unvoll):
+        os.remove(unvoll)
     fehlend = [a for a in sorted(plan.accounts)
                if plan.accounts[a].secret != "-"
                and not os.path.exists(w.secret_path(a))]
@@ -2912,6 +3338,18 @@ def cmd_verify(args):
         print("%s %s" % ("ok    " if gut else "FAILED", text))
 
     n = w.aktuell()
+    unvoll = os.path.join(w.p, "system", "INCOMPLETE")
+    if os.path.exists(unvoll):
+        zeilen_u = [z for z in open(unvoll, encoding="utf-8").read().splitlines()
+                    if z.startswith("missing\t")]
+        sagen(False, "this tree is INCOMPLETE: it was rebuilt without %d "
+                     "package(s) -- %s"
+              % (len(zeilen_u),
+                 ", ".join(z.split("\t")[2] for z in zeilen_u[:6])))
+    else:
+        sagen(True, "no system/INCOMPLETE: nothing was left out of the last "
+                    "rebuild")
+
     f = os.path.join(w.gen, str(n), "PLAN")
     roh = open(f, "rb").read() if os.path.exists(f) else b""
     try:
@@ -3164,6 +3602,22 @@ def main(argv):
     s.add_argument("key"); s.set_defaults(f=cmd_pref_unset)
     s = mit_wurzel(u.add_parser("prefs")); s.add_argument("user", nargs="?")
     s.set_defaults(f=cmd_prefs)
+    s = mit_wurzel(u.add_parser("orphans"))
+    s.add_argument("--source", action="append")
+    s.add_argument("--vault", default=None)
+    s.add_argument("--streng", "--strict", dest="streng", action="store_true",
+                   help="exit 1 if anything is orphaned")
+    s.set_defaults(f=cmd_orphans)
+    s = mit_wurzel(u.add_parser("backup-set"))
+    s.add_argument("--source", action="append")
+    s.add_argument("-o", "--aus", default=None)
+    s.set_defaults(f=cmd_backup_set)
+    s = mit_wurzel(u.add_parser("vault-export"))
+    s.add_argument("--source", action="append")
+    s.add_argument("--trotzdem", "--anyway", dest="trotzdem",
+                   action="store_true")
+    s.add_argument("-o", "--aus", required=True)
+    s.set_defaults(f=cmd_vault_export)
     s = mit_wurzel(u.add_parser("arch")); s.add_argument("name", nargs="?")
     s.set_defaults(f=cmd_arch)
     s = mit_wurzel(u.add_parser("archs")); s.set_defaults(f=cmd_archs)
@@ -3172,6 +3626,13 @@ def main(argv):
     s = mit_wurzel(u.add_parser("rebuild"))
     s.add_argument("--plan", required=True)
     s.add_argument("--source", action="append")
+    s.add_argument("--vault", default=None,
+                   help="a directory of .opk files, addressed by hash, "
+                        "needing no signature")
+    s.add_argument("--allow-missing", dest="allow_missing",
+                   action="store_true",
+                   help="build the rest and record what is absent in "
+                        "system/INCOMPLETE")
     s.add_argument("--secrets", default=None)
     s.set_defaults(f=cmd_rebuild)
 

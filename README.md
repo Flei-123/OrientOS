@@ -337,3 +337,26 @@ Ehrlich und vollständig in [KERNELWECHSEL.md § 4](KERNELWECHSEL.md) und
 | [NETZWERK.md](NETZWERK.md) | Umleitschicht, Kernel/Userspace-Grenze, Tor/WireGuard |
 | [userland/README.md](userland/README.md) | wie das Userland ins ISO kommt und was daraus werden soll |
 | [tests/README.md](tests/README.md) | wie die Abnahme aufgebaut ist |
+
+---
+
+## Licence
+
+**GPL-2.0-only, all of it.** Full text: [LICENSE](LICENSE). Until
+27 August 2026 this repository had no licence file at all, which meant that
+legally nobody could copy, modify or redistribute it.
+
+**Version 2 ONLY, never "or later".** GPLv3 section 6 would force a device
+maker to hand out the signing keys of a consumer device, which makes
+binding firmware to its machine as a theft deterrent legally impossible.
+Linux and Android are GPLv2-only for the same reason.
+
+**Writing a closed-source program for OrientOS is allowed and is meant to
+be.** Nothing in this repository is linked into a user program: the runtime
+such a program links comes from Firn (MIT) and from Osum Ring 3 libraries
+(MIT), and neither is affected by the GPL here. The system stays open; what
+you write for it is yours.
+
+Every source file carries an `SPDX-License-Identifier:` line. Reasoning:
+[LICENSING.md](LICENSING.md). Third-party material -- above all the Limine
+bootloader, 2-clause BSD -- is in [THIRD_PARTY.md](THIRD_PARTY.md).

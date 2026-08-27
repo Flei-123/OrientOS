@@ -65,7 +65,7 @@ produkt_check() {
             paket\ *)
                 set -- $z
                 pakete=$((pakete + 1))
-                grep -q "^/apps/$2\.prog/$" <<<"$liste" || pfehlt="$pfehlt $2"
+                grep -q "^/apps/$2\.osp/$" <<<"$liste" || pfehlt="$pfehlt $2"
                 continue ;;
         esac
         soll=$((soll + 1))

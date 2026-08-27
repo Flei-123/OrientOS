@@ -19,5 +19,5 @@ fassung=1.0.0
 titel=Hallo
 info=Schreibt eine Zeile und beendet sich -- der Nachweis, dass ein Paket laeuft
 keys=hallo,hello,probe,test
-handle=konsole
+handle=console
 datei=start ../../vendor/osum/bin/hello

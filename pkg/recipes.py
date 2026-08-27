@@ -6,13 +6,13 @@ programs had ever been packaged, and the reason was not that the rest are
 hard: it was that every recipe had to be written by hand. A hand-written
 recipe is a second place where a name lives, and a second place is always
 the one that stops being true. `pkg/bauen.sh` already made this argument
-for the five `.prog` bundles Osum ships -- this file makes it for
+for the five `.osp` bundles Osum ships -- this file makes it for
 everything else.
 
 WHAT IT READS, and nothing else:
 
   vendor/osum/bin/*            the built programs, from the PINNED commit
-  vendor/osum/apps/*.prog      the bundles, which already have a recipe
+  vendor/osum/apps/*.osp      the bundles, which already have a recipe
   pkg/rezepte/*.rezept         the hand-written recipes
   vendor/osum/COMMIT           which Osum this is
 
@@ -22,7 +22,7 @@ repository does not translate another project's prose by machine and then
 ship the result as its own metadata. The generated `info` says what is
 actually known -- the program's name and the commit it was built from.
 A program that deserves a real description gets a bundle in Osum
-(`assets/apps/<name>.prog/INFO`), and then `pkg/bauen.sh` reads THAT.
+(`assets/apps/<name>.osp/INFO`), and then `pkg/bauen.sh` reads THAT.
 
     ./pkg/recipes.py <output-directory>
 
@@ -54,13 +54,15 @@ from opk import PLAN_TYPES as RESERVED          # noqa: E402
 # console. What an application may do stands in the package and not in
 # its source (PACKAGING.md § 7).
 #
-# `konsole` IS GERMAN AND STAYS GERMAN HERE, on purpose. It is not a word
-# this file invents -- it is the existing handle namespace, written that
-# way in PACKAGING.md § 7 and in every package `pkg/bauen.sh` has ever
-# built. Spelling it `console` in the generated recipes would put two
-# names on one object, which is worse than one German name. It is listed
-# as debt in docs/ROUND-PLAN2.md and belongs to the rename round.
-HANDLES = ("cache", "config", "konsole", "state")
+# `konsole` WAS GERMAN AND IS NOW `console`. It was left German on
+# purpose while the handle namespace was already written that way in
+# PACKAGING.md § 7 and in every package `pkg/bauen.sh` had built --
+# spelling it two ways would have put two names on one object. The round
+# `rename` changed BOTH sides in the same commit, which is the only way
+# such a name moves: handle names are structure, not display text, and
+# structure is English. Nothing shipped, so there is no old spelling to
+# keep working.
+HANDLES = ("cache", "config", "console", "state")
 
 
 def bundle_starts(apps_dir):
@@ -69,7 +71,7 @@ def bundle_starts(apps_dir):
     Both matter, and for different reasons. A program that a bundle
     already starts must not be packaged twice under a second name -- the
     same octets would sit in the store under two hashes. And a bundle
-    NAME must not be taken by a different program: Osum's `suchen.prog`
+    NAME must not be taken by a different program: Osum's `suchen.osp`
     starts `/bin/starter`, while `/bin/suchen` is a different binary, so
     a package called `suchen` would mean two things. This is found here
     and named, rather than silently losing whichever came second.
@@ -78,16 +80,16 @@ def bundle_starts(apps_dir):
     if not os.path.isdir(apps_dir):
         return starts, namen
     for d in sorted(os.listdir(apps_dir)):
-        if not d.endswith(".prog"):
+        if not d.endswith(".osp"):
             continue
-        namen.add(d[:-len(".prog")])
+        namen.add(d[:-len(".osp")])
         p = os.path.join(apps_dir, d, "start.txt")
         if not os.path.exists(p):
             continue
         for zeile in open(p, encoding="utf-8", errors="replace"):
             zeile = zeile.strip()
             if zeile.startswith("/"):
-                starts[os.path.basename(zeile)] = d[:-len(".prog")]
+                starts[os.path.basename(zeile)] = d[:-len(".osp")]
                 break
     return starts, namen
 
@@ -135,7 +137,7 @@ def main(argv):
     gemacht, uebersprungen = [], []
     for name in programme:
         if name in schon_bundle:
-            uebersprungen.append((name, "bundle %s.prog already packages it"
+            uebersprungen.append((name, "bundle %s.osp already packages it"
                                   % schon_bundle[name]))
             continue
         if name in schon_hand:
@@ -147,7 +149,7 @@ def main(argv):
             continue
         if name in bundle_namen:
             uebersprungen.append(
-                (name, "the bundle %s.prog already owns that package name "
+                (name, "the bundle %s.osp already owns that package name "
                        "but starts a different program -- packaging this "
                        "binary needs a second name, which is a decision and "
                        "not a default" % name))

@@ -56,7 +56,7 @@ orphan_check() {
     else
         cp vendor/osum/bin/cat "$T/mytool"
     fi
-    printf 'name=mytool\nfassung=1.0.0\ntitel=mytool\ninfo=built by hand, never published\nkeys=mytool\nhandle=konsole\ndatei=start %s\n' "$T/mytool" > "$T/mytool.rezept"
+    printf 'name=mytool\nfassung=1.0.0\ntitel=mytool\ninfo=built by hand, never published\nkeys=mytool\nhandle=console\ndatei=start %s\n' "$T/mytool" > "$T/mytool.rezept"
     $O bauen "$T/mytool.rezept" -o "$T/mytool.opk" >/dev/null 2>&1
 
     # ------------------------------------------------------- the device
@@ -127,12 +127,12 @@ orphan_check() {
     # --------------------------- (c) a rebuild on an empty root restores it
     cp "$T/dev.plan" "$T/backup/PLAN"
     $O rebuild --root "$T/new" --plan "$T/backup/PLAN" --vault "$T/backup/vault" > "$T/rb.log" 2>&1
-    [[ -f "$T/new/apps/mytool.prog/start" ]] \
+    [[ -f "$T/new/apps/mytool.osp/start" ]] \
         && ok "(c) rebuilt on an EMPTY root, and mytool is back: $(grep -m1 -oE '[0-9]+ package\(s\) fetched and verified, [0-9]+ octet\(s\), [0-9]+ of them from the vault' "$T/rb.log")" \
         || nok "(c) the rebuild did not restore mytool"
     local b1 b2
-    b1=$(sha256sum "$R/apps/mytool.prog/start" | cut -d' ' -f1)
-    b2=$(sha256sum "$T/new/apps/mytool.prog/start" | cut -d' ' -f1)
+    b1=$(sha256sum "$R/apps/mytool.osp/start" | cut -d' ' -f1)
+    b2=$(sha256sum "$T/new/apps/mytool.osp/start" | cut -d' ' -f1)
     [[ "$b1" == "$b2" && -n "$b1" ]] \
         && ok "and it is the same binary, not a similar one (${b1:0:16})" \
         || nok "the restored binary differs from the original"
@@ -172,7 +172,7 @@ orphan_check() {
     [[ -f "$T/gap/system/INCOMPLETE" ]] \
         && ok "GEGENPROBE: --allow-missing builds the rest AND leaves system/INCOMPLETE: $(grep -m1 '^missing' "$T/gap/system/INCOMPLETE" | cut -f3)" \
         || nok "--allow-missing did not record what is absent"
-    [[ ! -e "$T/gap/apps/mytool.prog" && -e "$T/gap/apps/hallo.prog" ]] \
+    [[ ! -e "$T/gap/apps/mytool.osp" && -e "$T/gap/apps/hallo.osp" ]] \
         && ok "the incomplete tree has the packages it could get and not the one it could not" \
         || nok "the incomplete tree has the wrong bundles"
     if $O verify --root "$T/gap" > "$T/ver2.log" 2>&1; then

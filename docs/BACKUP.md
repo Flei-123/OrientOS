@@ -37,7 +37,7 @@ a consequence of how the tree is built:
 | documents | `users/<who>/state/<app>/` | **yes** | this is the valuable part |
 | programs **with a source** | `store/<hash>/` | **no** | reproducible from the PLAN + a source |
 | programs **with no source** | `store/<hash>/` | **yes**, as a named exception | orphaned — see § 1a. The only copy in the world. |
-| the activated view | `apps/<name>.prog/` | **no** | second names on the store, rebuilt on every activation |
+| the activated view | `apps/<name>.osp/` | **no** | second names on the store, rebuilt on every activation |
 | generated config | `etc/…` | **no** | a function of the PLAN, rewritten on every activation |
 | thumbnails, indexes | `users/<who>/cache/<app>/` | **no** | regenerated, by definition |
 

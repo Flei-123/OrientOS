@@ -65,7 +65,7 @@ verzeichnis /home
 #
 # Was hier steht, wird NICHT nach /bin kopiert. Ein Paket wird
 # installiert: es landet unveraenderlich unter `/store/<hash>` und wird
-# ueber `/apps/<name>.prog` sichtbar -- ein zweiter Verzeichniseintrag
+# ueber `/apps/<name>.osp` sichtbar -- ein zweiter Verzeichniseintrag
 # auf dieselben Oktette, kein zweites Exemplar. Dazu die drei Toepfe
 # unter `/users/` und die Generationen unter `/system/`.
 #

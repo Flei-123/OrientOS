@@ -43,7 +43,7 @@ Entwurf abweicht und warum.
     symbol                       das Bild (OSYM, aus Osums Runde K15)
     daten/                       alles Weitere
 
-/apps/explorer.prog/             die AKTIVIERTE Sicht der laufenden Generation
+/apps/explorer.osp/             die AKTIVIERTE Sicht der laufenden Generation
     start  INFO  symbol  daten/  -- jede Datei ein ZWEITER NAME auf den Store
 
 /users/justin/config/explorer/   Einstellungen      -> Backup
@@ -61,10 +61,10 @@ PACKAGING.md („keine globale Registry, niemals") nicht als Absicht,
 sondern als Bauweise: es gibt keinen zweiten Ort, an dem etwas stehen
 könnte.
 
-### `/apps/<name>.prog` und nicht `/apps/<name>`
+### `/apps/<name>.osp` und nicht `/apps/<name>`
 
 PACKAGING.md zeichnet `/apps/editor -> /store/8f3a…c1`. Gebaut ist
-`/apps/explorer.prog/` als **Verzeichnis mit zweiten Namen** darin, und
+`/apps/explorer.osp/` als **Verzeichnis mit zweiten Namen** darin, und
 dafür gibt es zwei Gründe, die beide von außen kommen:
 
 1. **OFS kennt keine symbolischen Verweise.** Der Inodetyp ist
@@ -73,8 +73,8 @@ dafür gibt es zwei Gründe, die beide von außen kommen:
    Verzeichnis lässt sich in diesem Dateisystem nicht schreiben. Was es
    gibt, sind **harte Verweise** — zwei Verzeichniseinträge mit
    derselben Inode-Nummer —, und die gelten nur für Dateien.
-2. **`.prog` ist das Bündelformat, das Osums Runde K15 schon benutzt.**
-   Der Starter und der Datei-Explorer suchen `/apps/*.prog/` und starten
+2. **`.osp` ist das Bündelformat, das Osums Runde K15 schon benutzt.**
+   Der Starter und der Datei-Explorer suchen `/apps/*.osp/` und starten
    `<bündel>/start`. Ein eigenes, zweites Layout danebenzustellen wäre
    eine Beschreibung an zwei Orten — einer zu viel.
 
@@ -109,16 +109,16 @@ Hash nach und **bricht ab**, wenn er ein anderer ist.
 
 ---
 
-## 1a. `.opk` and `.prog` -- what you hold and what runs
+## 1a. `.opk` and `.osp` -- what you hold and what runs
 
 *Asked by the owner on 27.08.2026, answered by reading the code. English,
 because it is new; the sections around it are round RENAME's.*
 
-> **`.opk` is what you HOLD. `.prog` is what RUNS.**
+> **`.opk` is what you HOLD. `.osp` is what RUNS.**
 
 They are not two names for one thing. They are different kinds of thing.
 
-| | `.opk` | `/apps/<name>.prog/` |
+| | `.opk` | `/apps/<name>.osp/` |
 |---|---|---|
 | what it is | a FILE | a DIRECTORY |
 | purpose | transport and archive | the activated view of the current generation |
@@ -129,9 +129,9 @@ They are not two names for one thing. They are different kinds of thing.
 | rebuilt | never; a package is immutable by definition | **completely**, on every activation |
 
 The `.opk` is the thing a source serves, a signature covers and a PLAN
-line names by hash. The `.prog` bundle is the thing Osum's launcher
+line names by hash. The `.osp` bundle is the thing Osum's launcher
 finds by its suffix and starts through `<bundle>/start` -- `starter.fi`
-line 47 spells out `/apps/suchen.prog/start`. Because the bundle is only
+line 47 spells out `/apps/suchen.osp/start`. Because the bundle is only
 hard links, `aktivieren` can throw the whole of `apps/` away and rebuild
 it from the plan without moving a single block; that is why a generation
 can be a function of its PLAN instead of of its own history.
@@ -166,7 +166,7 @@ keys=datei,dateien,explorer,ordner,verzeichnis,manager,file,files,folder
 braucht=<name>            0..n, sortiert
 handle=cache              0..n, sortiert
 handle=config
-handle=konsole
+handle=console
 handle=state
 ```
 

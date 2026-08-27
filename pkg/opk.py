@@ -24,7 +24,7 @@ laesst sich „nach Installieren und Entfernen ist alles wie vorher" nicht
 mehr messen, sondern nur noch behaupten. Wer wissen will, wann etwas
 geschah, liest die Historie des Repos.
 
-*Harte Verweise statt Kopien.* `apps/<name>.prog/start` ist ein ZWEITER
+*Harte Verweise statt Kopien.* `apps/<name>.osp/start` ist ein ZWEITER
 NAME auf dieselbe Datei im Store, kein zweites Exemplar -- dasselbe
 Verfahren, mit dem Osums Runde K15 `/bin/explorer` und `/bin/files`
 verbindet, und dasselbe, das `mkfs.py` mit `<neu>@<vorhanden>` in ein
@@ -445,7 +445,7 @@ PLAN_TYPES = ("account", "app", "arch", "kernel", "pref", "setting",
 # of them is the truth; the other two would have been copies of it.
 #
 #   IN THE PACKAGE NAME (`explorer-x86_64`) -- REJECTED. The name is what
-#   a human types, what `braucht=` refers to and what `/apps/<name>.prog`
+#   a human types, what `braucht=` refers to and what `/apps/<name>.osp`
 #   is called. Putting the machine in it makes a dependency unwritable
 #   ("needs explorer" would have to say which explorer, in a file that
 #   cannot know where it will be installed), makes the plan unportable
@@ -641,8 +641,8 @@ def arch_refusal(name, plan_arch, paket_arch):
 #
 # THE FIRST REASON was that appearance was not in the system state at all.
 # Osum's settings application (`kernel/user/einstellungen.fi`, 788 lines)
-# writes /etc/theme, /etc/schemas/, /etc/hintergrund, /etc/schirm.conf,
-# /etc/zeit.conf and /etc/netz.conf, and NONE of it was in a PLAN. A
+# writes /etc/theme, /etc/schemas/, /etc/wallpaper, /etc/display.conf,
+# /etc/time.conf and /etc/network.conf, and NONE of it was in a PLAN. A
 # rebuilt machine came up with the applications of the old one and the
 # looks of a fresh install.
 #
@@ -662,7 +662,7 @@ def arch_refusal(name, plan_arch, paket_arch):
 # a place where a second user cannot exist.
 #
 # The consequence is honest and stated where it hurts: Osum's taskbar and
-# desktop read the absolute paths /etc/theme and /etc/hintergrund today.
+# desktop read the absolute paths /etc/theme and /etc/wallpaper today.
 # Moving the truth to the user does not move those programs. So activation
 # also writes a COMPATIBILITY VIEW under /etc -- hard links to the very
 # same store octets -- for the single account of a single-user machine,
@@ -713,7 +713,7 @@ USER_GENERATED = ("config/desktop/taskbar.conf", "config/desktop/theme",
 # exactly one account. When round DESKTOP teaches those programs to read
 # `/users/<who>/config/desktop/`, this tuple becomes empty and nothing
 # else changes.
-COMPAT_FILES = ("etc/hintergrund", "etc/taskbar.conf", "etc/theme")
+COMPAT_FILES = ("etc/wallpaper", "etc/taskbar.conf", "etc/theme")
 SCHEMA_DIR = "etc/schemas"
 
 TASKBAR_EDGES = ("bottom", "left", "right", "top")   # wlibc.fi e_names
@@ -730,8 +730,8 @@ TASKBAR_DEFAULTS = {"taskbar.edge": "bottom",
 #
 # The third column is the honest part: `consumer` says whether anything in
 # the running system READS the file that this key produces. Osum reads
-# `/etc/zeit.conf` (kernel/user/einstellungen.fi), `/etc/schirm.conf` and
-# `/etc/netz.conf` (also kernel/user/dhcp.fi). Nothing in Osum reads a
+# `/etc/time.conf` (kernel/user/einstellungen.fi), `/etc/display.conf` and
+# `/etc/network.conf` (also kernel/user/dhcp.fi). Nothing in Osum reads a
 # hostname or a keymap today -- those keys are recorded and rendered, and
 # that is all they do until someone writes the consumer.
 SETTING_KEYS = {
@@ -739,16 +739,16 @@ SETTING_KEYS = {
     "hostname":      ("etc/hostname",     None),
     "timezone":      ("etc/timezone",     None),
     "keymap":        ("etc/keymap",       None),
-    "time.offset":   ("etc/zeit.conf",    "kernel/user/einstellungen.fi"),
+    "time.offset":   ("etc/time.conf",    "kernel/user/einstellungen.fi"),
     # `display.mode` and not `screen.mode`: the key is ours and one day
     # old, so renaming it costs nothing and English is the rule. The FILE
-    # keeps Osum's name `schirm.conf` -- renaming another project's file
+    # keeps Osum's name `display.conf` -- renaming another project's file
     # is round RENAME's job, not ours.
-    "display.mode":  ("etc/schirm.conf",  "kernel/user/einstellungen.fi"),
-    "net.mode":      ("etc/netz.conf",    "kernel/user/dhcp.fi"),
-    "net.address":   ("etc/netz.conf",    "kernel/user/dhcp.fi"),
-    "net.netmask":   ("etc/netz.conf",    "kernel/user/dhcp.fi"),
-    "net.gateway":   ("etc/netz.conf",    "kernel/user/dhcp.fi"),
+    "display.mode":  ("etc/display.conf",  "kernel/user/einstellungen.fi"),
+    "net.mode":      ("etc/network.conf",    "kernel/user/dhcp.fi"),
+    "net.address":   ("etc/network.conf",    "kernel/user/dhcp.fi"),
+    "net.netmask":   ("etc/network.conf",    "kernel/user/dhcp.fi"),
+    "net.gateway":   ("etc/network.conf",    "kernel/user/dhcp.fi"),
 }
 
 # EVERY FILE THIS PROGRAM GENERATES. Activation deletes all of them and
@@ -756,9 +756,9 @@ SETTING_KEYS = {
 # setting that is REMOVED in a new generation would leave its file behind,
 # and the tree would no longer be a function of the plan. Files under
 # `etc/` that are not in this list are never touched.
-GENERATED_FILES = ("etc/hostname", "etc/keymap", "etc/netz.conf",
-                   "etc/passwd", "etc/schirm.conf", "etc/shadow",
-                   "etc/timezone", "etc/zeit.conf")
+GENERATED_FILES = ("etc/hostname", "etc/keymap", "etc/network.conf",
+                   "etc/passwd", "etc/display.conf", "etc/shadow",
+                   "etc/timezone", "etc/time.conf")
 
 # Where the kernel of a generation becomes visible in the tree.
 KERNEL_DIR = "system/kernel"
@@ -994,7 +994,7 @@ def as_plan(thing):
 # Rendering the plan into files the running system reads
 # ---------------------------------------------------------------------------
 def render_netz(settings):
-    """`/etc/netz.conf` in the shape Osum writes and reads.
+    """`/etc/network.conf` in the shape Osum writes and reads.
 
     The keys in the PLAN are English (`net.mode`, value `dhcp` or
     `static`); the FILE is Osum's and keeps Osum's words (`modus=fest`).
@@ -1030,14 +1030,14 @@ def generated_content(plan, secrets_dir):
         if key in s:
             out[simple] = s[key] + "\n"
     if "time.offset" in s:
-        out["etc/zeit.conf"] = "offset=%s\n" % s["time.offset"]
+        out["etc/time.conf"] = "offset=%s\n" % s["time.offset"]
     if "display.mode" in s:
         # The KEY is ours and English; the FILE and its word `modus=` are
         # Osum's and are written the way Osum reads them.
-        out["etc/schirm.conf"] = "modus=%s\n" % s["display.mode"]
+        out["etc/display.conf"] = "modus=%s\n" % s["display.mode"]
     netz = render_netz(s)
     if netz is not None:
-        out["etc/netz.conf"] = netz
+        out["etc/network.conf"] = netz
     if plan.accounts:
         names = sorted(plan.accounts)
         out["etc/passwd"] = "".join(
@@ -1212,7 +1212,7 @@ class Wurzel:
                 raise SystemExit("opk: Generation %d nennt %s (%s), "
                                  "aber der Store hat den Eintrag nicht"
                                  % (n, name, h[:12]))
-            self._verweisen(quelle, os.path.join(self.apps, name + ".prog"))
+            self._verweisen(quelle, os.path.join(self.apps, name + ".osp"))
         # THE KERNEL OF THIS GENERATION (round PLAN2). It is a store entry
         # like any other and becomes visible under `system/kernel` by the
         # same hard links -- so rolling back rolls the kernel back with
@@ -1298,7 +1298,7 @@ class Wurzel:
         if len(wer) != 1:
             return len(wer)
         prefs = plan.prefs_of(wer[0])
-        paare = (("theme", "etc/theme"), ("wallpaper", "etc/hintergrund"))
+        paare = (("theme", "etc/theme"), ("wallpaper", "etc/wallpaper"))
         for k, rel in paare:
             if k in prefs:
                 os.link(self._blob_of(prefs[k]),
@@ -3975,7 +3975,7 @@ def cmd_verify(args):
         if "theme" in plan.prefs_of(wer):
             soll.append("etc/theme")
         if "wallpaper" in plan.prefs_of(wer):
-            soll.append("etc/hintergrund")
+            soll.append("etc/wallpaper")
         if render_taskbar(plan.prefs_of(wer)) is not None:
             soll.append("etc/taskbar.conf")
         sagen(sorted(hat) == sorted(soll),

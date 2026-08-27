@@ -298,18 +298,18 @@ open(p, 'wb').write(bytes(b))" "$T/q2"
         local liste="$T/img.txt"
         python3 vendor/osum/mkfs.py list "$img" > "$liste"
         local na ns
-        na=$(grep -c '^/apps/[^/]*\.prog/$' "$liste")
+        na=$(grep -c '^/apps/[^/]*\.osp/$' "$liste")
         ns=$(grep -c '^/store/[^/]*/$' "$liste")
         [[ "$na" -ge 3 && "$ns" -ge 3 ]] \
             && ok "im Produkt-Abbild liegen $na Buendel unter /apps und $ns Eintraege unter /store" \
             || nok "im Produkt-Abbild sind es $na Buendel und $ns Store-Eintraege, erwartet je mindestens 3"
         # Die Oktette des Explorers im Abbild gegen die im Paket.
         local imabbild impaket
-        imabbild=$(awk '$1=="/apps/explorer.prog/start"{print $2}' "$liste")
+        imabbild=$(awk '$1=="/apps/explorer.osp/start"{print $2}' "$liste")
         impaket=$(stat -c%s vendor/osum/bin/explorer)
         [[ "$imabbild" == "$impaket" ]] \
-            && ok "/apps/explorer.prog/start ist $imabbild Oktette gross — dieselbe Zahl wie vendor/osum/bin/explorer" \
-            || nok "/apps/explorer.prog/start ist $imabbild statt $impaket Oktette"
+            && ok "/apps/explorer.osp/start ist $imabbild Oktette gross — dieselbe Zahl wie vendor/osum/bin/explorer" \
+            || nok "/apps/explorer.osp/start ist $imabbild statt $impaket Oktette"
         # UND ER LIEGT NUR EINMAL DA. Waeren Store und Buendel zwei
         # Exemplare, kostete allein der Explorer 458 Bloecke doppelt.
         local frei
@@ -352,18 +352,18 @@ pakete_boot() {
     # brauchen einen Bildschirm, `hallo` schreibt eine Zeile und beendet
     # sich. Ein Paket, dessen Oktette man nur zaehlen kann, ist installiert;
     # eines, das laeuft, ist es nachweislich.
-    if ! ./run-osum.sh --script 'ls /apps;ls /store;cat /system/AKTUELL;/apps/hallo.prog/start;wc -c /apps/explorer.prog/start;exit' \
+    if ! ./run-osum.sh --script 'ls /apps;ls /store;cat /system/AKTUELL;/apps/hallo.osp/start;wc -c /apps/explorer.osp/start;exit' \
             --log "$log" --timeout 180 >/dev/null 2>&1; then
         nok "der Lauf mit dem Paketbaum ist fehlgeschlagen"
         rm -f "$log"; return 1
     fi
     ok "der Kernel hat sich sauber beendet (21)"
-    grep -aq 'explorer.prog/' "$log" \
-        && ok "/apps enthaelt explorer.prog" \
-        || nok "/apps enthaelt kein explorer.prog"
-    grep -aq 'hallo.prog/' "$log" \
-        && ok "/apps enthaelt hallo.prog" \
-        || nok "/apps enthaelt kein hallo.prog"
+    grep -aq 'explorer.osp/' "$log" \
+        && ok "/apps enthaelt explorer.osp" \
+        || nok "/apps enthaelt kein explorer.osp"
+    grep -aq 'hallo.osp/' "$log" \
+        && ok "/apps enthaelt hallo.osp" \
+        || nok "/apps enthaelt kein hallo.osp"
     local ns
     # Zwischen dem Befehl und seiner Ausgabe stehen die Zeilen des
     # ELF-Laders -- deshalb mehr als eine Folgezeile.
@@ -373,15 +373,15 @@ pakete_boot() {
         || nok "/store enthaelt $ns Eintraege, erwartet mindestens 3"
     # DAS PAKET LAEUFT.
     if grep -aq '^hello: argc' "$log"; then
-        ok "/apps/hallo.prog/start ist gestartet und hat geschrieben: $(grep -a -m1 '^hello: arg 0' "$log")"
+        ok "/apps/hallo.osp/start ist gestartet und hat geschrieben: $(grep -a -m1 '^hello: arg 0' "$log")"
     else
-        nok "/apps/hallo.prog/start hat nichts geschrieben — das Paket ist da, laeuft aber nicht"
+        nok "/apps/hallo.osp/start hat nichts geschrieben — das Paket ist da, laeuft aber nicht"
     fi
     # ...und die Oktette stimmen, im Gastsystem gemessen.
     local n
-    n=$(grep -a -m1 '^[0-9]* /apps/explorer.prog/start' "$log" | cut -d' ' -f1)
+    n=$(grep -a -m1 '^[0-9]* /apps/explorer.osp/start' "$log" | cut -d' ' -f1)
     if [[ "$n" == "$(stat -c%s vendor/osum/bin/explorer)" ]]; then
-        ok "das Gastsystem zaehlt $n Oktette in /apps/explorer.prog/start — dieselbe Zahl wie auf dem Wirt"
+        ok "das Gastsystem zaehlt $n Oktette in /apps/explorer.osp/start — dieselbe Zahl wie auf dem Wirt"
     else
         nok "das Gastsystem zaehlt '$n' Oktette, der Wirt $(stat -c%s vendor/osum/bin/explorer)"
     fi

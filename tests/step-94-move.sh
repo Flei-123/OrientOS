@@ -54,7 +54,7 @@ move_check() {
     if [[ -x $FIRNC && -f ../firn/tests/048_print_number.fi ]] \
        && $FIRNC --target=x86_64-linux -o "$T/mytool" ../firn/tests/048_print_number.fi >/dev/null 2>&1; then :; else
         cp vendor/osum/bin/cat "$T/mytool"; fi
-    printf 'name=mytool\nfassung=1.0.0\ntitel=mytool\ninfo=self built\nkeys=mytool\nhandle=konsole\ndatei=start %s\n' "$T/mytool" > "$T/mytool.rezept"
+    printf 'name=mytool\nfassung=1.0.0\ntitel=mytool\ninfo=self built\nkeys=mytool\nhandle=console\ndatei=start %s\n' "$T/mytool" > "$T/mytool.rezept"
     $O bauen "$T/mytool.rezept" -o "$T/mytool.opk" >/dev/null 2>&1
 
     # ------------------------------------------------- the old device
@@ -176,9 +176,9 @@ print('%d %d' % (t,n))" "$1"; }
     # rendered. Four diff lines, because the plan is CHANGED (< and >)
     # while the two files are only on the old side.
     if [[ "$n_diff" == "4" ]] && grep -q '^< f etc/hostname' "$T/d1" \
-       && grep -q '^< f etc/netz.conf' "$T/d1" && grep -q '^< plan ' "$T/d1" \
+       && grep -q '^< f etc/network.conf' "$T/d1" && grep -q '^< plan ' "$T/d1" \
        && grep -q '^> plan ' "$T/d1"; then
-        ok "compared over $n_alt entries: the ONLY differences are the PLAN ($(grep -m1 '^< plan' "$T/d1" | awk '{print $4}') -> $(grep -m1 '^> plan' "$T/d1" | awk '{print $4}') octets) and the two files those machine settings rendered (etc/hostname, etc/netz.conf)"
+        ok "compared over $n_alt entries: the ONLY differences are the PLAN ($(grep -m1 '^< plan' "$T/d1" | awk '{print $4}') -> $(grep -m1 '^> plan' "$T/d1" | awk '{print $4}') octets) and the two files those machine settings rendered (etc/hostname, etc/network.conf)"
     else
         nok "compared over $n_alt entries and got $n_diff unexpected difference(s): $(grep '^[<>]' "$T/d1" | head -4 | tr '\n' ' ')"
     fi

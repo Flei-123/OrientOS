@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-only
 """pkg/opk.py -- die Paketverwaltung von OrientOS.
 
 Der Entwurf steht in PACKAGING.md und ist aelter als dieses Werkzeug; das

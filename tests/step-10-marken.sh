@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # tests/step-10-marken.sh — wird von test.sh gesourct, nicht direkt gestartet.
 #
 # EIN QUELLBAUM, ZWEI PRODUKTE. Das ist die Rolle, die OrientOS nach dem

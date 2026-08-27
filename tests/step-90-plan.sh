@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # tests/step-90-plan.sh -- sourced by test.sh, not started directly.
 #
 # THE SELF-BEARING PLAN (round PLAN2, format in docs/PLAN-FORMAT.md).

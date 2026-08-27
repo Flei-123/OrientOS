@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # tests/step-05-patches.sh — wird von test.sh gesourct, nicht direkt gestartet.
 #
 # BERICHTIGUNGEN AM FESTGENAGELTEN KERNEL — und warum sie gemessen werden.

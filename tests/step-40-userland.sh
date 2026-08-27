@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # tests/step-40-userland.sh — wird von test.sh gesourct, nicht direkt gestartet.
 #
 # DAS PRODUKT HAT EIN USERLAND, UND ZWAR IM ISO.

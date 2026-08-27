@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-only
 """pkg/mkfs-spec.py -- aus einer Paketwurzel die Angaben fuer mkfs.py.
 
 Zwischen der Wurzel, die `opk.py` auf dem Wirt baut, und dem

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
 # Die Abnahme von OrientOS — des GESAMTSYSTEMS.
 #
 # WAS HIER SEIT DEM 26.08.2026 GEMESSEN WIRD, und was nicht mehr.

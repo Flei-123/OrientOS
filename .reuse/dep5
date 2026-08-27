@@ -1,0 +1,53 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: OrientOS
+Source: https://github.com/Flei-123/OrientOS
+
+# WHY THIS FILE EXISTS
+# Most source files carry an `SPDX-License-Identifier:` line, and that line is
+# authoritative for the file it stands in. This file assigns a licence to the
+# rest by path -- the brand artwork, the ELF test corpus, the vendored
+# bootloader -- so that every single file in the repository has an answer.
+# The reasoning is in LICENSING.md; the full text is in LICENSE.
+
+Files: *
+Copyright: 2026 Justin (Flei123)
+Comment: Nothing in this repository is linked into a program a user compiles,
+ so unlike Firn and Osum there is no MIT carve-out here. A closed source
+ program for OrientOS links Firn runtime (MIT) and Osum Ring 3 libraries (MIT)
+ and stays allowed. That is the arrangement and it is deliberate.
+License: GPL-2.0-only
+
+Files: assets/marke/*
+Copyright: 2026 Justin (Flei123)
+Comment: Justin's own drawing (osum-vorlage-justin.jpg), vectorised once with
+ potrace. potrace is not in this repository and is not needed to build the
+ product. NOTE: a logo usually wants to be a TRADEMARK rather than
+ GPL-licensed art -- free to reproduce when talking about the project, not
+ free to put on somebody else's fork. If that is what is wanted, this stanza
+ needs its own terms. Flagged in LICENSING.md section 4, not decided.
+License: GPL-2.0-only
+
+Files: tests/firn-elf/faelle/*
+Copyright: 2026 Justin (Flei123)
+Comment: 53 deliberately malformed ELF files, generated here by
+ tests/firn-elf/faelle.py for the loader's error paths. Own work.
+License: GPL-2.0-only
+
+Files: vendor/limine/*
+Copyright: 2019-2025 Mintsuki and contributors
+Comment: The Limine bootloader. Four of these files go onto the ISO --
+ limine-bios.sys, limine-bios-cd.bin, limine-uefi-cd.bin and BOOTX64.EFI,
+ 3437860 octets in total -- and execute on every boot before the kernel.
+ 2-clause BSD is GPL-2.0-compatible, so there is no conflict. TWO OPEN ITEMS:
+ (1) build.sh lines 239-242 copy the binaries onto the ISO and do NOT copy
+ vendor/limine/LICENSE, which clause 2 of that licence asks for; (2) the
+ version is not pinned anywhere -- no tag, no commit, no checksum -- which
+ makes it the only foreign dependency in this project family without a pin.
+ Both are recorded in THIRD_PARTY.md.
+License: BSD-2-Clause
+
+Files: vendor/osum/* vendor/firn/*
+Copyright: 2026 Justin (Flei123)
+Comment: Only COMMIT files, the fetch scripts and three patches are tracked.
+ What they fetch is Justin's own Osum and Firn.
+License: GPL-2.0-only

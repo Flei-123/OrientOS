@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # tests/step-91-look.sh -- wird von test.sh gesourct, nicht direkt gestartet.
 #
 # "WENN ICH AUF EINEM NEUEN GERAET NEU LADE -- SCHAUT ES DANN GLEICH AUS?"

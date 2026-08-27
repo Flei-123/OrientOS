@@ -4,6 +4,12 @@
 `c5fe12f` · format: [PLAN-FORMAT.md](PLAN-FORMAT.md) · backup:
 [BACKUP.md](BACKUP.md) · test: `tests/step-90-plan.sh`
 
+**Acceptance:** `./test.sh` → **ALL 15 STEPS PASSED, 234 assertions**,
+0 failures. Before this round: 14 steps, 201 assertions. The 33 that came
+in are exactly `step-90-plan.sh`; **not one existing assertion was lost**,
+and the product ISO still boots over BIOS and over UEFI with the same
+userland it had before.
+
 Every number in this file comes from a run on this machine. Where a
 number was not measured, it is not here.
 
@@ -320,6 +326,14 @@ do not.
 counter-check, and three counter-checks to counter-checks (an intact plan
 is accepted, a known setting is taken, `kernelchen` builds) — without
 those, a tool that refuses everything would be green here.
+
+In the whole suite: **15 steps, 234 assertions, 0 failures** (before:
+14 / 201). Nothing that was green before turned red — in particular
+`step-80-pakete.sh`, which measures the older half of the package
+manager, and `step-20`/`step-30`, which build and boot the product.
+The metadata change is the reason that matters: it was designed so that
+existing package hashes do not move, and the suite would have said
+otherwise.
 
 `opk.py verify` is the second, independent check and runs on the demo
 tree with **28 assertions, 0 failed**. Its counter-checks are in the

@@ -53,6 +53,24 @@ Die Befehle:
     opk.py verweise     --wurzel W
     opk.py schluessel   <verzeichnis>
     opk.py quelle       <verzeichnis> [--schluessel <datei>]
+
+Round PLAN2 added the typed PLAN and, with it, these (English) verbs.
+`--root` is the same flag as `--wurzel`:
+
+    opk.py plan          --root R
+    opk.py export        --root R -o <datei>
+    opk.py kernel        --root R <datei.opk | name | none>
+    opk.py source-add    --root R <url> <pubkey-hex | datei>
+    opk.py source-remove --root R <url>
+    opk.py set           --root R <key> <value>
+    opk.py unset         --root R <key>
+    opk.py settings      --root R
+    opk.py account-add   --root R <name> [--uid --gid --home --shell]
+    opk.py account-remove --root R <name>
+    opk.py secret-set    --root R <name> <datei | ->
+    opk.py snapshot      --root R
+    opk.py verify        --root R
+    opk.py rebuild       --root R --plan <datei> [--source D] [--secrets D]
 """
 
 import argparse
@@ -232,6 +250,14 @@ def meta_bauen(felder, braucht, handles):
         zeilen.append("braucht=%s" % b)
     for h in sorted(handles):
         zeilen.append("handle=%s" % h)
+    # EXTRA FIELDS, added in round PLAN2 for `kind=kernel` and `origin=`.
+    # They come LAST and sorted, so a recipe without any of them produces
+    # exactly the octets it produced before -- no package that already
+    # exists changes its hash because this line was added.
+    for k in sorted(felder):
+        if k in FELDER or k in ("braucht", "handle"):
+            continue
+        zeilen.append("%s=%s" % (k, felder[k]))
     return ("\n".join(zeilen) + "\n").encode("utf-8")
 
 
@@ -332,6 +358,342 @@ def paket_lesen(roh):
 
 
 # ---------------------------------------------------------------------------
+# THE PLAN, VERSION 2 -- TYPED LINES
+#
+# Everything from here on is written in English (round PLAN2). The older
+# German code above is untouched on purpose: renaming the existing body is
+# a round of its own, and mixing a rename into a format change would make
+# both unreviewable.
+#
+# WHY THE PLAN HAD TO GROW. Until this round a PLAN was `name<TAB>sha256`
+# and nothing else, so it described the installed APPLICATIONS and only
+# those. A machine cannot be rebuilt from that: it does not say which
+# kernel the applications run on, it does not say WHERE the hashes can be
+# fetched from, and it does not say what the machine is configured to be
+# (time, network, accounts). Three quarters of a system state were outside
+# the one file that claims to be the system state.
+#
+# THE SHAPE. A line is TAB separated. The first field is a TYPE:
+#
+#     app       <name>   <sha256>            an installed application
+#     kernel    <sha256>                     the kernel this generation runs
+#     source    <url>    <ed25519-pubkey>    where hashes may be fetched
+#     setting   <key>    <value>             one system setting
+#     account   <name> <uid> <gid> <home> <shell> <secret>
+#
+# READING AN OLD PLAN. The rule is one line long and needs no version
+# header, no migration and no rewrite of files that already exist:
+#
+#     fields = line.split(TAB)
+#     if fields[0] in PLAN_TYPES  -> typed line
+#     elif len(fields) == 2       -> the old `name<TAB>hash`, i.e. an app
+#     else                        -> error, and say which line
+#
+# The one thing that rule can get wrong is an application literally named
+# `app`, `kernel`, `source`, `setting` or `account` -- five names. They are
+# therefore REFUSED at build time and at install time (`reserved_name`),
+# which turns a silent misreading into a loud error at the only moment
+# where it can still be fixed.
+#
+# THE FILE IS WHAT `sort` PRODUCES. Lines are written sorted by their
+# bytes -- the whole line, not by type and then by name. That is not a
+# detail: it means the canonical order can be checked from the outside
+# with `LC_ALL=C sort -c PLAN` and needs no knowledge of this program.
+# Alphabetically the types fall into the order account, app, kernel,
+# setting, source, which reads well enough by accident.
+#
+# WHAT IS NOT IN THE PLAN, AND WHY: PASSWORDS. A PLAN is meant to be
+# handed to someone else -- that is the whole point of `rebuild`. A
+# password hash in it would be a password hash in every backup, every
+# paste and every repository that ever saw the file. The account line
+# therefore carries the SHA-256 OF THE CREDENTIAL, not the credential:
+#
+#     account justin 1000 1000 /users/justin /bin/sh 6f1c...  (or `-`)
+#
+# The credential itself lives in `system/secrets/<name>`, mode 0600, and
+# is never part of a PLAN. Two things follow, and both are wanted:
+# changing a password IS a new generation (the hash in the plan changes,
+# so it can be rolled back), and a rebuild from a PLAN ALONE produces the
+# accounts with the passwords LOCKED. That is the honest outcome and it is
+# measured as such -- see `docs/ROUND-PLAN2.md`.
+# ---------------------------------------------------------------------------
+
+PLAN_TYPES = ("account", "app", "kernel", "setting", "source")
+
+# THE CLOSED SET OF SETTINGS. An open key space would turn the PLAN into
+# the junk drawer that PACKAGING.md § 1.4 exists to prevent: anything
+# could be written anywhere and nothing could be rebuilt from the file.
+# A key that is not in this table is refused by `set`. Adding one is a
+# change to this program -- which is exactly the amount of friction it
+# should have.
+#
+# The third column is the honest part: `consumer` says whether anything in
+# the running system READS the file that this key produces. Osum reads
+# `/etc/zeit.conf` (kernel/user/einstellungen.fi), `/etc/schirm.conf` and
+# `/etc/netz.conf` (also kernel/user/dhcp.fi). Nothing in Osum reads a
+# hostname or a keymap today -- those keys are recorded and rendered, and
+# that is all they do until someone writes the consumer.
+SETTING_KEYS = {
+    # key             file                consumer in the running system
+    "hostname":      ("etc/hostname",     None),
+    "timezone":      ("etc/timezone",     None),
+    "keymap":        ("etc/keymap",       None),
+    "time.offset":   ("etc/zeit.conf",    "kernel/user/einstellungen.fi"),
+    "screen.mode":   ("etc/schirm.conf",  "kernel/user/einstellungen.fi"),
+    "net.mode":      ("etc/netz.conf",    "kernel/user/dhcp.fi"),
+    "net.address":   ("etc/netz.conf",    "kernel/user/dhcp.fi"),
+    "net.netmask":   ("etc/netz.conf",    "kernel/user/dhcp.fi"),
+    "net.gateway":   ("etc/netz.conf",    "kernel/user/dhcp.fi"),
+}
+
+# EVERY FILE THIS PROGRAM GENERATES. Activation deletes all of them and
+# then writes the ones the plan asks for. Without the complete list a
+# setting that is REMOVED in a new generation would leave its file behind,
+# and the tree would no longer be a function of the plan. Files under
+# `etc/` that are not in this list are never touched.
+GENERATED_FILES = ("etc/hostname", "etc/keymap", "etc/netz.conf",
+                   "etc/passwd", "etc/schirm.conf", "etc/shadow",
+                   "etc/timezone", "etc/zeit.conf")
+
+# Where the kernel of a generation becomes visible in the tree.
+KERNEL_DIR = "system/kernel"
+SECRET_DIR = "system/secrets"
+
+ACCOUNT_FIELDS = ("uid", "gid", "home", "shell", "secret")
+
+
+def reserved_name(name):
+    """True for the five names that would make an old PLAN ambiguous."""
+    return name in PLAN_TYPES
+
+
+def _clean(value, what):
+    if "\t" in value or "\n" in value:
+        raise ValueError("%s must not contain a tab or a newline: %r"
+                         % (what, value))
+    return value
+
+
+class Account(object):
+    __slots__ = ("name", "uid", "gid", "home", "shell", "secret")
+
+    def __init__(self, name, uid="1000", gid="1000", home=None,
+                 shell="/bin/sh", secret="-"):
+        self.name = name
+        self.uid = str(uid)
+        self.gid = str(gid)
+        self.home = home or ("/users/" + name)
+        self.shell = shell
+        self.secret = secret or "-"
+
+    def fields(self):
+        return [self.name, self.uid, self.gid, self.home, self.shell,
+                self.secret]
+
+    def passwd_line(self):
+        # name:x:uid:gid:description:home:shell -- the shape Osum's
+        # kernel/user/pw.fi reads. The `x` means "the password is
+        # elsewhere", and here it really is.
+        return "%s:x:%s:%s:%s:%s:%s" % (self.name, self.uid, self.gid,
+                                        self.name, self.home, self.shell)
+
+
+class Plan(object):
+    """The whole state of a system, as one sorted text file."""
+
+    def __init__(self):
+        self.apps = {}          # name -> full sha256
+        self.kernel = None      # full sha256 or None
+        self.sources = {}       # url -> ed25519 public key, hex
+        self.settings = {}      # key -> value
+        self.accounts = {}      # name -> Account
+        self.legacy_lines = 0   # how many lines were read in the old shape
+
+    # ------------------------------------------------------------ reading
+    @staticmethod
+    def parse(text, where="PLAN"):
+        p = Plan()
+        for nr, raw in enumerate(text.splitlines(), 1):
+            if not raw.strip() or raw.startswith("#"):
+                continue
+            f = raw.split("\t")
+            kind = f[0]
+            if kind not in PLAN_TYPES:
+                # THE COMPATIBILITY RULE, and nothing else is allowed to
+                # be guessed here.
+                if len(f) == 2:
+                    p.apps[f[0]] = f[1]
+                    p.legacy_lines += 1
+                    continue
+                raise ValueError("%s line %d: '%s' is not a known type and "
+                                 "the line is not the old two-field shape"
+                                 % (where, nr, kind))
+            if kind == "app":
+                if len(f) != 3:
+                    raise ValueError("%s line %d: app needs name and hash"
+                                     % (where, nr))
+                p.apps[f[1]] = f[2]
+            elif kind == "kernel":
+                if len(f) != 2:
+                    raise ValueError("%s line %d: kernel needs exactly one "
+                                     "hash" % (where, nr))
+                if p.kernel is not None and p.kernel != f[1]:
+                    raise ValueError("%s line %d: a second, different kernel "
+                                     "line -- a generation runs on one kernel"
+                                     % (where, nr))
+                p.kernel = f[1]
+            elif kind == "source":
+                if len(f) != 3:
+                    raise ValueError("%s line %d: source needs url and public "
+                                     "key" % (where, nr))
+                p.sources[f[1]] = f[2]
+            elif kind == "setting":
+                if len(f) != 3:
+                    raise ValueError("%s line %d: setting needs key and value"
+                                     % (where, nr))
+                p.settings[f[1]] = f[2]
+            elif kind == "account":
+                if len(f) != 7:
+                    raise ValueError("%s line %d: account needs name, uid, "
+                                     "gid, home, shell, secret (6 fields "
+                                     "after the type, got %d)"
+                                     % (where, nr, len(f) - 1))
+                p.accounts[f[1]] = Account(f[1], f[2], f[3], f[4], f[5], f[6])
+        return p
+
+    # ------------------------------------------------------------ writing
+    def lines(self):
+        out = []
+        for name in self.apps:
+            out.append("app\t%s\t%s" % (name, self.apps[name]))
+        if self.kernel:
+            out.append("kernel\t%s" % self.kernel)
+        for url in self.sources:
+            out.append("source\t%s\t%s" % (url, self.sources[url]))
+        for k in self.settings:
+            out.append("setting\t%s\t%s" % (k, self.settings[k]))
+        for name in self.accounts:
+            out.append("account\t" + "\t".join(self.accounts[name].fields()))
+        # SORTED BY THE BYTES OF THE WHOLE LINE. `LC_ALL=C sort -c` on the
+        # finished file must pass -- that is the check from outside.
+        out.sort(key=lambda z: z.encode("utf-8"))
+        return out
+
+    def text(self):
+        z = self.lines()
+        return ("\n".join(z) + "\n") if z else ""
+
+    # ------------------------------------------------------------- helpers
+    def copy(self):
+        p = Plan()
+        p.apps = dict(self.apps)
+        p.kernel = self.kernel
+        p.sources = dict(self.sources)
+        p.settings = dict(self.settings)
+        p.accounts = {n: Account(*a.fields()) for n, a in self.accounts.items()}
+        p.legacy_lines = self.legacy_lines
+        return p
+
+    def hashes(self):
+        """Every store hash this plan names -- applications AND kernel."""
+        out = set(self.apps.values())
+        if self.kernel:
+            out.add(self.kernel)
+        return out
+
+    def summary(self):
+        return ("%d app(s), kernel %s, %d source(s), %d setting(s), "
+                "%d account(s)"
+                % (len(self.apps),
+                   (self.kernel[:12] if self.kernel else "none"),
+                   len(self.sources), len(self.settings), len(self.accounts)))
+
+
+def as_plan(thing):
+    """Accept either a Plan or the old `{name: hash}` dictionary.
+
+    The German half of this program passes dictionaries around and keeps
+    doing so; this is the one place where the two shapes meet.
+    """
+    if isinstance(thing, Plan):
+        return thing
+    p = Plan()
+    p.apps = dict(thing)
+    return p
+
+
+# ---------------------------------------------------------------------------
+# Rendering the plan into files the running system reads
+# ---------------------------------------------------------------------------
+def render_netz(settings):
+    """`/etc/netz.conf` in the shape Osum writes and reads.
+
+    The keys in the PLAN are English (`net.mode`, value `dhcp` or
+    `static`); the FILE is Osum's and keeps Osum's words (`modus=fest`).
+    Translating here rather than adopting the foreign words into the plan
+    keeps the format of this repository English without pretending the
+    other side is.
+    """
+    mode = settings.get("net.mode")
+    if not mode:
+        return None
+    if mode == "dhcp":
+        return "modus=dhcp\n"
+    if mode == "static":
+        out = "modus=fest\n"
+        out += "ip=%s\n" % settings.get("net.address", "")
+        out += "maske=%s\n" % settings.get("net.netmask", "")
+        out += "gateway=%s\n" % settings.get("net.gateway", "")
+        return out
+    raise ValueError("net.mode must be 'dhcp' or 'static', not %r" % mode)
+
+
+def generated_content(plan, secrets_dir):
+    """What every generated file must contain for THIS plan.
+
+    Returns {relative path: text}. A path that is absent here is a path
+    that activation deletes.
+    """
+    s = plan.settings
+    out = {}
+    for key, simple in (("hostname", "etc/hostname"),
+                        ("timezone", "etc/timezone"),
+                        ("keymap", "etc/keymap")):
+        if key in s:
+            out[simple] = s[key] + "\n"
+    if "time.offset" in s:
+        out["etc/zeit.conf"] = "offset=%s\n" % s["time.offset"]
+    if "screen.mode" in s:
+        out["etc/schirm.conf"] = "modus=%s\n" % s["screen.mode"]
+    netz = render_netz(s)
+    if netz is not None:
+        out["etc/netz.conf"] = netz
+    if plan.accounts:
+        names = sorted(plan.accounts)
+        out["etc/passwd"] = "".join(
+            plan.accounts[n].passwd_line() + "\n" for n in names)
+        # /etc/shadow is written from the SECRET STORE, never from the
+        # plan. An account whose secret is not on this machine is written
+        # LOCKED (`!`), and that is visible in the file rather than
+        # guessed at the next login.
+        rows = []
+        for n in names:
+            acc = plan.accounts[n]
+            field = "!"
+            if acc.secret != "-" and secrets_dir:
+                p = os.path.join(secrets_dir, n)
+                if os.path.exists(p):
+                    field = open(p).read().strip()
+            rows.append("%s:%s:0:0:99999:7:::\n" % (n, field))
+        out["etc/shadow"] = "".join(rows)
+    return out
+
+
+def secret_hash(path):
+    return hashlib.sha256(open(path, "rb").read()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
 # Die Wurzel: store, apps, users, system
 # ---------------------------------------------------------------------------
 class Wurzel:
@@ -341,6 +703,8 @@ class Wurzel:
         self.apps = os.path.join(self.p, "apps")
         self.users = os.path.join(self.p, "users")
         self.gen = os.path.join(self.p, "system", "generations")
+        # Whose pots are created when the plan names no accounts at all.
+        self.default_user = "justin"
 
     def anlegen(self):
         for d in (self.store, self.apps, self.users, self.gen):
@@ -366,25 +730,37 @@ class Wurzel:
         return sorted(int(x) for x in os.listdir(self.gen) if x.isdigit())
 
     def plan(self, n):
+        """The APPLICATIONS of a generation, as the old `{name: hash}`.
+
+        Kept with the old signature because the German half of this file
+        calls it everywhere. Everything a typed PLAN carries beyond the
+        applications is reached through `plan_full`.
+        """
+        return self.plan_full(n).apps
+
+    def plan_full(self, n):
+        """The whole typed plan of generation n. Reads old files too."""
         f = os.path.join(self.gen, str(n), "PLAN")
         if not os.path.exists(f):
-            return {}
-        aus = {}
-        for z in open(f):
-            z = z.rstrip("\n")
-            if z:
-                name, h = z.split("\t")
-                aus[name] = h
-        return aus
+            return Plan()
+        return Plan.parse(open(f, encoding="utf-8").read(),
+                          "generation %s" % n)
 
     def plan_schreiben(self, n, plan, grund):
         d = os.path.join(self.gen, str(n))
         os.makedirs(d, exist_ok=True)
-        with open(os.path.join(d, "PLAN"), "w") as f:
-            for name in sorted(plan):
-                f.write("%s\t%s\n" % (name, plan[name]))
+        with open(os.path.join(d, "PLAN"), "w", encoding="utf-8") as f:
+            f.write(as_plan(plan).text())
         with open(os.path.join(d, "GRUND"), "w") as f:
             f.write(grund + "\n")
+
+    # ------------------------------------------------------ secret store
+    @property
+    def secrets(self):
+        return os.path.join(self.p, SECRET_DIR)
+
+    def secret_path(self, name):
+        return os.path.join(self.secrets, name)
 
     def neue_generation(self, plan, grund):
         vorhanden = self.generationen()
@@ -402,19 +778,74 @@ class Wurzel:
         Neu bauen kostet Verzeichniseintraege und keinen einzigen Block --
         die Dateien sind harte Verweise.
         """
-        plan = self.plan(n)
+        plan = self.plan_full(n)
         if os.path.isdir(self.apps):
             shutil.rmtree(self.apps)
         os.makedirs(self.apps, exist_ok=True)
-        for name in sorted(plan):
-            h = plan[name]
+        for name in sorted(plan.apps):
+            h = plan.apps[name]
             quelle = os.path.join(self.store, kurz(h))
             if not os.path.isdir(quelle):
                 raise SystemExit("opk: Generation %d nennt %s (%s), "
                                  "aber der Store hat den Eintrag nicht"
                                  % (n, name, h[:12]))
             self._verweisen(quelle, os.path.join(self.apps, name + ".prog"))
+        # THE KERNEL OF THIS GENERATION (round PLAN2). It is a store entry
+        # like any other and becomes visible under `system/kernel` by the
+        # same hard links -- so rolling back rolls the kernel back with
+        # everything else, in the same single operation, and there is no
+        # second mechanism to keep in step. What that does NOT yet do is
+        # in docs/ROUND-PLAN2.md, under the heading it deserves.
+        kdir = os.path.join(self.p, KERNEL_DIR)
+        if os.path.isdir(kdir):
+            shutil.rmtree(kdir)
+        if plan.kernel:
+            quelle = os.path.join(self.store, kurz(plan.kernel))
+            if not os.path.isdir(quelle):
+                raise SystemExit("opk: Generation %d nennt den Kernel %s, "
+                                 "aber der Store hat den Eintrag nicht"
+                                 % (n, plan.kernel[:12]))
+            self._verweisen(quelle, kdir)
+        self._render_generated(plan)
+        self._make_pots(plan)
         self.aktuell_setzen(n)
+
+    def _render_generated(self, plan):
+        """Write the files that are DERIVED from the plan, and only those.
+
+        Every path in GENERATED_FILES is removed first, so that a setting
+        which disappears in a new generation takes its file with it.
+        Anything else under `etc/` is left alone -- this program owns a
+        fixed, named list of files and not a directory.
+        """
+        for rel in GENERATED_FILES:
+            p = os.path.join(self.p, rel)
+            if os.path.exists(p):
+                os.remove(p)
+        content = generated_content(plan, self.secrets)
+        for rel in sorted(content):
+            p = os.path.join(self.p, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(content[rel])
+            # /etc/shadow is the one file here that must not be readable
+            # by everyone -- the whole point of splitting it off passwd.
+            os.chmod(p, 0o600 if rel == "etc/shadow" else 0o644)
+
+    def _make_pots(self, plan):
+        """The three pots, for every account of the plan and every app.
+
+        Deriving them from the plan rather than creating them as a side
+        effect of `installieren` is what makes the tree a FUNCTION of the
+        plan: two roots with the same plan have the same pots, no matter
+        in which order they got there.
+        """
+        wer = sorted(plan.accounts) or [self.default_user]
+        for nutzer in wer:
+            for topf in ("config", "state", "cache"):
+                for name in sorted(plan.apps):
+                    os.makedirs(os.path.join(self.users, nutzer, topf, name),
+                                exist_ok=True)
 
     def _verweisen(self, quelle, ziel):
         os.makedirs(ziel, exist_ok=True)
@@ -485,7 +916,10 @@ class Wurzel:
         """
         aus = set()
         for n in self.generationen():
-            aus |= set(self.plan(n).values())
+            # `hashes()` and not `apps.values()`: the kernel of an old
+            # generation must survive the collector too, or rolling back
+            # to it would find an empty store.
+            aus |= self.plan_full(n).hashes()
         return aus
 
     def erreichbar_kurz(self):
@@ -554,6 +988,14 @@ def rezept_lesen(pfad):
 
 def bauen(args):
     felder, dateien = rezept_lesen(args.rezept)
+    # A package called `app`, `kernel`, `source`, `setting` or `account`
+    # would make an old-shape PLAN line unreadable (see PLAN v2 above).
+    # Refusing it here is the last moment at which it costs nothing.
+    if reserved_name(felder.get("name", "")):
+        raise SystemExit("opk: '%s' is one of the five PLAN types and cannot "
+                         "be a package name -- a line `%s<TAB><hash>` could "
+                         "not be told apart from a typed line"
+                         % (felder["name"], felder["name"]))
     basis = os.path.dirname(os.path.abspath(args.rezept))
     arbeit = os.path.join(os.path.dirname(os.path.abspath(args.aus)),
                           ".bau-" + felder["name"])
@@ -728,8 +1170,16 @@ def installieren(args):
                          % (erwartet[:16], h[:16]))
     felder, braucht, handles = meta_lesen(meta)
     name = felder["name"]
+    if reserved_name(name):
+        raise SystemExit("opk: '%s' is one of the five PLAN types and cannot "
+                         "be installed under that name" % name)
+    if felder.get("kind") == "kernel":
+        raise SystemExit("opk: %s is a kernel package -- it belongs to the "
+                         "generation, not to /apps. Use `opk.py kernel`."
+                         % name)
 
-    plan = dict(w.plan(w.aktuell()))
+    voll = w.plan_full(w.aktuell()).copy()
+    plan = voll.apps
     # Abhaengigkeiten: jeder Name in `braucht` muss schon installiert
     # sein. Es wird NICHT nachgeladen -- was fehlt, wird benannt.
     fehlend = [b for b in braucht if b.split(" ")[0] not in plan]
@@ -743,7 +1193,7 @@ def installieren(args):
         return 0
     alt = plan.get(name)
     plan[name] = h
-    n = w.neue_generation(plan, "installiert %s %s"
+    n = w.neue_generation(voll, "installiert %s %s"
                           % (name, felder.get("fassung", "-")))
     w.aktivieren(n)
     for topf in ("config", "state", "cache"):
@@ -759,7 +1209,9 @@ def installieren(args):
 
 def entfernen(args):
     w = Wurzel(args.wurzel)
-    plan = dict(w.plan(w.aktuell()))
+    w.default_user = getattr(args, "nutzer", None) or w.default_user
+    voll = w.plan_full(w.aktuell()).copy()
+    plan = voll.apps
     if args.was not in plan:
         raise SystemExit("opk: '%s' ist nicht installiert" % args.was)
     # Was von diesem Paket abhaengt, darf nicht ins Leere zeigen.
@@ -775,7 +1227,7 @@ def entfernen(args):
         raise SystemExit("opk: %s wird gebraucht von: %s (--trotzdem erzwingt es)"
                          % (args.was, ", ".join(sorted(haengt))))
     h = plan.pop(args.was)
-    n = w.neue_generation(plan, "entfernt %s" % args.was)
+    n = w.neue_generation(voll, "entfernt %s" % args.was)
     w.aktivieren(n)
     # DIE DREI TOEPFE. PACKAGING.md § 1.3: entfernen heisst Verzeichnisse
     # loeschen, und weil es keinen fuenften Ort gibt, kann nichts
@@ -857,10 +1309,14 @@ def generationen(args):
     w = Wurzel(args.wurzel)
     a = w.aktuell()
     for n in w.generationen():
-        plan = w.plan(n)
+        plan = w.plan_full(n)
         grund = open(os.path.join(w.gen, str(n), "GRUND")).read().strip()
-        print("%s %3d  %2d Paket(e)  %s"
-              % ("*" if n == a else " ", n, len(plan), grund))
+        # The kernel is shown per generation because that is the point of
+        # round PLAN2: a kernel change is a generation, and one must be
+        # able to SEE which one to go back to.
+        print("%s %3d  %2d Paket(e)  kernel %-12s  %s"
+              % ("*" if n == a else " ", n, len(plan.apps),
+                 (plan.kernel[:12] if plan.kernel else "-"), grund))
     return 0
 
 
@@ -870,10 +1326,19 @@ def zurueck(args):
     if n not in w.generationen():
         raise SystemExit("opk: Generation %d gibt es nicht" % n)
     vorher = w.aktuell()
+    altplan = w.plan_full(vorher)
     w.aktivieren(n)
-    plan = w.plan(n)
+    plan = w.plan_full(n)
     print("zurueck auf Generation %d (war %d): %d Paket(e) (%s)"
-          % (n, vorher, len(plan), ", ".join(sorted(plan)) or "keines"))
+          % (n, vorher, len(plan.apps), ", ".join(sorted(plan.apps)) or "keines"))
+    if altplan.kernel != plan.kernel:
+        print("   KERNEL zurueckgestellt: %s -> %s (system/kernel/image)"
+              % ((altplan.kernel or "keiner")[:12],
+                 (plan.kernel or "keiner")[:12]))
+    if altplan.settings != plan.settings:
+        print("   Einstellungen zurueckgestellt: %d -> %d, die erzeugten "
+              "Dateien unter etc/ sind neu geschrieben"
+              % (len(altplan.settings), len(plan.settings)))
     # WAS NICHT MITROLLT, und das steht hier, weil es sonst niemand
     # bemerkt, bevor es weh tut:
     print("   apps/  ist der Stand dieser Generation, vollstaendig neu gebaut")
@@ -957,6 +1422,647 @@ def verweise(args):
     return 0
 
 
+# ---------------------------------------------------------------------------
+# THE COMMANDS OF ROUND PLAN2 (English)
+#
+# Everything below reads and writes the typed plan. The older German
+# commands keep working unchanged -- they only ever touch `plan.apps`,
+# which is exactly what they always touched.
+# ---------------------------------------------------------------------------
+def _root(args):
+    w = Wurzel(args.wurzel)
+    w.default_user = getattr(args, "nutzer", None) or "justin"
+    return w
+
+
+def _next_generation(w, plan, reason):
+    n = w.neue_generation(plan, reason)
+    w.aktivieren(n)
+    return n
+
+
+def _current(w):
+    a = w.aktuell()
+    if a is None:
+        w.anlegen()
+        a = w.aktuell()
+    return w.plan_full(a)
+
+
+def cmd_plan(args):
+    """Print the plan of the active generation, and what it means."""
+    w = _root(args)
+    n = w.aktuell()
+    plan = w.plan_full(n)
+    f = os.path.join(w.gen, str(n), "PLAN")
+    raw = open(f, "rb").read() if os.path.exists(f) else b""
+    print("generation %d, %s" % (n, plan.summary()))
+    print("PLAN %s, %d octet(s)"
+          % (hashlib.sha256(raw).hexdigest()[:16], len(raw)))
+    if plan.legacy_lines:
+        print("%d line(s) were read in the OLD two-field shape "
+              "(name<TAB>hash) and are treated as applications"
+              % plan.legacy_lines)
+    print("")
+    for z in plan.lines():
+        print(z.replace("\t", "  "))
+    return 0
+
+
+def cmd_export(args):
+    """Write the active plan out as a stand-alone file.
+
+    This is what one hands to another machine. It is the same bytes as
+    `system/generations/<n>/PLAN` unless that file is still in the old
+    shape -- in which case it is written out typed, which is the only
+    conversion this program ever performs.
+    """
+    w = _root(args)
+    plan = _current(w)
+    text = plan.text()
+    with open(args.aus, "w", encoding="utf-8") as f:
+        f.write(text)
+    print("%s: %d line(s), %d octet(s), %s"
+          % (args.aus, len(plan.lines()), len(text.encode("utf-8")),
+             plan.summary()))
+    if plan.legacy_lines:
+        print("   %d old-shape line(s) were written out typed"
+              % plan.legacy_lines)
+    if not plan.sources:
+        print("   WARNING: no source line -- this plan cannot be rebuilt "
+              "anywhere else. `opk.py source-add` first.")
+    return 0
+
+
+# ------------------------------------------------------------------ kernel
+def cmd_kernel(args):
+    """Make a kernel package the kernel of a NEW generation.
+
+    A kernel change is a generation like any other. That is the whole
+    point: `zurueck` puts the old kernel back with the same single
+    operation that puts the old applications back, and there is no second
+    piece of bookkeeping that could fall out of step.
+    """
+    w = _root(args)
+    w.anlegen()
+    plan = _current(w).copy()
+    if args.was == "none":
+        if plan.kernel is None:
+            print("no kernel in this generation, nothing to do")
+            return 0
+        alt = plan.kernel
+        plan.kernel = None
+        n = _next_generation(w, plan, "removed kernel %s" % alt[:12])
+        print("kernel removed, generation %d" % n)
+        return 0
+    roh, herkunft, erwartet = _paket_holen(args)
+    meta, daten, h = paket_lesen(roh)
+    if erwartet is not None and erwartet != h:
+        raise SystemExit("opk: the index says %s, the file is %s"
+                         % (erwartet[:16], h[:16]))
+    felder, braucht, handles = meta_lesen(meta)
+    if felder.get("kind") != "kernel":
+        raise SystemExit("opk: %s is not a kernel package (kind=%s). A kernel "
+                         "package carries `kind=kernel` and a file `image` -- "
+                         "otherwise any application could become the kernel."
+                         % (felder.get("name", "?"), felder.get("kind", "")))
+    if plan.kernel == h:
+        print("this kernel is already the one of generation %d (%s)"
+              % (w.aktuell(), h[:12]))
+        return 0
+    alt = plan.kernel
+    neu = w.store_schreiben(h, meta, daten)
+    plan.kernel = h
+    n = _next_generation(w, plan, "kernel %s %s"
+                         % (felder.get("name", "?"),
+                            felder.get("fassung", "-")))
+    print("kernel %s %s -> store/%s  %s"
+          % (felder.get("name", "?"), felder.get("fassung", "-"), h[:12],
+             "new" if neu else "already in the store"))
+    if felder.get("origin"):
+        print("   origin  %s" % felder["origin"])
+    if alt:
+        print("   replaces %s -- `opk.py zurueck %d` puts it back"
+              % (alt[:12], w.aktuell() - 1))
+    print("   generation %d, from %s" % (n, herkunft))
+    print("   system/kernel/image is now a second name for "
+          "store/%s/image" % kurz(h))
+    return 0
+
+
+# ------------------------------------------------------------------ sources
+def cmd_source_add(args):
+    """Record a source AND its public key in the system state.
+
+    The key travels WITH the plan on purpose. A plan that says only where
+    to fetch from is not self-bearing: whoever controls the location
+    controls the contents. A plan that carries the key is a statement
+    about WHOSE packages this machine consists of, and `rebuild` refuses
+    everything that is not signed by one of these keys.
+    """
+    w = _root(args)
+    w.anlegen()
+    plan = _current(w).copy()
+    key = args.key
+    if os.path.exists(key):
+        key = open(key, "rb").read().hex()
+    key = key.strip().lower()
+    if len(key) != 64 or any(c not in "0123456789abcdef" for c in key):
+        raise SystemExit("opk: an Ed25519 public key is 32 octets = 64 hex "
+                         "digits, this is %d character(s)" % len(key))
+    _clean(args.url, "a source url")
+    if plan.sources.get(args.url) == key:
+        print("source %s is already recorded with this key" % args.url)
+        return 0
+    plan.sources[args.url] = key
+    n = _next_generation(w, plan, "source %s" % args.url)
+    print("source %s\n   key %s...\n   generation %d"
+          % (args.url, key[:32], n))
+    return 0
+
+
+def cmd_source_remove(args):
+    w = _root(args)
+    plan = _current(w).copy()
+    if args.url not in plan.sources:
+        raise SystemExit("opk: '%s' is not a source of this system" % args.url)
+    del plan.sources[args.url]
+    n = _next_generation(w, plan, "source removed %s" % args.url)
+    print("source %s removed, generation %d" % (args.url, n))
+    return 0
+
+
+# ----------------------------------------------------------------- settings
+def cmd_set(args):
+    w = _root(args)
+    w.anlegen()
+    plan = _current(w).copy()
+    if args.key not in SETTING_KEYS:
+        raise SystemExit(
+            "opk: '%s' is not a setting this system knows. The set is CLOSED "
+            "on purpose -- an open key space is the junk drawer that a system "
+            "state without a registry exists to avoid. Known: %s"
+            % (args.key, ", ".join(sorted(SETTING_KEYS))))
+    _clean(args.value, "a setting value")
+    plan.settings[args.key] = args.value
+    # Fail before writing a generation, not after: `net.mode=maybe` must
+    # not become a generation that cannot be activated.
+    render_netz(plan.settings)
+    n = _next_generation(w, plan, "setting %s=%s" % (args.key, args.value))
+    datei, consumer = SETTING_KEYS[args.key]
+    print("%s = %s, generation %d" % (args.key, args.value, n))
+    print("   renders %s" % datei)
+    if consumer:
+        print("   read in the running system by %s" % consumer)
+    else:
+        print("   NOTE: nothing in the running system reads this file yet -- "
+              "it is recorded and rendered, and that is all it does")
+    return 0
+
+
+def cmd_unset(args):
+    w = _root(args)
+    plan = _current(w).copy()
+    if args.key not in plan.settings:
+        raise SystemExit("opk: '%s' is not set" % args.key)
+    del plan.settings[args.key]
+    n = _next_generation(w, plan, "setting removed %s" % args.key)
+    print("%s unset, generation %d -- %s is gone from the tree"
+          % (args.key, n, SETTING_KEYS[args.key][0]))
+    return 0
+
+
+def cmd_settings(args):
+    w = _root(args)
+    plan = _current(w)
+    for k in sorted(SETTING_KEYS):
+        datei, consumer = SETTING_KEYS[k]
+        wert = plan.settings.get(k)
+        print("%-14s %-22s %-18s %s"
+              % (k, (wert if wert is not None else "-"), datei,
+                 consumer or "(no consumer yet)"))
+    return 0
+
+
+# ----------------------------------------------------------------- accounts
+def cmd_account_add(args):
+    """Add or change an account. The PASSWORD is not an argument here.
+
+    `secret-set` puts the credential into the secret store and records its
+    hash in the plan; this command only describes the account.
+    """
+    w = _root(args)
+    w.anlegen()
+    plan = _current(w).copy()
+    if reserved_name(args.name):
+        raise SystemExit("opk: '%s' is a plan type and cannot be a name"
+                         % args.name)
+    alt = plan.accounts.get(args.name)
+    acc = Account(args.name, args.uid, args.gid, args.home, args.shell,
+                  alt.secret if alt else "-")
+    for feld in acc.fields():
+        _clean(feld, "an account field")
+    plan.accounts[args.name] = acc
+    n = _next_generation(w, plan, "account %s" % args.name)
+    print("account %s uid=%s gid=%s home=%s shell=%s, generation %d"
+          % (acc.name, acc.uid, acc.gid, acc.home, acc.shell, n))
+    print("   etc/passwd rewritten (%d account(s))" % len(plan.accounts))
+    if acc.secret == "-":
+        print("   no credential -- etc/shadow carries `!` for this account, "
+              "so it cannot be logged into. `opk.py secret-set` changes that.")
+    return 0
+
+
+def cmd_account_remove(args):
+    w = _root(args)
+    plan = _current(w).copy()
+    if args.name not in plan.accounts:
+        raise SystemExit("opk: '%s' is not an account of this system"
+                         % args.name)
+    del plan.accounts[args.name]
+    n = _next_generation(w, plan, "account removed %s" % args.name)
+    p = w.secret_path(args.name)
+    if os.path.exists(p) and not args.behalte_daten:
+        os.remove(p)
+        print("   the credential in %s/%s was deleted" % (SECRET_DIR, args.name))
+    print("account %s removed, generation %d" % (args.name, n))
+    return 0
+
+
+def cmd_secret_set(args):
+    """Put a credential into the secret store and record its HASH.
+
+    The plan gets `secret=<sha256 of the credential file>` and never the
+    credential. Changing a password therefore IS a new generation -- it
+    changes the plan -- and rolling back to an older generation restores
+    the older password, provided the older credential is still in the
+    store.
+    """
+    w = _root(args)
+    plan = _current(w).copy()
+    if args.name not in plan.accounts:
+        raise SystemExit("opk: '%s' is not an account of this system"
+                         % args.name)
+    os.makedirs(w.secrets, exist_ok=True)
+    os.chmod(w.secrets, 0o700)
+    roh = open(args.datei, "rb").read() if args.datei != "-" \
+        else sys.stdin.buffer.read()
+    ziel = w.secret_path(args.name)
+    with open(ziel, "wb") as f:
+        f.write(roh)
+    os.chmod(ziel, 0o600)
+    h = secret_hash(ziel)
+    plan.accounts[args.name].secret = h
+    n = _next_generation(w, plan, "credential %s" % args.name)
+    print("credential for %s: %d octet(s), sha256 %s..., generation %d"
+          % (args.name, len(roh), h[:16], n))
+    print("   the credential itself is in %s/%s (0600) and is NOT in the plan"
+          % (SECRET_DIR, args.name))
+    return 0
+
+
+# ------------------------------------------------------------------ rebuild
+def _source_location(url):
+    """Where a source url can be read from on this host, or None."""
+    if url.startswith("file://"):
+        return url[len("file://"):]
+    if url.startswith("/") or url.startswith("./"):
+        return url
+    return None
+
+
+def _open_source(pfad, erlaubt, woher):
+    """Read a source index and verify it against the keys of the PLAN.
+
+    `erlaubt` is the set of public keys the plan names. A source whose
+    index is not signed by one of THEM is refused -- not "warned about".
+    That is the difference between a plan that carries its trust and a
+    plan that merely carries an address.
+    """
+    idxp = os.path.join(pfad, "INDEX")
+    sigp = os.path.join(pfad, "INDEX.sig")
+    if not os.path.exists(idxp):
+        return None, "%s has no INDEX" % pfad
+    if not os.path.exists(sigp):
+        return None, "%s has no INDEX.sig -- an unsigned source cannot be " \
+                     "the base of a rebuild" % pfad
+    idx = open(idxp, "rb").read()
+    sig = open(sigp, "rb").read()
+    passt = None
+    for hexkey in sorted(erlaubt):
+        pk = bytes.fromhex(hexkey)
+        eigen = ed25519_verify(pk, idx, sig)
+        fremd = ed25519_verify_bibliothek(pk, idx, sig)
+        if fremd is not None and fremd != eigen:
+            raise SystemExit("opk: the two Ed25519 implementations disagree "
+                             "(own=%s, library=%s) -- that is a bug in one of "
+                             "them, not a package problem" % (eigen, fremd))
+        if eigen:
+            passt = hexkey
+            break
+    if passt is None:
+        return None, "%s: the index is not signed by any of the %d key(s) " \
+                     "this plan names" % (pfad, len(erlaubt))
+    eintraege = {}
+    for z in idx.decode("utf-8").splitlines():
+        if not z.strip():
+            continue
+        name, fassung, h, groesse, datei = z.split("\t")
+        eintraege[h] = (name, fassung, int(groesse),
+                        os.path.join(pfad, datei))
+    return (eintraege, passt, woher), None
+
+
+def cmd_rebuild(args):
+    """Build a whole system tree FROM A PLAN, on a machine that has none.
+
+    This is the measurement of round PLAN2. Input: one text file and one
+    or more package sources. Output: a tree that is octet for octet the
+    tree the plan came from -- for everything the plan determines.
+    """
+    text = open(args.plan, encoding="utf-8").read()
+    plan = Plan.parse(text, args.plan)
+    print("plan %s: %s" % (args.plan, plan.summary()))
+    if plan.legacy_lines:
+        print("   %d line(s) in the old two-field shape" % plan.legacy_lines)
+
+    erlaubt = set(plan.sources.values())
+    if not erlaubt:
+        raise SystemExit("opk: this plan names no source and no key -- it "
+                         "cannot be rebuilt anywhere. That is a property of "
+                         "the plan, not a failure of this program.")
+
+    orte = []
+    for url in sorted(plan.sources):
+        p = _source_location(url)
+        if p is None:
+            print("   source %s: this program can only read `file://` and "
+                  "local paths, not %s -- skipped"
+                  % (url, url.split(":")[0]))
+            continue
+        orte.append((p, url))
+    for extra in (args.source or []):
+        orte.append((extra, "--source " + extra))
+
+    index, benutzt = {}, []
+    for p, woher in orte:
+        got, warum = _open_source(p, erlaubt, woher)
+        if got is None:
+            print("   REFUSED %s" % warum)
+            continue
+        eintraege, key, woher = got
+        benutzt.append((woher, len(eintraege), key))
+        for h, v in eintraege.items():
+            index.setdefault(h, v)
+    if not benutzt:
+        raise SystemExit("opk: not one usable source -- nothing to rebuild "
+                         "from")
+    for woher, n, key in benutzt:
+        print("   source %s: %d package(s), signature by %s..."
+              % (woher, n, key[:16]))
+
+    gebraucht = sorted(plan.hashes())
+    fehlt = [h for h in gebraucht if h not in index]
+    if fehlt:
+        raise SystemExit("opk: %d of %d hash(es) are in no source: %s"
+                         % (len(fehlt), len(gebraucht),
+                            ", ".join(h[:12] for h in fehlt)))
+
+    w = Wurzel(args.wurzel)
+    w.default_user = args.nutzer or "justin"
+    w.anlegen()
+    oktette = 0
+    for h in gebraucht:
+        name, fassung, groesse, datei = index[h]
+        roh = open(datei, "rb").read()
+        meta, daten, ist = paket_lesen(roh)     # the checksum falls here
+        if ist != h:
+            raise SystemExit("opk: %s says it is %s but is %s"
+                             % (datei, h[:16], ist[:16]))
+        w.store_schreiben(ist, meta, daten)
+        oktette += len(roh)
+    print("   %d package(s) fetched and verified, %d octet(s)"
+          % (len(gebraucht), oktette))
+
+    if args.secrets:
+        os.makedirs(w.secrets, exist_ok=True)
+        os.chmod(w.secrets, 0o700)
+        n_geheim = 0
+        for name in sorted(plan.accounts):
+            q = os.path.join(args.secrets, name)
+            if not os.path.exists(q):
+                continue
+            ziel = w.secret_path(name)
+            with open(ziel, "wb") as f:
+                f.write(open(q, "rb").read())
+            os.chmod(ziel, 0o600)
+            ist = secret_hash(ziel)
+            if ist != plan.accounts[name].secret:
+                raise SystemExit(
+                    "opk: the credential for %s hashes to %s, the plan says "
+                    "%s -- this is not the password this plan was written "
+                    "with" % (name, ist[:16], plan.accounts[name].secret[:16]))
+            n_geheim += 1
+        print("   %d credential(s) restored and checked against the plan"
+              % n_geheim)
+
+    n = w.neue_generation(plan, "rebuilt from %s" % os.path.basename(args.plan))
+    w.aktivieren(n)
+    fehlend = [a for a in sorted(plan.accounts)
+               if plan.accounts[a].secret != "-"
+               and not os.path.exists(w.secret_path(a))]
+    print("generation %d in %s" % (n, w.p))
+    if fehlend:
+        print("   %d account(s) are LOCKED because their credential is not "
+              "here: %s. A plan carries the hash of a password, never the "
+              "password -- restore them from the backup (--secrets)."
+              % (len(fehlend), ", ".join(fehlend)))
+    return 0
+
+
+# ----------------------------------------------------------------- snapshot
+def snapshot_lines(w):
+    """A canonical description of everything THE PLAN DETERMINES.
+
+    What is in here: the plan itself, every store entry the plan names,
+    the activated view, the kernel of the generation, the generated
+    configuration files, and the three pots. Kind, path, mode, size and
+    the SHA-256 of every content -- the same depth `baum_liste` uses,
+    because a comparison that reads only path names goes green on changed
+    contents.
+
+    What is deliberately NOT in here, and this is the honest half:
+
+      * `system/generations/*` and `system/AKTUELL`. The history of how a
+        machine got here is a LOG, not state. A rebuilt machine has one
+        generation where the original had forty; demanding that they match
+        would be demanding that the rebuild fake a past it does not have.
+      * `users/<who>/{config,state,cache}/<app>` CONTENTS -- the
+        documents. A plan describes a system, not the work done on it.
+        The directories are compared, what is in them is not.
+      * `system/secrets/`. Credentials are not in a plan by construction.
+    """
+    plan = w.plan_full(w.aktuell())
+    zeilen, dateien, oktette = [], 0, 0
+
+    text = plan.text().encode("utf-8")
+    zeilen.append("plan %s %d" % (hashlib.sha256(text).hexdigest(), len(text)))
+
+    wege = []
+    for h in sorted(plan.hashes()):
+        wege.append(os.path.join(w.store, kurz(h)))
+    wege.append(w.apps)
+    wege.append(os.path.join(w.p, KERNEL_DIR))
+    for rel in GENERATED_FILES:
+        wege.append(os.path.join(w.p, rel))
+    wer = sorted(plan.accounts) or [w.default_user]
+    for nutzer in wer:
+        for topf in ("config", "state", "cache"):
+            wege.append(os.path.join(w.users, nutzer, topf))
+
+    gesehen = set()
+    for weg in wege:
+        if not os.path.exists(weg):
+            continue
+        if os.path.isfile(weg):
+            paare = [(weg, None)]
+        else:
+            paare = []
+            for pfad, verz, namen in os.walk(weg):
+                verz.sort()
+                paare.append((pfad, True))
+                for nn in sorted(namen):
+                    paare.append((os.path.join(pfad, nn), None))
+        for p, istverz in paare:
+            rel = os.path.relpath(p, w.p).replace(os.sep, "/")
+            if rel in gesehen:
+                continue
+            gesehen.add(rel)
+            st = os.lstat(p)
+            if istverz:
+                zeilen.append("d %s %o" % (rel, st.st_mode & 0o7777))
+            else:
+                inhalt = open(p, "rb").read()
+                dateien += 1
+                oktette += len(inhalt)
+                zeilen.append("f %s %o %d %s"
+                              % (rel, st.st_mode & 0o7777, len(inhalt),
+                                 hashlib.sha256(inhalt).hexdigest()))
+    kopf = zeilen[0]
+    rest = sorted(zeilen[1:])
+    rest.append("count entries=%d files=%d octets=%d"
+                % (len(rest), dateien, oktette))
+    return [kopf] + rest
+
+
+def cmd_snapshot(args):
+    w = _root(args)
+    for z in snapshot_lines(w):
+        print(z)
+    return 0
+
+
+# ------------------------------------------------------------------- verify
+def cmd_verify(args):
+    """Everything `pruefen` checks, plus everything the typed plan adds.
+
+    `pruefen` recomputes the store. This also asks whether the PLAN itself
+    is well formed: sorted the way a plain `sort` would sort it, no
+    unknown setting keys, a kernel that is really a kernel, keys that are
+    really keys, and credentials whose hashes still match what the plan
+    claims about them.
+    """
+    w = _root(args)
+    fehler, zusagen = 0, 0
+
+    def sagen(gut, text):
+        nonlocal fehler, zusagen
+        zusagen += 1
+        if not gut:
+            fehler += 1
+        print("%s %s" % ("ok    " if gut else "FAILED", text))
+
+    n = w.aktuell()
+    f = os.path.join(w.gen, str(n), "PLAN")
+    roh = open(f, "rb").read() if os.path.exists(f) else b""
+    try:
+        plan = Plan.parse(roh.decode("utf-8"), f)
+        sagen(True, "the plan of generation %d parses: %s"
+              % (n, plan.summary()))
+    except ValueError as e:
+        print("FAILED %s" % e)
+        return 1
+
+    zeilen = roh.decode("utf-8").splitlines()
+    sortiert = sorted(zeilen, key=lambda z: z.encode("utf-8"))
+    sagen(zeilen == sortiert,
+          "the file is sorted by the octets of the whole line "
+          "(`LC_ALL=C sort -c` agrees), %d line(s)" % len(zeilen))
+
+    for name in sorted(plan.apps):
+        sagen(not reserved_name(name),
+              "the application name '%s' is not one of the five plan types"
+              % name)
+
+    for h in sorted(plan.hashes()):
+        d = os.path.join(w.store, kurz(h))
+        if not os.path.isdir(d):
+            sagen(False, "store/%s is named by the plan and is not there"
+                  % kurz(h))
+            continue
+        ist = w.store_hash(kurz(h))
+        sagen(ist == h, "store/%s recomputes to the hash the plan names"
+              % kurz(h))
+
+    if plan.kernel:
+        meta = open(os.path.join(w.store, kurz(plan.kernel), "PAKET"),
+                    "rb").read()
+        felder, _, _ = meta_lesen(meta)
+        sagen(felder.get("kind") == "kernel",
+              "the kernel entry carries kind=kernel (%s %s, origin %s)"
+              % (felder.get("name", "?"), felder.get("fassung", "-"),
+                 felder.get("origin", "unrecorded")))
+        sagen(os.path.exists(os.path.join(w.p, KERNEL_DIR, "image")),
+              "%s/image exists in the activated tree" % KERNEL_DIR)
+
+    for url, key in sorted(plan.sources.items()):
+        sagen(len(key) == 64 and all(c in "0123456789abcdef" for c in key),
+              "the key of source %s is 32 octets of hex" % url)
+
+    for k in sorted(plan.settings):
+        sagen(k in SETTING_KEYS, "the setting '%s' is a key this system knows"
+              % k)
+
+    inhalt = generated_content(plan, w.secrets)
+    for rel in sorted(GENERATED_FILES):
+        p = os.path.join(w.p, rel)
+        if rel in inhalt:
+            ist = open(p).read() if os.path.exists(p) else None
+            sagen(ist == inhalt[rel],
+                  "%s is what the plan renders (%d octet(s))"
+                  % (rel, len(inhalt[rel])))
+        else:
+            sagen(not os.path.exists(p),
+                  "%s is absent, as a plan without that setting requires"
+                  % rel)
+
+    for name in sorted(plan.accounts):
+        acc = plan.accounts[name]
+        if acc.secret == "-":
+            continue
+        p = w.secret_path(name)
+        if not os.path.exists(p):
+            print("note   the credential of %s is not on this machine -- "
+                  "the account is locked, which is what a plan alone can do"
+                  % name)
+            continue
+        sagen(secret_hash(p) == acc.secret,
+              "the credential of %s hashes to what the plan says" % name)
+
+    print("%d assertion(s), %d failed" % (zusagen, fehler))
+    return 1 if fehler else 0
+
+
 def main(argv):
     p = argparse.ArgumentParser(
         prog="opk.py", description=__doc__,
@@ -964,7 +2070,9 @@ def main(argv):
     u = p.add_subparsers(dest="befehl", required=True)
 
     def mit_wurzel(sp):
-        sp.add_argument("--wurzel", required=True)
+        # `--root` is the English spelling of the same flag. New commands
+        # use it; the old ones accept both, so nothing has to be retyped.
+        sp.add_argument("--wurzel", "--root", dest="wurzel", required=True)
         sp.add_argument("--nutzer", default="justin")
         sp.add_argument("--quelle", default=None)
         sp.add_argument("--schluessel", default=None)
@@ -994,6 +2102,39 @@ def main(argv):
     s.set_defaults(f=schluessel)
     s = u.add_parser("quelle"); s.add_argument("verzeichnis")
     s.add_argument("--schluessel", default=None); s.set_defaults(f=quelle)
+
+    # ------------------------------------------------ round PLAN2 (English)
+    s = mit_wurzel(u.add_parser("plan")); s.set_defaults(f=cmd_plan)
+    s = mit_wurzel(u.add_parser("export"))
+    s.add_argument("-o", "--aus", required=True); s.set_defaults(f=cmd_export)
+    s = mit_wurzel(u.add_parser("kernel")); s.add_argument("was")
+    s.set_defaults(f=cmd_kernel)
+    s = mit_wurzel(u.add_parser("source-add")); s.add_argument("url")
+    s.add_argument("key"); s.set_defaults(f=cmd_source_add)
+    s = mit_wurzel(u.add_parser("source-remove")); s.add_argument("url")
+    s.set_defaults(f=cmd_source_remove)
+    s = mit_wurzel(u.add_parser("set")); s.add_argument("key")
+    s.add_argument("value"); s.set_defaults(f=cmd_set)
+    s = mit_wurzel(u.add_parser("unset")); s.add_argument("key")
+    s.set_defaults(f=cmd_unset)
+    s = mit_wurzel(u.add_parser("settings")); s.set_defaults(f=cmd_settings)
+    s = mit_wurzel(u.add_parser("account-add")); s.add_argument("name")
+    s.add_argument("--uid", default="1000"); s.add_argument("--gid", default="1000")
+    s.add_argument("--home", default=None)
+    s.add_argument("--shell", default="/bin/sh")
+    s.set_defaults(f=cmd_account_add)
+    s = mit_wurzel(u.add_parser("account-remove")); s.add_argument("name")
+    s.add_argument("--behalte-daten", dest="behalte_daten", action="store_true")
+    s.set_defaults(f=cmd_account_remove)
+    s = mit_wurzel(u.add_parser("secret-set")); s.add_argument("name")
+    s.add_argument("datei"); s.set_defaults(f=cmd_secret_set)
+    s = mit_wurzel(u.add_parser("snapshot")); s.set_defaults(f=cmd_snapshot)
+    s = mit_wurzel(u.add_parser("verify")); s.set_defaults(f=cmd_verify)
+    s = mit_wurzel(u.add_parser("rebuild"))
+    s.add_argument("--plan", required=True)
+    s.add_argument("--source", action="append")
+    s.add_argument("--secrets", default=None)
+    s.set_defaults(f=cmd_rebuild)
 
     a = p.parse_args(argv[1:])
     try:

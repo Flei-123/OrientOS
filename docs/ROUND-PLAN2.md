@@ -742,6 +742,174 @@ silent edit here.
 
 ---
 
+# Third addendum, 27.08.2026 — programs with no source
+
+The owner's question: **"what about programs that are not in the app
+store, when I set up a new device and want my applications back?"**
+
+It was a real hole and not a detail. A PLAN names `app <name> <hash>`;
+the octets have to come from somewhere; and for a package built by hand
+and installed from a file there was no somewhere. Worse, `rebuild` said
+
+```
+opk: 4 of 39 hash(es) are in no source: 5eff0f81b5cf, …
+```
+
+which is the least useful thing it could have said, because the one
+question anybody has at that moment is *which ones*.
+
+## C1. The answer, in three parts, the first of which is not machinery
+
+**1. The main road is a second source.** A plan may name **any number**
+of sources, each with its own key — that was already true,
+`plan.sources` is a dictionary and `source-add` appends. So the right
+answer to "I build my own packages" is: run your own source. A directory
+of `.opk` files with an `INDEX` and an Ed25519 signature *is* a source,
+on a NAS, a server or a memory stick, and `opk.py quelle` makes one in
+one command. **Measured:** one `source-add` of a private directory takes
+a tree from `2 of 3 covered, 1 ORPHANED` to `3 of 3 covered, 0
+ORPHANED`, and the backup set stops carrying the octets in the same
+breath. The plan then holds two `source` lines and neither is a special
+case of the other.
+
+**2. Orphanhood is decidable**, so nobody keeps a list. A hash is
+covered if some recorded source's INDEX has it, orphaned if none does.
+That is the difference between this design and one where "which of my
+programs are irreplaceable" is a question answered from memory.
+
+**3. What is orphaned, and only that, goes in the backup.** The rule
+`PLAN + config/ + state/` (§ 6) is unchanged; it gains one exception,
+and the exception is decided by a machine.
+
+## C2. The four claims, measured
+
+**(a) It is reported.**
+
+```
+$ opk.py orphans --root /
+  ok       hallo                        bc9c62d6877b  x86_64   from appstore
+  ok       the theme of justin          45e6577d4bc4  any      from appstore
+  ORPHANED mytool                       5eff0f81b5cf  x86_64   4146 octet(s) in the store
+2 of 3 covered by a source, 1 ORPHANED
+```
+
+`--strict` exits 1 while anything is orphaned, so this is a nightly
+check rather than a habit. Note that an asset is named in words — *the
+theme of justin* — because the name has to come out of the **plan**, not
+out of the package: the package is exactly the thing that may be
+missing.
+
+**(b) It lands in the backup.** `backup-set` produced 7 lines with
+**exactly one** `package` line; `hallo`, which has a source, is not in
+it, and neither is any `cache/`. `vault-export` wrote **1 package,
+4 228 octets**, and that file is the original `.opk` back **octet for
+octet** — the store holds packages unpacked, and repacking is
+deterministic by construction, which is checked rather than assumed.
+
+**(c) A rebuild on an empty root restores it.**
+
+```
+   source file:///…/appstore: 2 package(s), signature by a6594ee4849d3329...
+   vault  …/backup/vault: 1 package(s), each verified against its own checksum
+   3 package(s) fetched and verified, 34070 octet(s), 1 of them from the vault
+```
+
+The restored binary is the same one (`604441accffbe0ff…`), it **runs**
+and prints what it printed before, and the whole tree matches
+**entry for entry over 29 entries** (kind, path, mode, size, SHA-256 of
+every content).
+
+**(d) Without the backup, a name and not a hole.**
+
+```
+1 of 3 package(s) can be fetched from NOWHERE:
+   MISSING  mytool                       5eff0f81b5cf2844
+   These are orphans: no source of this plan has them and no vault was given.
+opk: refusing to build a system that is missing 1 of its 3 package(s).
+```
+
+**Nothing was built** — 0 bundles in `/apps`. `--allow-missing` builds
+the rest and then the **tree itself** carries the evidence in
+`system/INCOMPLETE`; `verify` reads it and **fails**:
+
+```
+FAILED this tree is INCOMPLETE: it was rebuilt without 1 package(s) -- mytool
+21 assertion(s), 1 failed
+```
+
+A complete tree does not have that file, so its absence is a statement
+and not a default.
+
+## C3. The orphan on the other machine
+
+The case where "package missing" would be a lie — the octets are right
+here and still cannot help. It gets its own message, because the usual
+advice would be wrong:
+
+```
+opk: mytool is for x86_64 and this system is aarch64 -- and it is an
+ORPHAN: no source of this plan has it, so there is no aarch64 build to
+fetch instead. The octets in the vault are the only ones there are and
+they cannot run here. This package has to be BUILT AGAIN from its source
+code for aarch64; a backup cannot solve it, and it is not pretending to.
+```
+
+The step asserts that it does **not** say "fetch that one" — that advice
+belongs to packages with a source.
+
+## C4. Why the vault needs no signature, although a source does
+
+The two are asked different questions:
+
+> a **source** is asked *"give me the package called `explorer`"* — the
+> answer is a **choice somebody else makes**, and a name says nothing
+> about content, so it must be signed.
+>
+> a **vault** is asked *"give me the octets whose SHA-256 is `abc…`"* —
+> the answer **checks itself against the question**.
+
+So `--vault` takes a plain directory and no key, and that is not a hole.
+
+## C5. Two honest distinctions that cost code
+
+**Unreachable is not empty.** A source this host cannot read must not be
+mistaken for a source that lacks the package, or a laptop on the wrong
+network would archive its whole store. `orphans` names it unusable,
+`backup-set` writes a `# unreachable` line into the file, and
+`vault-export` **refuses outright** unless told otherwise. Both are
+asserted.
+
+**Repacking is checked, not trusted.** `store_repack` refuses if packing
+the store directory again does not give back the very same hash —
+writing that into an archive somebody will later trust is exactly the
+kind of quiet damage this repository is built to avoid.
+
+## C6. The interface to round TRESOR
+
+Written down so that round can take it without a conversation
+(`docs/BACKUP.md` § 5). `opk.py backup-set` emits typed tab-separated
+lines — `plan`, `secret`, `tree`, `package`, and `# unreachable` as a
+warning — all paths relative to the root. TRESOR needs no knowledge of
+plans, sources or orphans, and **must never decide what is worth
+keeping**: that decision is made where the plan is, by computation.
+
+## C7. What is still not solved
+
+* **`https://` is still not implemented**, and this addendum makes that
+  hurt twice: a private source on a NAS is the *recommended* answer, and
+  reaching one over a network is exactly what is missing. `file://` and
+  local paths work; that is what was measured.
+* **An orphan for the wrong machine cannot be rescued at all.** Nothing
+  here can change that; the error says so rather than pretending.
+* **`vault-export` is not a backup program.** It writes files into a
+  directory. Scheduling, rotation and getting them off the machine are
+  TRESOR's.
+* **A backup restores the current state, not the history.** The set
+  carries the *current* PLAN. Older generations are not in it, so a
+  restored machine can go forward but not back past the restore.
+
+---
+
 ## 11. What the next round needs
 
 1. **INSTALL**: make the boot path read `system/kernel`, so that the
@@ -767,3 +935,10 @@ silent edit here.
 7. **Fonts and translations as `arch=any` packages.** They are the
    content that makes the sharing in §B4 worth more than 2.9 %, and they
    need no new mechanism — only packaging. Round I18N.
+8. **`https://` sources, again and louder.** Three addenda have now
+   ended at the same wall. A private source is the recommended answer to
+   orphaned packages and it cannot be reached over a network.
+9. **Older generations in the backup set.** Today a restore lands on the
+   current PLAN and cannot roll back past itself. Whether that is worth
+   fixing is a real question — the generations are tiny, the packages
+   they name are not — and it should be answered rather than left.

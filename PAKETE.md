@@ -19,6 +19,18 @@ Entwurf abweicht und warum.
 | Abnahme | `tests/step-80-pakete.sh` |
 | Logbuch der Runde | `docs/RUNDE-PAKETE.md` |
 
+> **NACHTRAG VOM 27.08.2026 (Runde PLAN2), auf Englisch — von dieser
+> Runde an ist neue Dokumentation englisch.** The `PLAN` described in § 1
+> below is no longer the whole story: it now has **typed lines** and
+> carries the kernel, the package sources with their public keys, the
+> system settings and the accounts, so that a machine can be rebuilt from
+> it. Old `name<TAB>hash` files still parse. The format, the rejected
+> alternatives and the honest limits are in
+> [docs/PLAN-FORMAT.md](docs/PLAN-FORMAT.md); what a backup is, in
+> [docs/BACKUP.md](docs/BACKUP.md); the measured numbers in
+> [docs/ROUND-PLAN2.md](docs/ROUND-PLAN2.md). Package count went from 3
+> to **69**, the kernel being one of them.
+
 ---
 
 ## 1. Der Store, wie er wirklich aussieht

@@ -6,6 +6,20 @@ tree; the script that produced it is in
 
 ---
 
+## 0. The principle above the rule
+
+> ## AN ACCOUNT IS A CONVENIENCE. IT IS NEVER A CONDITION.
+
+A backup exists to be restored, and a restore that needs somebody's
+permission is not a restore. Whoever holds their state on a stick must be
+able to set a device up from it with **no sign-in, no network and no
+server asked**. If a sign-in server is ever built it may make that
+easier; it may never make it possible, because it already is. **The stick
+is the measure and the server is the special case.**
+
+Measured, not asserted — the whole restore runs with the package source
+moved out of the way. See [MOVE.md](MOVE.md).
+
 ## 1. The rule
 
 > **A complete backup is `PLAN` + `config/` + `state/` — and the secret
@@ -319,3 +333,7 @@ Two things are worth saying across the fence, without waiting for it:
 * **`vault-export` is not a backup program.** It writes files into a
   directory. Scheduling, rotation and getting them off the machine are
   round TRESOR's.
+* **A backup is not yet a bootable device.** `opk.py stick-write` and
+  `stick-restore` turn a backup into a whole new machine
+  ([MOVE.md](MOVE.md)) — but putting that tree on a partition so that it
+  starts is round INSTALL's work.

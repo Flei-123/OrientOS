@@ -910,6 +910,150 @@ keeping**: that decision is made where the plan is, by computation.
 
 ---
 
+# Fourth addendum, 27.08.2026 — moving house on a stick
+
+The owner's question: **"if I have a backup on a USB stick — can I set a
+new device up from it without signing in to an account? Just say: I want
+this device to be like that one too."**
+
+The full argument is in [MOVE.md](MOVE.md). This is the log.
+
+## D1. The principle, because it is one
+
+> **AN ACCOUNT IS A CONVENIENCE. IT IS NEVER A CONDITION.**
+
+If a sign-in server is ever built it may make this *easier*; it may never
+make it *possible*, because it already is. **The stick is the measure and
+the server is the special case.** A server that can do one thing the
+stick cannot is the day the stick stops being maintained and the promise
+quietly becomes a lie.
+
+It is measured rather than asserted: the whole restore in
+`tests/step-94-move.sh` runs with the package source **moved out of the
+way**, and the log is checked for the proof that it really was
+unreachable at the time.
+
+## D2. What a device is — the part that must NOT travel
+
+"I want this device to be like that one" moves a state onto a **different
+machine**. Two machines carrying one identity is a fault that is silent
+on the day it is made: two hosts on one name, two static addresses on one
+network, two devices presenting one key.
+
+> **The PLAN holds wishes. An identity is not a wish.**
+
+So identity is not in the plan at all — not as a filtered field, not as a
+skipped line. It lives in `system/`, **outside the generations**, where a
+plan cannot carry it even by accident. `Wurzel.anlegen` gives every root
+a `machine-id` and an Ed25519 device key the moment it exists, because
+the alternative is identity created lazily somewhere, and lazily created
+identity is how two machines end up with one.
+
+| never travels | dropped unless `--keep-identity` | travels |
+|---|---|---|
+| `system/machine-id` | `hostname` | apps, kernel, `arch`, sources+keys |
+| `system/device.key`, `.pub` | `net.address/netmask/gateway` (static) | `timezone`, `keymap`, `net.mode=dhcp` |
+| | `net.mode=static` | preferences, accounts, `config/`, `state/` |
+
+`net.mode=dhcp` travels because it is a **policy, not an address**: two
+machines may both ask for a lease and neither takes anything from the
+other. That distinction is the whole reason `identity_settings` is a
+function and not a tuple.
+
+## D3. The measurement
+
+A device with 4 applications, a kernel, an account with a password, six
+settings, three preferences and 340 KB of documents → stick → **empty**
+root, source moved away:
+
+> compared **entry for entry over 64 entries**, documents included: the
+> **only** differences are the PLAN (**921 → 768 octets**) and the two
+> files those five machine settings rendered, `etc/hostname` and
+> `etc/netz.conf`
+
+**The counter-check that makes it a measurement:** the same stick with
+`--keep-identity` gives a tree **identical over all 64 entries**. So the
+differences were exactly three, not roughly three.
+
+`snapshot` gained `--with-data` for this, and it had to: the default
+compares the pot *directories* and not their contents, which is right for
+`rebuild` (a plan describes a system, not the work done on it) and would
+have gone **green on losing every document** here. Two different
+questions, two different answers, both now available and both named.
+
+Three trees, **three distinct machine-ids**. The device key is new too,
+mode 0600.
+
+## D4. `small` or `full`, and why `full` won
+
+| | octets | files |
+|---|---|---|
+| `small` (orphans only) | **219 213** | 11 |
+| `full` (everything) | **2 170 942** | 16 |
+| | `full` is **9.9×** | |
+
+**`full` is the default for `stick-write`; `small` stays the default for
+`backup-set`.** They are two jobs and one default for both would be wrong
+for one of them. A nightly backup should be small and may assume a
+network on the day it is read. A stick you set a machine up from is made
+for the case where there **is** no network — so a mode that only works
+with one fails exactly where it was needed. A move that needs a network
+is not a move, it is a download with extra steps.
+
+The ratio is not a constant: with the kernel installed by hand rather
+than fetched, `small` was 1 858 872 octets and the ratio fell to **1.3×**.
+`small` is small when the app store is doing its job.
+
+One thing no mode may do: **leave an orphan behind.** It is on the small
+stick too, and that is asserted.
+
+## D5. Partial moves
+
+* `--no-personal` — 3 programs, **0** documents, **0** accounts, **0**
+  preferences; the plain settings such as the timezone stay. For a device
+  that goes to somebody else. On `stick-write` it means the documents are
+  **not on the stick at all** — "not present" and "not restored" are very
+  different promises when the stick is in another hand, and both are
+  asserted.
+* `--no-data` — 3 preferences, 4 settings files, **0** documents. Same
+  person, fresh start, still his machine.
+
+## D6. One format for TRESOR, not two
+
+`vault/` accepts **copied `store/<hash>/` directories** as well as `.opk`
+files, because copying directories is what a block-deduplicating backup
+wants to write. Measured: a stick whose vault holds copied store
+directories restores to a tree **identical** to the one built from
+`.opk` files. `dir_repack` is shared by both paths and refuses if
+repacking does not give back the hash the list names.
+
+The stick layout is the **backup set at the same relative paths** — the
+step asserts that every path `SET` names is really on the stick, so
+"it is not a second format" is checked rather than promised.
+
+## D7. A correction to the third addendum
+
+`stick-restore` first copied the credentials itself, after `rebuild`.
+That worked and was wrong: `rebuild` hashes each credential and compares
+it against what the plan claims, and going around it skipped that check —
+so the log printed *"1 account(s) are LOCKED"* one line before silently
+unlocking them. The secrets now go **through** `rebuild`, which is why
+the run says `1 credential(s) restored and checked against the plan`.
+
+## D8. What is still not solved
+
+* **Nothing in Osum reads `machine-id` or the device key.** Generated,
+  kept and regenerated correctly; no consumer. The same honest state as
+  `hostname` and `keymap`.
+* **A stick is not a disk.** Putting the tree on a partition so that it
+  boots is round INSTALL's.
+* **No user interface.** TRESOR is building "back up to here" in the file
+  explorer; these are the commands underneath, on the same data.
+* **`--keep-identity` is a loaded gun.** Nothing checks whether the old
+  machine is really gone, and nothing can.
+
+---
+
 ## 11. What the next round needs
 
 1. **INSTALL**: make the boot path read `system/kernel`, so that the
@@ -942,3 +1086,9 @@ keeping**: that decision is made where the plan is, by computation.
    current PLAN and cannot roll back past itself. Whether that is worth
    fixing is a real question — the generations are tiny, the packages
    they name are not — and it should be answered rather than left.
+10. **A consumer for `machine-id` and the device key.** They are created
+    correctly and nothing reads them. That is acceptable for one round
+    and turns into decoration if it lasts three.
+11. **INSTALL has to meet `stick-restore`.** One produces a tree, the
+    other puts a tree on a disk. Until they are joined, "set a new device
+    up from a stick" ends one step short of a machine that boots.

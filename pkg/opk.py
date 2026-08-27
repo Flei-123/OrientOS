@@ -418,7 +418,96 @@ def paket_lesen(roh):
 # measured as such -- see `docs/ROUND-PLAN2.md`.
 # ---------------------------------------------------------------------------
 
-PLAN_TYPES = ("account", "app", "kernel", "setting", "source")
+PLAN_TYPES = ("account", "app", "kernel", "pref", "setting", "source")
+
+# ---------------------------------------------------------------------------
+# TWO LEVELS, AND WHY THEY ARE TWO (round PLAN2, addendum of 27.08.2026)
+#
+# The question that started this: "if I set up a new device from the plan,
+# does it LOOK the same?" Until this addendum the answer was no, and for
+# two separate reasons.
+#
+# THE FIRST REASON was that appearance was not in the system state at all.
+# Osum's settings application (`kernel/user/einstellungen.fi`, 788 lines)
+# writes /etc/theme, /etc/schemas/, /etc/hintergrund, /etc/schirm.conf,
+# /etc/zeit.conf and /etc/netz.conf, and NONE of it was in a PLAN. A
+# rebuilt machine came up with the applications of the old one and the
+# looks of a fresh install.
+#
+# THE SECOND REASON is subtler and is the one worth getting right: half of
+# those files are at the WRONG LEVEL.
+#
+#     SYSTEM (one per machine, needs privilege, `setting` -> /etc/)
+#         screen resolution, network, timezone, hostname, keymap, accounts
+#
+#     USER   (one per person, `pref` -> /users/<who>/config/)
+#         colour scheme, wallpaper, taskbar edge/height/autohide
+#
+# The test is not "is it about looks", it is: WOULD TWO PEOPLE ON ONE
+# MACHINE WANT DIFFERENT ANSWERS? Two people share one screen resolution
+# and one network -- they cannot each have their own. Two people do not
+# share a wallpaper. `/etc/theme` is therefore not a small mistake, it is
+# a place where a second user cannot exist.
+#
+# The consequence is honest and stated where it hurts: Osum's taskbar and
+# desktop read the absolute paths /etc/theme and /etc/hintergrund today.
+# Moving the truth to the user does not move those programs. So activation
+# also writes a COMPATIBILITY VIEW under /etc -- hard links to the very
+# same store octets -- for the single account of a single-user machine,
+# and writes NO such view when there are two accounts, because then there
+# is no honest answer to "whose theme is /etc/theme". That is not a
+# limitation of this program; it is the bug being visible.
+# ---------------------------------------------------------------------------
+
+# WHAT A PLAN LINE HOLDS AND WHAT A FILE HOLDS.
+#
+#     A PLAN LINE HOLDS A DECISION. A FILE HOLDS CONTENT.
+#
+# `taskbar.edge=left` is a decision: four possible values, meaningless to
+# store twice, and it belongs in the text. A wallpaper is content -- an
+# image, and no image goes into a tab-separated line. Content is therefore
+# CONTENT-ADDRESSED: the octets become an asset package in the store like
+# any other package, and the plan carries the SHA-256.
+#
+# The alternative that was rejected: a second, non-package blob store
+# (`blobs/<hash>`). It would have meant a second collector, a second
+# verifier, a second fetch path and a second thing to sign -- all for
+# something `store/` already does. An asset package is an `.opk` with
+# `kind=asset`, one file called `blob`, and it travels through the signed
+# INDEX exactly like a program does.
+USER_BLOB_KEYS = ("theme", "wallpaper")
+
+USER_KEYS = {
+    # key                 file it renders                       kind
+    "theme":            ("config/desktop/theme",            "blob"),
+    "wallpaper":        ("config/desktop/wallpaper",        "blob"),
+    "taskbar.edge":     ("config/desktop/taskbar.conf",     "scalar"),
+    "taskbar.height":   ("config/desktop/taskbar.conf",     "scalar"),
+    "taskbar.autohide": ("config/desktop/taskbar.conf",     "scalar"),
+}
+
+# Everything activation generates BELOW a user directory. Same discipline
+# as GENERATED_FILES: a fixed, named list, deleted and rewritten on every
+# activation, so that a preference which disappears takes its file with
+# it. Nothing else under `config/` is ever touched -- the user's own files
+# live there too, and they are not ours.
+USER_GENERATED = ("config/desktop/taskbar.conf", "config/desktop/theme",
+                  "config/desktop/wallpaper")
+
+# THE COMPATIBILITY VIEW. Osum reads these three absolute paths today
+# (`kernel/user/leiste.fi` line 579, `kernel/user/schreibtisch.fi` lines
+# 203-204, `kernel/user/einstellungen.fi` line 489). They are SECOND NAMES
+# on the user's files, not copies, and they exist only while a machine has
+# exactly one account. When round DESKTOP teaches those programs to read
+# `/users/<who>/config/desktop/`, this tuple becomes empty and nothing
+# else changes.
+COMPAT_FILES = ("etc/hintergrund", "etc/taskbar.conf", "etc/theme")
+SCHEMA_DIR = "etc/schemas"
+
+TASKBAR_EDGES = ("bottom", "left", "right", "top")   # wlibc.fi e_names
+TASKBAR_DEFAULTS = {"taskbar.edge": "bottom",
+                    "taskbar.height": "28",          # leiste.fi, `const PH`
+                    "taskbar.autohide": "no"}
 
 # THE CLOSED SET OF SETTINGS. An open key space would turn the PLAN into
 # the junk drawer that PACKAGING.md § 1.4 exists to prevent: anything
@@ -439,7 +528,11 @@ SETTING_KEYS = {
     "timezone":      ("etc/timezone",     None),
     "keymap":        ("etc/keymap",       None),
     "time.offset":   ("etc/zeit.conf",    "kernel/user/einstellungen.fi"),
-    "screen.mode":   ("etc/schirm.conf",  "kernel/user/einstellungen.fi"),
+    # `display.mode` and not `screen.mode`: the key is ours and one day
+    # old, so renaming it costs nothing and English is the rule. The FILE
+    # keeps Osum's name `schirm.conf` -- renaming another project's file
+    # is round RENAME's job, not ours.
+    "display.mode":  ("etc/schirm.conf",  "kernel/user/einstellungen.fi"),
     "net.mode":      ("etc/netz.conf",    "kernel/user/dhcp.fi"),
     "net.address":   ("etc/netz.conf",    "kernel/user/dhcp.fi"),
     "net.netmask":   ("etc/netz.conf",    "kernel/user/dhcp.fi"),
@@ -505,7 +598,8 @@ class Plan(object):
         self.apps = {}          # name -> full sha256
         self.kernel = None      # full sha256 or None
         self.sources = {}       # url -> ed25519 public key, hex
-        self.settings = {}      # key -> value
+        self.settings = {}      # key -> value        (system level)
+        self.prefs = {}         # (user, key) -> value  (user level)
         self.accounts = {}      # name -> Account
         self.legacy_lines = 0   # how many lines were read in the old shape
 
@@ -552,6 +646,11 @@ class Plan(object):
                     raise ValueError("%s line %d: setting needs key and value"
                                      % (where, nr))
                 p.settings[f[1]] = f[2]
+            elif kind == "pref":
+                if len(f) != 4:
+                    raise ValueError("%s line %d: pref needs user, key and "
+                                     "value" % (where, nr))
+                p.prefs[(f[1], f[2])] = f[3]
             elif kind == "account":
                 if len(f) != 7:
                     raise ValueError("%s line %d: account needs name, uid, "
@@ -572,6 +671,8 @@ class Plan(object):
             out.append("source\t%s\t%s" % (url, self.sources[url]))
         for k in self.settings:
             out.append("setting\t%s\t%s" % (k, self.settings[k]))
+        for (wer, k) in self.prefs:
+            out.append("pref\t%s\t%s\t%s" % (wer, k, self.prefs[(wer, k)]))
         for name in self.accounts:
             out.append("account\t" + "\t".join(self.accounts[name].fields()))
         # SORTED BY THE BYTES OF THE WHOLE LINE. `LC_ALL=C sort -c` on the
@@ -590,6 +691,7 @@ class Plan(object):
         p.kernel = self.kernel
         p.sources = dict(self.sources)
         p.settings = dict(self.settings)
+        p.prefs = dict(self.prefs)
         p.accounts = {n: Account(*a.fields()) for n, a in self.accounts.items()}
         p.legacy_lines = self.legacy_lines
         return p
@@ -599,14 +701,28 @@ class Plan(object):
         out = set(self.apps.values())
         if self.kernel:
             out.add(self.kernel)
+        # THE ASSETS TOO. A wallpaper the plan names must survive the
+        # collector and must be fetched by `rebuild`, exactly like a
+        # program -- it is a store entry and nothing about it is special.
+        for (wer, k), v in self.prefs.items():
+            if k in USER_BLOB_KEYS:
+                out.add(v)
         return out
+
+    def users(self):
+        """Everyone the plan mentions -- as an account or as a preference."""
+        return sorted(set(self.accounts) | {w for (w, _) in self.prefs})
+
+    def prefs_of(self, wer):
+        return {k: v for (w, k), v in self.prefs.items() if w == wer}
 
     def summary(self):
         return ("%d app(s), kernel %s, %d source(s), %d setting(s), "
-                "%d account(s)"
+                "%d account(s), %d preference(s) for %d user(s)"
                 % (len(self.apps),
                    (self.kernel[:12] if self.kernel else "none"),
-                   len(self.sources), len(self.settings), len(self.accounts)))
+                   len(self.sources), len(self.settings), len(self.accounts),
+                   len(self.prefs), len(self.users())))
 
 
 def as_plan(thing):
@@ -663,8 +779,10 @@ def generated_content(plan, secrets_dir):
             out[simple] = s[key] + "\n"
     if "time.offset" in s:
         out["etc/zeit.conf"] = "offset=%s\n" % s["time.offset"]
-    if "screen.mode" in s:
-        out["etc/schirm.conf"] = "modus=%s\n" % s["screen.mode"]
+    if "display.mode" in s:
+        # The KEY is ours and English; the FILE and its word `modus=` are
+        # Osum's and are written the way Osum reads them.
+        out["etc/schirm.conf"] = "modus=%s\n" % s["display.mode"]
     netz = render_netz(s)
     if netz is not None:
         out["etc/netz.conf"] = netz
@@ -691,6 +809,50 @@ def generated_content(plan, secrets_dir):
 
 def secret_hash(path):
     return hashlib.sha256(open(path, "rb").read()).hexdigest()
+
+
+def check_pref(key, value):
+    """Refuse a preference that cannot be rendered, BEFORE it becomes a
+    generation. A generation that cannot be activated is worse than an
+    error message."""
+    if key not in USER_KEYS:
+        raise ValueError(
+            "'%s' is not a preference this system knows. The set is closed "
+            "on purpose. Known: %s" % (key, ", ".join(sorted(USER_KEYS))))
+    if key == "taskbar.edge" and value not in TASKBAR_EDGES:
+        raise ValueError("taskbar.edge must be one of %s (the names in "
+                         "Osum's wlibc.fi), not %r"
+                         % ("/".join(TASKBAR_EDGES), value))
+    if key == "taskbar.height":
+        if not value.isdigit() or not 12 <= int(value) <= 200:
+            raise ValueError("taskbar.height must be a number of pixels "
+                             "between 12 and 200, not %r" % value)
+    if key == "taskbar.autohide" and value not in ("yes", "no"):
+        raise ValueError("taskbar.autohide must be 'yes' or 'no', not %r"
+                         % value)
+    if key in USER_BLOB_KEYS:
+        if len(value) != 64 or any(c not in "0123456789abcdef" for c in value):
+            raise ValueError("%s is content and is named by its SHA-256 -- "
+                             "64 hex digits, not %r" % (key, value))
+    return value
+
+
+def render_taskbar(prefs):
+    """`taskbar.conf` -- a NEW file, therefore English keys.
+
+    Round DESKTOP is building the taskbar that will read it
+    (`kernel/user/leiste.fi`); the edge names are taken from Osum's own
+    `wlibc.fi` (`e_names = "bottom\0top\0left\0right"`) rather than
+    invented, and the default height 28 is `const PH` from that same file.
+    All three keys are always written, so the file alone determines the
+    taskbar and a missing line is never a hidden default.
+    """
+    if not any(k.startswith("taskbar.") for k in prefs):
+        return None
+    v = dict(TASKBAR_DEFAULTS)
+    v.update({k: prefs[k] for k in prefs if k.startswith("taskbar.")})
+    return ("edge=%s\nheight=%s\nautohide=%s\n"
+            % (v["taskbar.edge"], v["taskbar.height"], v["taskbar.autohide"]))
 
 
 # ---------------------------------------------------------------------------
@@ -810,6 +972,85 @@ class Wurzel:
         self._make_pots(plan)
         self.aktuell_setzen(n)
 
+    def _blob_of(self, h):
+        """Where the octets of an asset package sit in the store."""
+        return os.path.join(self.store, kurz(h), "blob")
+
+    def _render_user(self, plan):
+        """Everything the plan determines BELOW users/, and nothing else."""
+        vorhanden = sorted(os.listdir(self.users)) if os.path.isdir(self.users) \
+            else []
+        for wer in set(vorhanden) | set(plan.users()):
+            for rel in USER_GENERATED:
+                p = os.path.join(self.users, wer, rel)
+                if os.path.lexists(p):
+                    os.remove(p)
+        for wer in plan.users():
+            prefs = plan.prefs_of(wer)
+            ziel = os.path.join(self.users, wer, "config", "desktop")
+            if prefs:
+                os.makedirs(ziel, exist_ok=True)
+            for k in USER_BLOB_KEYS:
+                if k not in prefs:
+                    continue
+                quelle = self._blob_of(prefs[k])
+                if not os.path.exists(quelle):
+                    raise SystemExit(
+                        "opk: %s of %s is %s, and the store has no such asset"
+                        % (k, wer, prefs[k][:12]))
+                os.link(quelle, os.path.join(ziel, k))
+            tb = render_taskbar(prefs)
+            if tb is not None:
+                p = os.path.join(ziel, "taskbar.conf")
+                with open(p, "w", encoding="utf-8") as f:
+                    f.write(tb)
+                os.chmod(p, 0o644)
+
+    def _render_compat(self, plan):
+        """The /etc view Osum's programs still read. Second names, not copies.
+
+        Only for a machine with exactly ONE account. With two accounts
+        there is no honest answer to "whose theme is /etc/theme", and the
+        view is therefore absent rather than arbitrary.
+        """
+        for rel in COMPAT_FILES:
+            p = os.path.join(self.p, rel)
+            if os.path.lexists(p):
+                os.remove(p)
+        sd = os.path.join(self.p, SCHEMA_DIR)
+        if os.path.isdir(sd):
+            shutil.rmtree(sd)
+        # /etc/schemas: one entry per colour scheme any user of this plan
+        # has chosen, named after the asset package. It is what Osum's
+        # settings application lists.
+        themen = {v for (w, k), v in plan.prefs.items() if k == "theme"}
+        if themen:
+            os.makedirs(sd, exist_ok=True)
+            for h in sorted(themen):
+                meta = os.path.join(self.store, kurz(h), "PAKET")
+                name = h[:12]
+                if os.path.exists(meta):
+                    felder, _, _ = meta_lesen(open(meta, "rb").read())
+                    name = felder.get("name") or name
+                os.link(self._blob_of(h), os.path.join(sd, name))
+        wer = list(plan.accounts)
+        if len(wer) != 1:
+            return len(wer)
+        prefs = plan.prefs_of(wer[0])
+        paare = (("theme", "etc/theme"), ("wallpaper", "etc/hintergrund"))
+        for k, rel in paare:
+            if k in prefs:
+                os.link(self._blob_of(prefs[k]),
+                        os.path.join(self.p, rel))
+        tb = render_taskbar(prefs)
+        if tb is not None:
+            p = os.path.join(self.p, "etc/taskbar.conf")
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                f.write(tb)
+            os.chmod(p, 0o644)
+        return 1
+
     def _render_generated(self, plan):
         """Write the files that are DERIVED from the plan, and only those.
 
@@ -831,6 +1072,8 @@ class Wurzel:
             # /etc/shadow is the one file here that must not be readable
             # by everyone -- the whole point of splitting it off passwd.
             os.chmod(p, 0o600 if rel == "etc/shadow" else 0o644)
+        self._render_user(plan)
+        self._render_compat(plan)
 
     def _make_pots(self, plan):
         """The three pots, for every account of the plan and every app.
@@ -840,7 +1083,7 @@ class Wurzel:
         plan: two roots with the same plan have the same pots, no matter
         in which order they got there.
         """
-        wer = sorted(plan.accounts) or [self.default_user]
+        wer = plan.users() or [self.default_user]
         for nutzer in wer:
             for topf in ("config", "state", "cache"):
                 for name in sorted(plan.apps):
@@ -1773,6 +2016,175 @@ def _open_source(pfad, erlaubt, woher):
     return (eintraege, passt, woher), None
 
 
+
+# ------------------------------------------------------------------ assets
+def asset_bauen(datei, klasse, name, aus):
+    """Wrap ANY file into an `.opk` with `kind=asset`.
+
+    An asset is a package with one file called `blob` and no `start`. It
+    is not special in any other way: same header, same hash, same store,
+    same collector, same signed INDEX. That is the whole argument for
+    doing it this way instead of building a second blob store beside the
+    first one.
+    """
+    felder = {"name": name, "fassung": "1.0.0", "titel": name,
+              "info": "%s asset, %d octet(s)" % (klasse,
+                                                 os.path.getsize(datei)),
+              "keys": name, "kind": "asset", "class": klasse}
+    arbeit = os.path.join(os.path.dirname(os.path.abspath(aus)),
+                          ".asset-" + name)
+    if os.path.isdir(arbeit):
+        shutil.rmtree(arbeit)
+    os.makedirs(arbeit)
+    shutil.copyfile(datei, os.path.join(arbeit, "blob"))
+    meta = meta_bauen(felder, [], [])
+    daten = archiv_bauen(arbeit)
+    shutil.rmtree(arbeit)
+    roh, h = paket_packen(meta, daten)
+    with open(aus, "wb") as f:
+        f.write(roh)
+    return roh, h
+
+
+def cmd_asset_pack(args):
+    name = args.name or os.path.splitext(os.path.basename(args.datei))[0]
+    if reserved_name(name):
+        raise SystemExit("opk: '%s' is a PLAN type and cannot be a name" % name)
+    roh, h = asset_bauen(args.datei, args.klasse, name, args.aus)
+    print("%-12s %-10s %8d octet(s) in, %8d out  %s"
+          % (name, args.klasse, os.path.getsize(args.datei), len(roh), h))
+    return 0
+
+
+def _asset_in_store(w, wert, klasse, quelle=None, schluessel=None):
+    """Turn what the user typed into a hash that IS in the store.
+
+    Three things are accepted, and the difference matters:
+      * a 64-hex hash  -- must already be in the store, or fetchable
+      * an `.opk` file -- read, checksum verified, put in the store
+      * ANY other file -- packed into an asset package on the spot, so
+        that "I picked this photo" is one command and not three
+    """
+    if len(wert) == 64 and all(c in "0123456789abcdef" for c in wert):
+        if os.path.isdir(os.path.join(w.store, kurz(wert))):
+            return wert
+        if quelle:
+            eintraege, signiert = quelle_lesen(quelle, schluessel)
+            for name, (fassung, h, groesse, datei) in eintraege.items():
+                if h != wert:
+                    continue
+                roh = open(os.path.join(quelle, datei), "rb").read()
+                meta, daten, ist = paket_lesen(roh)
+                w.store_schreiben(ist, meta, daten)
+                return ist
+        raise SystemExit("opk: %s is not in the store and in no named source"
+                         % wert[:16])
+    if not os.path.exists(wert):
+        raise SystemExit("opk: '%s' is neither a hash nor a file" % wert)
+    if wert.endswith(".opk"):
+        roh = open(wert, "rb").read()
+    else:
+        name = os.path.splitext(os.path.basename(wert))[0]
+        tmp = os.path.join(w.p, ".asset.opk")
+        os.makedirs(w.p, exist_ok=True)
+        roh, _ = asset_bauen(wert, klasse, name, tmp)
+        os.remove(tmp)
+    meta, daten, h = paket_lesen(roh)
+    felder, _, _ = meta_lesen(meta)
+    if felder.get("kind") != "asset":
+        raise SystemExit("opk: %s is not an asset package (kind=%s)"
+                         % (wert, felder.get("kind", "")))
+    if felder.get("class") != klasse:
+        raise SystemExit("opk: %s is a '%s' asset, but this is the '%s' "
+                         "preference -- a wallpaper is not a colour scheme"
+                         % (wert, felder.get("class", "?"), klasse))
+    w.store_schreiben(h, meta, daten)
+    return h
+
+
+# ------------------------------------------------------------- preferences
+def cmd_pref(args):
+    """Set ONE preference of ONE user. The user is not optional.
+
+    That is the point of this command existing next to `set`: a
+    preference without a person is what `/etc/theme` was, and it is the
+    thing this addendum is here to undo.
+    """
+    w = _root(args)
+    w.anlegen()
+    plan = _current(w).copy()
+    if args.key not in USER_KEYS:
+        raise SystemExit(
+            "opk: '%s' is not a preference this system knows. Known: %s"
+            % (args.key, ", ".join(sorted(USER_KEYS))))
+    wert = args.value
+    if args.key in USER_BLOB_KEYS:
+        wert = _asset_in_store(w, wert, args.key, args.quelle, args.schluessel)
+    try:
+        check_pref(args.key, wert)
+    except ValueError as e:
+        raise SystemExit("opk: %s" % e)
+    _clean(args.user, "a user name")
+    plan.prefs[(args.user, args.key)] = wert
+    n = _next_generation(w, plan, "pref %s %s=%s"
+                         % (args.user, args.key, wert[:16]))
+    datei, art = USER_KEYS[args.key]
+    print("%s: %s = %s, generation %d" % (args.user, args.key, wert[:24], n))
+    print("   renders users/%s/%s" % (args.user, datei))
+    if art == "blob":
+        print("   the octets are store/%s/blob -- one copy, a second name"
+              % kurz(wert))
+    if len(plan.accounts) == 1:
+        print("   and, for this single-account machine, the compatibility "
+              "view under etc/ that Osum's programs still read")
+    elif len(plan.accounts) > 1:
+        print("   NO compatibility view under etc/: this machine has %d "
+              "accounts, and there is no honest answer to whose theme "
+              "/etc/theme would be" % len(plan.accounts))
+    return 0
+
+
+def cmd_pref_unset(args):
+    w = _root(args)
+    plan = _current(w).copy()
+    if (args.user, args.key) not in plan.prefs:
+        raise SystemExit("opk: %s has no preference '%s'"
+                         % (args.user, args.key))
+    del plan.prefs[(args.user, args.key)]
+    n = _next_generation(w, plan, "pref removed %s %s" % (args.user, args.key))
+    print("%s: %s unset, generation %d -- users/%s/%s is gone"
+          % (args.user, args.key, n, args.user, USER_KEYS[args.key][0]))
+    return 0
+
+
+def cmd_prefs(args):
+    w = _root(args)
+    plan = _current(w)
+    leute = [args.user] if args.user else plan.users()
+    if not leute:
+        print("no user has a preference, and no account exists")
+    for wer in leute:
+        p = plan.prefs_of(wer)
+        print("%s%s" % (wer, "" if wer in plan.accounts
+                        else "   (no account -- preferences without a person "
+                             "to log in as)"))
+        for k in sorted(USER_KEYS):
+            datei, art = USER_KEYS[k]
+            wert = p.get(k, "-")
+            zusatz = ""
+            if art == "blob" and wert != "-":
+                meta = os.path.join(w.store, kurz(wert), "PAKET")
+                if os.path.exists(meta):
+                    felder, _, _ = meta_lesen(open(meta, "rb").read())
+                    zusatz = "  (%s)" % felder.get("name", "?")
+                wert = wert[:16] + "..."
+            print("   %-18s %-22s %s%s" % (k, wert, datei, zusatz))
+    print("")
+    print("system level (`opk.py settings`) is a different thing: resolution, "
+          "network, timezone are one per MACHINE, these are one per PERSON")
+    return 0
+
+
 def cmd_rebuild(args):
     """Build a whole system tree FROM A PLAN, on a machine that has none.
 
@@ -1915,16 +2327,36 @@ def snapshot_lines(w):
     wege.append(os.path.join(w.p, KERNEL_DIR))
     for rel in GENERATED_FILES:
         wege.append(os.path.join(w.p, rel))
-    wer = sorted(plan.accounts) or [w.default_user]
+    wege.append(os.path.join(w.p, SCHEMA_DIR))
+    for rel in COMPAT_FILES:
+        wege.append(os.path.join(w.p, rel))
+    wer = plan.users() or [w.default_user]
     for nutzer in wer:
         for topf in ("config", "state", "cache"):
-            wege.append(os.path.join(w.users, nutzer, topf))
+            # THE DIRECTORY, NOT WHAT IS IN IT. This was wrong in the
+            # first version of this function: it walked the pots and
+            # therefore compared the user's documents, which a plan does
+            # not determine. It went unnoticed because the pots were
+            # empty in the run that measured it. Fixed here, and named
+            # here rather than quietly.
+            wege.append(("dir-only", os.path.join(w.users, nutzer, topf)))
+        for rel in USER_GENERATED:
+            wege.append(os.path.join(w.users, nutzer, rel))
 
     gesehen = set()
     for weg in wege:
+        nur_verzeichnisse = False
+        if isinstance(weg, tuple):
+            nur_verzeichnisse, weg = True, weg[1]
         if not os.path.exists(weg):
             continue
-        if os.path.isfile(weg):
+        if nur_verzeichnisse:
+            paare = [(weg, True)]
+            for pfad, verz, _ in os.walk(weg):
+                verz.sort()
+                for v in verz:
+                    paare.append((os.path.join(pfad, v), True))
+        elif os.path.isfile(weg):
             paare = [(weg, None)]
         else:
             paare = []
@@ -2033,6 +2465,61 @@ def cmd_verify(args):
         sagen(k in SETTING_KEYS, "the setting '%s' is a key this system knows"
               % k)
 
+    # ------------------------------------------------ the user level
+    for (wer, k) in sorted(plan.prefs):
+        wert = plan.prefs[(wer, k)]
+        try:
+            check_pref(k, wert)
+            sagen(True, "the preference %s/%s is well formed (%s)"
+                  % (wer, k, wert[:16]))
+        except ValueError as e:
+            sagen(False, "the preference %s/%s: %s" % (wer, k, e))
+            continue
+        if k in USER_BLOB_KEYS:
+            blob = w._blob_of(wert)
+            if not os.path.exists(blob):
+                sagen(False, "the %s of %s names store/%s, which is not there"
+                      % (k, wer, kurz(wert)))
+                continue
+            ziel = os.path.join(w.users, wer, USER_KEYS[k][0])
+            sagen(os.path.exists(ziel)
+                  and os.lstat(ziel).st_ino == os.lstat(blob).st_ino,
+                  "users/%s/%s is the SAME INODE as store/%s/blob -- one copy "
+                  "of %d octet(s), not two"
+                  % (wer, USER_KEYS[k][0], kurz(wert),
+                     os.path.getsize(blob)))
+    for wer in plan.users():
+        tb = render_taskbar(plan.prefs_of(wer))
+        p = os.path.join(w.users, wer, "config/desktop/taskbar.conf")
+        if tb is None:
+            sagen(not os.path.exists(p),
+                  "%s has no taskbar preference and no taskbar.conf" % wer)
+        else:
+            ist = open(p).read() if os.path.exists(p) else None
+            sagen(ist == tb, "users/%s/config/desktop/taskbar.conf is what "
+                  "the plan renders (%s)"
+                  % (wer, tb.replace("\n", " ").strip()))
+    # The compatibility view: present for one account, absent for two.
+    n_konten = len(plan.accounts)
+    hat = [rel for rel in COMPAT_FILES
+           if os.path.exists(os.path.join(w.p, rel))]
+    if n_konten == 1:
+        wer = list(plan.accounts)[0]
+        soll = []
+        if "theme" in plan.prefs_of(wer):
+            soll.append("etc/theme")
+        if "wallpaper" in plan.prefs_of(wer):
+            soll.append("etc/hintergrund")
+        if render_taskbar(plan.prefs_of(wer)) is not None:
+            soll.append("etc/taskbar.conf")
+        sagen(sorted(hat) == sorted(soll),
+              "one account -> the compatibility view under etc/ is exactly "
+              "%s" % (", ".join(sorted(soll)) or "empty"))
+    elif n_konten > 1:
+        sagen(hat == [],
+              "%d accounts -> NO compatibility view under etc/, because "
+              "there is no whose-theme-is-it answer" % n_konten)
+
     inhalt = generated_content(plan, w.secrets)
     for rel in sorted(GENERATED_FILES):
         p = os.path.join(w.p, rel)
@@ -2128,6 +2615,17 @@ def main(argv):
     s.set_defaults(f=cmd_account_remove)
     s = mit_wurzel(u.add_parser("secret-set")); s.add_argument("name")
     s.add_argument("datei"); s.set_defaults(f=cmd_secret_set)
+    s = u.add_parser("asset-pack"); s.add_argument("datei")
+    s.add_argument("-o", "--aus", required=True)
+    s.add_argument("--class", dest="klasse", required=True,
+                   choices=sorted(USER_BLOB_KEYS))
+    s.add_argument("--name", default=None); s.set_defaults(f=cmd_asset_pack)
+    s = mit_wurzel(u.add_parser("pref")); s.add_argument("user")
+    s.add_argument("key"); s.add_argument("value"); s.set_defaults(f=cmd_pref)
+    s = mit_wurzel(u.add_parser("pref-unset")); s.add_argument("user")
+    s.add_argument("key"); s.set_defaults(f=cmd_pref_unset)
+    s = mit_wurzel(u.add_parser("prefs")); s.add_argument("user", nargs="?")
+    s.set_defaults(f=cmd_prefs)
     s = mit_wurzel(u.add_parser("snapshot")); s.set_defaults(f=cmd_snapshot)
     s = mit_wurzel(u.add_parser("verify")); s.set_defaults(f=cmd_verify)
     s = mit_wurzel(u.add_parser("rebuild"))

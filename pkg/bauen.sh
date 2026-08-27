@@ -123,6 +123,34 @@ if [[ -f vendor/osum/osum.mb ]]; then
     n=$((n + 1))
 fi
 
+# ------------------------------------------- DIE ASSETS: Farbschemata und
+# Hintergrundbilder.
+#
+# Ein Farbschema und ein Hintergrundbild sind INHALT, kein Programm --
+# aber sie gehen denselben Weg: `kind=asset`, ein Store-Eintrag, ein
+# Hash, derselbe signierte INDEX, derselbe Sammler. Ein zweiter
+# Blob-Speicher neben dem Store waere ein zweiter Sammler, ein zweiter
+# Pruefer und ein zweiter Abholweg gewesen; das ist der ganze Grund,
+# warum es hier keinen gibt.
+#
+# Das Bild entsteht aus VIER ZEILEN TEXT (`pkg/osym.py`) -- ein Klumpen
+# Oktette im Baum ist nichts, was jemand in einem Unterschied lesen kann.
+shopt -s nullglob
+for th in userland/themes/*.theme; do
+    name=$(basename "$th" .theme)
+    python3 pkg/opk.py asset-pack "$th" -o "$AUS/$name.opk" --class theme
+    n=$((n + 1))
+done
+for wp in userland/wallpapers/*.wallpaper; do
+    name=$(basename "$wp" .wallpaper)
+    python3 pkg/osym.py "$wp" "$AUS/$name.osym" > /dev/null
+    python3 pkg/opk.py asset-pack "$AUS/$name.osym" -o "$AUS/$name.opk" \
+            --class wallpaper --name "$name"
+    rm -f "$AUS/$name.osym"
+    n=$((n + 1))
+done
+shopt -u nullglob
+
 # ------------------------------------- ALLES UEBRIGE AUS vendor/osum/bin
 #
 # Bis zu dieser Runde waren genau drei der Programme je paketiert. Der

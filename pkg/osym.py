@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-only
 """pkg/osym.py -- turn a four-line text file into an OSYM image.
 
 WHY THIS EXISTS. A wallpaper is content, and content in a repository

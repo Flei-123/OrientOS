@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # tests/step-93-orphans.sh -- sourced by test.sh, not started on its own.
 #
 # "WHAT ABOUT PROGRAMS THAT ARE NOT IN THE APP STORE, WHEN I SET UP A NEW

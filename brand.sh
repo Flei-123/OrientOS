@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
 # Markenaufloesung fuer die Bauskripte. Wird von build.sh, run-osum.sh und
 # test.sh eingebunden (source), nie direkt aufgerufen.
 #

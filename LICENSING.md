@@ -199,3 +199,37 @@ change.**
 | use `opk` in your own product | yes, under GPL-2.0-only |
 | ship a device that runs OrientOS and only boots signed firmware | **yes.** That is the entire reason for GPLv2 instead of GPLv3 |
 | take Apache-2.0 code into this repository | **no.** Incompatible. Look for MIT, BSD or ISC |
+
+
+---
+
+## 7. The SPDX headers -- what got one, and what could not
+
+Applied as one separate commit, deliberately, so a rebase can treat it in one
+go.
+
+| | files |
+|---|---:|
+| `SPDX-License-Identifier: GPL-2.0-only` written into the file | **28** |
+| `SPDX-License-Identifier: MIT` | **0** -- there is no MIT part here |
+
+By kind: 19 `.sh`, 6 `.py`, 2 `.toml`, 1 `.rs`.
+
+**Files that deliberately did NOT get a header:** everything under `vendor/`
+(five source files belonging to Limine and to the fetch scripts), and every
+binary -- the brand artwork, the 53 ELF test cases, the Limine binaries.
+All of them are covered by path in `.reuse/dep5`, which is the
+machine-readable fallback.
+
+There are **no symbolic links** and **no generated source files** in this
+repository.
+
+### What was verified after the headers were written
+
+| check | result |
+|---|---|
+| scan: any file whose line 2 now starts with a test directive | **0** |
+| spot checks by hand | `pkg/opk.py`, `build.sh`, `tests/step-30-boot.sh`, `assets/marke/logo_build.py`, `pkg/mkfs-spec.py` -- header on line 2 where there is a shebang, line 1 otherwise |
+
+**Not run**, because it needs QEMU, OVMF and a long wall clock: `./test.sh`.
+Run it before merging this branch anywhere.

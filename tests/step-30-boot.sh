@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # tests/step-30-boot.sh — wird von test.sh gesourct, nicht direkt gestartet.
 #
 # DAS PRODUKT STARTET WIRKLICH — UEBER BIOS UND UEBER UEFI.

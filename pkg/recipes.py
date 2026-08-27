@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-only
 """pkg/recipes.py -- generate one recipe per userland program, by machine.
 
 WHY THIS EXISTS. Before round PLAN2 exactly three of Osum's userland

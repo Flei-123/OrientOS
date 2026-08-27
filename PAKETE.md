@@ -109,6 +109,38 @@ Hash nach und **bricht ab**, wenn er ein anderer ist.
 
 ---
 
+## 1a. `.opk` and `.prog` -- what you hold and what runs
+
+*Asked by the owner on 27.08.2026, answered by reading the code. English,
+because it is new; the sections around it are round RENAME's.*
+
+> **`.opk` is what you HOLD. `.prog` is what RUNS.**
+
+They are not two names for one thing. They are different kinds of thing.
+
+| | `.opk` | `/apps/<name>.prog/` |
+|---|---|---|
+| what it is | a FILE | a DIRECTORY |
+| purpose | transport and archive | the activated view of the current generation |
+| identified by | the SHA-256 of its content | its name, nothing else |
+| holds | 64-octet header, metadata, a deterministic archive | `start`, `INFO`, `symbol`, `daten/` -- as SECOND NAMES |
+| costs disk | yes, once, in `store/<20 hex>/` | **no** -- every file is a hard link into the store |
+| read by | `pkg/opk.py` | Osum: `appdir.fi`, `starter.fi`, `explorer.fi` |
+| rebuilt | never; a package is immutable by definition | **completely**, on every activation |
+
+The `.opk` is the thing a source serves, a signature covers and a PLAN
+line names by hash. The `.prog` bundle is the thing Osum's launcher
+finds by its suffix and starts through `<bundle>/start` -- `starter.fi`
+line 47 spells out `/apps/suchen.prog/start`. Because the bundle is only
+hard links, `aktivieren` can throw the whole of `apps/` away and rebuild
+it from the plan without moving a single block; that is why a generation
+can be a function of its PLAN instead of of its own history.
+
+The full version, including what this means when there are two machines,
+is in [docs/ARCHITECTURES.md](docs/ARCHITECTURES.md) § 1.
+
+---
+
 ## 2. Die Datei `<name>.opk`
 
 ```

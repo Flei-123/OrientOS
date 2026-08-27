@@ -555,6 +555,193 @@ this addendum *introduced* is English: `pref`, `theme`, `wallpaper`,
 
 ---
 
+# Second addendum, 27.08.2026 — two machines
+
+Firn, Osum and OrientOS are to run on x86-64 **and** on AArch64. Two
+rounds are already at it: ARM-FREESTANDING in the Firn repository and
+OSUM-ARM in Osum's. The question that landed here, because this round
+was extending the PLAN format anyway: **what does a hash mean when there
+are two machines?**
+
+The full argument, with the alternatives that were thrown away, is in
+[ARCHITECTURES.md](ARCHITECTURES.md). This is the log.
+
+## B1. The answer, and why it needed almost no new idea
+
+A package is identified by the SHA-256 of its content. Machine code for
+another machine is other content, so it is another package with another
+hash. That was already true before this addendum; nobody had had to
+notice it. The work was not inventing a mechanism, it was making the
+fact **visible** and **refusable** — because the bad outcome is not a
+refusal, it is a device that installs the wrong binaries quietly and
+stops at the first instruction with nothing to read.
+
+Two facts, in two places, each written down once:
+
+* `arch=` **in the package metadata** — what this package is for. It is
+  the right place because the metadata is *inside the hash*: a package
+  cannot change what it claims without becoming a different package.
+* `arch` **as one PLAN line** — what this *machine* is. One line, like
+  `setting display.mode`.
+
+Rejected: putting the machine in the **package name**. It would make
+`braucht=` unwritable (a dependency would have to name a machine it
+cannot know), make two plans that should differ in one line differ in
+every line, and put the word `x86_64` on the desktop of somebody who
+does not care.
+
+## B2. It is measured, not declared
+
+`bauen` reads the ELF header of every file it packs — `e_machine`, two
+octets at offset 18 — and takes the machine from there. Measured:
+
+> the two recipes for the two builds are **identical except for the path
+> of the binary**
+
+A recipe *may* declare `arch=`, and then it is checked against the
+measurement and loses if they disagree. This is the same rule as
+everywhere else in this program: the octets decide, the text is checked
+against them.
+
+**An exception table that the measurement deleted.** The first version
+had `ARCH_EXCEPTIONS`, so a recipe could declare `arch=x86_64` and be
+forgiven for a 32-bit i386 file — the multiboot kernel image is EM_386
+because the firmware enters it in protected mode (measured: `osum.mb` is
+EM_386 class 1, `osum.mb.elf` is EM_X86_64 class 2, the same kernel).
+Building the 73 packages showed it **never fired once**: with EM_386
+mapped to `x86_64` in the lookup table, declaration and measurement
+already agree. It was unreachable code with a story attached, which is
+worse than a comment. It is gone.
+
+## B3. The measurement
+
+**One source, two machines, with a real toolchain — not a flipped byte.**
+`firnc --target=x86_64-linux` and `--target=aarch64-linux` over
+`firn/tests/048_print_number.fi`:
+
+| | |
+|---|---|
+| x86-64, native | prints `12345`, exit 0 |
+| aarch64, under `qemu-aarch64` | prints `12345`, exit 0 |
+| e_machine | 62 (EM_X86_64) and 183 (EM_AARCH64) |
+| package hashes | **different** |
+
+**An arch-independent package has ONE hash.** The same wallpaper packed
+on two build hosts: **identical, 173 018 octets**, `arch=any` — and
+nobody typed that either, because there was no ELF header to read.
+
+**Six refusals, each with its counter-check:**
+
+| what | said |
+|---|---|
+| the aarch64 build on an x86-64 system | `twin is for aarch64, this system is x86_64 -- REFUSED` |
+| a package from before this round | `does not say which machine it is for` |
+| a source offering both, machine unstated | `nothing said which machine this is for` |
+| a fat package | `holds machine code for 2 different machines (start=EM_X86_64, start2=EM_AARCH64)` |
+| a dependency across the boundary | `is aarch64 and needs lib, but the lib installed here is x86_64` |
+| a plan claiming aarch64 that names the x86-64 build | refused, and **nothing** was activated (0 bundles in `/apps`) |
+
+**A rebuild on the other machine.** An aarch64 plan, rebuilt on an empty
+root, produces ARM binaries in `/apps/twin.prog/start`. The two plans —
+x86-64 and aarch64 — differ in **exactly the lines that name machine
+code (2) plus the one that names the machine (2)**, and the aarch64 plan
+is 4 printable lines, 281 octets. `cat` still reads the whole state.
+
+**One store, both machines** (the build server, not the device):
+
+```
+  aarch64     1 entry     4246 octets  twin
+  any         1 entry   172934 octets  deepw
+  x86_64      1 entry     3941 octets  twin
+```
+
+and the activated view names exactly one of them, because a device is
+one machine.
+
+## B4. What `any` saves, and why the number is small
+
+On the real source of 73 packages: 69 `x86_64` (5 588 377 octets) and 4
+`any` (346 977). A source serving both machines holds 142 entries and
+11 523 731 octets instead of 146 and 11 870 708 — **saved 346 977
+octets, 2.9 %**.
+
+**That is a small number and it should be read as one.** It is small
+because only 4 of 73 packages are machine-independent today: two colour
+schemes and two wallpapers. The category that moves it does not exist
+here yet, and rather than estimate, here is what was measured next door:
+`osum-mono.ttf` 14 604 and `osum-sans.ttf` 18 676 octets; on branch
+`i18n`, `locale/de/messages` 4 897 and `locale/en/messages` 4 868. Every
+one of those becomes `arch=any` the moment it is packaged, with no
+further work. The mechanism is in place; what is missing is content, and
+content belongs to round I18N.
+
+## B5. `.opk` versus `.prog`, checked against the code
+
+The owner asked; the answer was checked against the source before it was
+written down. **`.opk` is what you hold, `.prog` is what runs.**
+
+`.opk` is a FILE: 64-octet header (`OPKG0001`, two lengths, the SHA-256
+of metadata plus data), then a deterministic archive — not `tar`,
+because tar carries timestamps and owners and two runs would give
+different octets, and then "same hash = same content" would be false.
+`paket_lesen` recomputes the hash and is the only way into the system.
+
+`/apps/<name>.prog/` is a DIRECTORY: the activated view of the current
+generation, rebuilt completely on every activation, every file a **hard
+link** into the store (`Wurzel._verweisen`), costing directory entries
+and not one block. `PAKET` stays in the store — a bundle holds what a
+*program* needs. Osum finds these by their suffix
+(`kernel/user/appdir.fi`, `endet_auf_prog`), reads `INFO` from inside,
+and runs `<bundle>/start`; `starter.fi` line 47 has
+`/apps/suchen.prog/start` spelled out.
+
+That bundle contract — one path called `start` — is also the third
+argument against fat packages: a fat bundle needs either two paths or a
+chooser inside every program.
+
+## B6. What is explicitly NOT true yet
+
+* **Osum does not run on AArch64.** The ARM binaries measured here were
+  produced by Firn and run under `qemu-aarch64`. They are real ELF files
+  that really execute — they are **not** Osum programs, because there are
+  none. The package manager is ready for them and has not seen one.
+* **All 69 code packages are `x86_64`.** The other half of the source
+  cannot exist until OSUM-ARM lands.
+* **The product ISO has no architecture.** `build.sh` builds one image
+  for one machine and never asks. Rounds FORMAT and INSTALL own that.
+* **Every package built before this addendum is now refused** by a
+  system that states its machine. Intended, loud, and fixed by one run
+  of `pkg/bauen.sh`.
+
+## B7. Debt this addendum touched
+
+`pkg/recipes.py` kept its **own copy** of the reserved-name list, five
+names written out by hand. Round PLAN2 had added `pref` and this
+addendum added `arch`, so the copy was wrong by two: a package called
+`pref` would have been built there and refused three commands later. It
+now imports `PLAN_TYPES` from `pkg/opk.py`. One list, in the program
+that owns the format — and the step asserts the two agree.
+
+Also swept: three messages that said "one of the five PLAN types" now
+count the tuple instead of naming a number that had already been wrong
+twice.
+
+**English:** everything new here is English — `arch`, `arch=`, `any`,
+`archs`, `ELF_MACHINE`, `arch_ok`, `arch_decide`, `arch_refusal`,
+`ARCHITECTURES.md`, `tests/step-92-arch.sh` including its prose. The
+machine names `x86_64` and `aarch64` are **Firn's**, taken from
+`compiler/src/target.rs` lines 80-81 rather than invented; the `-linux`
+half of the triple is dropped because in an `.opk` the operating system
+is always Osum.
+
+One inconsistency to record rather than hide: `tests/step-91-look.sh`,
+written earlier in this same round, has **German prose** in its comments
+and assertion texts. `step-92-arch.sh` is English throughout. The two
+should match, and making them match is round RENAME's sweep, not a
+silent edit here.
+
+---
+
 ## 11. What the next round needs
 
 1. **INSTALL**: make the boot path read `system/kernel`, so that the
@@ -572,3 +759,11 @@ this addendum *introduced* is English: `pref`, `theme`, `wallpaper`,
    public key, and then the question of where *that* lives.
 5. **`https://` in `rebuild`**, at which point a plan is genuinely
    portable off this machine.
+6. **OSUM-ARM, then 69 aarch64 packages.** The package manager handles
+   two machines and has never seen a second one. The moment Osum builds
+   for AArch64, `pkg/recipes.py` and `pkg/bauen.sh` produce the other
+   half of the source with no change to either — that claim is worth
+   testing the day it becomes testable.
+7. **Fonts and translations as `arch=any` packages.** They are the
+   content that makes the sharing in §B4 worth more than 2.9 %, and they
+   need no new mechanism — only packaging. Round I18N.

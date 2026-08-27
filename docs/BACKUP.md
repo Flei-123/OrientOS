@@ -19,6 +19,7 @@ a consequence of how the tree is built:
 | the system state | `system/generations/<n>/PLAN` | **yes** | one text file, ~1 KiB, and it *is* the machine |
 | credentials | `system/secrets/<name>` (0600) | **yes** | not in the PLAN by construction — see below |
 | settings per app | `users/<who>/config/<app>/` | **yes** | small, and losing it is annoyance |
+| appearance per person | `users/<who>/config/desktop/` | **yes**, and also **reproducible** — see below | the plan names it too, so a restore has two independent sources that must agree |
 | documents | `users/<who>/state/<app>/` | **yes** | this is the valuable part |
 | programs | `store/<hash>/` | **no** | reproducible from the PLAN + a source |
 | the activated view | `apps/<name>.prog/` | **no** | second names on the store, rebuilt on every activation |
@@ -63,6 +64,28 @@ NEVER BACKED UP = 3 518 499 octets
 Ninety-nine per cent of the bytes on that machine are things a backup has
 no business carrying. That ratio is the argument for the whole design,
 and it is a measurement rather than a claim.
+
+### The one place where backup and plan overlap
+
+`users/<who>/config/desktop/{theme,wallpaper,taskbar.conf}` is **both**
+inside the backup set (it lives under `config/`) **and** determined by
+the plan (`pref` lines, with the blobs content-addressed in the store).
+That looks like a contradiction of the rule above and is not — it is
+redundancy with a checker:
+
+* restore from the **plan** and a source: the appearance comes back
+  because the theme and the wallpaper are asset packages;
+* restore from the **backup**: it comes back because the octets are in
+  `config/`;
+* `opk.py verify` requires the two to agree, by asserting that
+  `users/<who>/config/desktop/wallpaper` is the *same inode* as
+  `store/<hash>/blob`.
+
+It costs nothing in bytes — the file has one inode and several names —
+and it means a wallpaper survives both a lost backup and a vanished
+source. That is deliberate: everything else in the "no" column is
+reproducible from *one* place, and appearance is the one thing a person
+notices the moment it is wrong.
 
 ## 3. The passwords
 

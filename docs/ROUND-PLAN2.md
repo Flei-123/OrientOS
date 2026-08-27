@@ -328,7 +328,7 @@ is accepted, a known setting is taken, `kernelchen` builds) — without
 those, a tool that refuses everything would be green here.
 
 In the whole suite: **15 steps, 234 assertions, 0 failures** (before:
-14 / 201). Nothing that was green before turned red — in particular
+14 / 201; after the addendum below: **16 / 261**). Nothing that was green before turned red — in particular
 `step-80-pakete.sh`, which measures the older half of the package
 manager, and `step-20`/`step-30`, which build and boot the product.
 The metadata change is the reason that matters: it was designed so that
@@ -363,6 +363,197 @@ with one octet appended must fail its hash.
   starts a different program.
 * **No dependency resolution.** Unchanged: what is missing is named, not
   fetched.
+
+---
+
+# Addendum, 27.08.2026 — "does it LOOK the same?"
+
+The owner asked one question about the round above: *if I set up a new
+device from the plan, does it look the same?* It did not. This addendum
+is the answer, and the numbers below are from runs on this machine.
+
+Design: [CONFIG-LEVELS.md](CONFIG-LEVELS.md). Test:
+`tests/step-91-look.sh`, **27 assertions**, each with its counter-check.
+
+**Acceptance after the addendum:** `./test.sh` -> **ALL 16 STEPS PASSED,
+261 assertions**, 0 failures. Before the addendum: 15 steps, 234. The 27
+that came in are exactly `step-91-look.sh`; nothing that was green turned
+red, and the product ISO is unchanged (7424 KiB, same CRC32 0x1ff0e0ba)
+because the shipped plan has no preferences yet -- see § A8.
+
+## A1. What was wrong, measured on Osum's tree
+
+`kernel/user/einstellungen.fi` is 788 lines and writes **only** into
+`/etc`: `theme`, `schemas/`, `hintergrund`, `schirm.conf`, `zeit.conf`,
+`netz.conf`, `shadow`. None of it was in a `PLAN` or under
+`/users/<who>/config`. A rebuilt device got the applications of the old
+one and the looks of a fresh install.
+
+Worse, half of those files sit at the **wrong level**. The test is not
+"is it about looks" but *would two people on one machine want different
+answers*. `/etc/theme` fails that test: it is a place where a second user
+cannot exist.
+
+## A2. What was built
+
+* A **sixth plan type**, `pref <user> <key> <value>`, for the five
+  per-person keys `theme`, `wallpaper`, `taskbar.edge`,
+  `taskbar.height`, `taskbar.autohide`. System keys stay `setting`.
+* **Asset packages**: `kind=asset`, `class=theme|wallpaper`, one file
+  `blob`. A wallpaper travels the same way a program does — store, hash,
+  signed `INDEX`, collector, `rebuild`. No second blob store.
+* `pkg/osym.py`: four lines of text → the OSYM image
+  `schreibtisch.fi` displays, deterministically.
+* Two colour schemes and two wallpapers shipped as text
+  (`userland/themes/`, `userland/wallpapers/`).
+* A **compatibility view** under `/etc` — hard links, single-account
+  machines only.
+* New commands `asset-pack`, `pref`, `pref-unset`, `prefs`.
+* One rename, allowed because the key was ours and one day old and had no
+  consumer: `screen.mode` → `display.mode`. The **file** keeps Osum's
+  name `schirm.conf`.
+
+## A3. The measurement — does it look the same?
+
+A system set up with a different colour scheme (`dusk`), a different
+wallpaper (`deep`), the taskbar on the **left** at 40 px with autohide,
+timezone Europe/Vienna, offset 7200, resolution 1024x768. Plan exported,
+rebuilt on an **empty** directory:
+
+```
+$ opk.py export --root A -o look.txt
+look.txt: 15 line(s), 855 octet(s), 3 app(s), kernel 32f1a6edc3f4,
+          1 source(s), 4 setting(s), 1 account(s),
+          5 preference(s) for 1 user(s)
+
+$ opk.py rebuild --root B --plan look.txt
+   6 package(s) fetched and verified, 2112740 octet(s)
+
+$ cmp snapA snapB && tail -1 snapA
+count entries=62 files=35 octets=4396976
+```
+
+**Identical over 62 entries, 35 files, 4 396 976 octets.** In the test
+suite, on a slightly smaller tree (two applications instead of three, no
+network setting): **45 entries, 25 files, 3 923 350 octets**, and the
+eight files that actually make up the appearance —
+
+```
+etc/theme  etc/hintergrund  etc/taskbar.conf  etc/schirm.conf  etc/zeit.conf
+users/justin/config/desktop/{theme,wallpaper,taskbar.conf}
+```
+
+— compared **individually**, octet for octet, all eight equal.
+
+Counter-check: change **one** preference in the rebuilt tree
+(`taskbar.edge` bottom→top) and the comparison falls over by 8 lines. So
+the comparison is not a constant.
+
+**The answer to the question is yes**, with the limits in § A6.
+
+## A4. The level split, measured
+
+Two accounts, `justin` and `anna`, each with their own scheme, wallpaper
+and taskbar:
+
+```
+justin: edge=left height=40 autohide=yes   theme 7c48667d...  (dusk)
+anna:   edge=top  height=28 autohide=no    theme c9a5cac7...  (dawn)
+etc/schemas: dawn  dusk
+```
+
+and the compatibility view **disappears**:
+
+```
+NO compatibility view under etc/: this machine has 2 accounts, and there
+is no honest answer to whose theme /etc/theme would be
+```
+
+With one account it is there — `etc/theme`, `etc/hintergrund`,
+`etc/taskbar.conf` — which is what Osum's taskbar and desktop read today.
+Both directions are assertions, so "deletes everything always" cannot
+pass.
+
+That the view vanishes is not a limitation of this program. It is the bug
+of § A1 becoming visible instead of being decided arbitrarily.
+
+## A5. Images are not text
+
+The wallpaper is 172 812 octets and the plan is 855. What is in the plan
+is the SHA-256; the octets are an asset package.
+
+* The plan contains **no image octets** (checked: no `OSYM` anywhere in
+  it, everything printable) and **does** contain the hash.
+* The image has **three names and one inode** — `store/<h>/blob`,
+  `users/justin/config/desktop/wallpaper`, `etc/hintergrund`. Verified
+  by `st_ino`, and `opk.py verify` asserts it.
+* The same four lines of text produce the same 172 812 octets twice, so
+  the hash is reproducible from this repository.
+* `pkg/osym.py` refuses 800×600 — `schreibtisch.fi` caps its source at
+  240×180 and stretches. An unloadable image would be worse than an
+  error.
+
+Package count is now **73** (69 programs and the kernel, plus 2 colour
+schemes and 2 wallpapers), `INDEX` 6 674 octets, still one signature over
+all of it.
+
+## A6. Passwords, restated
+
+Unchanged from the round above, and it is the same principle the
+wallpaper follows: the plan names content by its hash, never the content.
+
+```
+account	justin	1000	1000	/users/justin	/bin/sh	52d94b3107c08a8b…
+```
+
+Name, uid, gid, home, shell and the **SHA-256 of the credential**. The
+credential itself is in `system/secrets/<name>`, mode `0600`, and is
+never in a plan. A rebuild without it produces the account **locked**
+(`justin:!:0:0:99999:7:::`); a rebuild with it **verifies** the hash and
+refuses a credential that does not match. Measured: such a rebuild
+differs from the original in exactly one file.
+
+## A7. A defect found in this round's own work
+
+`snapshot_lines` walked `users/<who>/{config,state,cache}` in full and
+therefore compared the user's **documents**, which no plan determines —
+contradicting its own docstring. It went unnoticed because the pots were
+empty in the run that measured PLAN2. Fixed: the pots are walked for
+their directory structure only, plus the few generated files under
+`config/desktop/`. It is written down here because a number that was
+measured with a broken instrument would otherwise stand unchallenged.
+
+## A8. What still does not work
+
+* **The product ISO carries no appearance.** `/etc` in the image is still
+  assembled by `userland/PROGRAMME` and would collide with the plan's
+  generated `/etc` in `mkfs`. One merge, deliberately not done while
+  three rounds run in parallel on a green suite.
+* **Nothing switches the view on login.** With two accounts the
+  compatibility view is absent — correct, not yet useful. The login path
+  must tell the desktop whose configuration to read; that is DESKTOP's.
+* **`einstellungen.fi` still writes `/etc` directly**, so a change made
+  in the running system does not become a generation and is lost on the
+  next activation. Needs `opk` on Osum, i.e. `/bin/opk` in Firn.
+* **`/etc/schemas` lists only the schemes the plan uses**, not everything
+  available. A fuller picker is a catalogue question and the answer is
+  the source's `INDEX`, not the system state.
+* **Wallpapers are capped at 240×180** and stretched — Osum's memory
+  budget, stated rather than worked around.
+
+## A9. German that stayed, on purpose
+
+`/etc/theme`, `/etc/hintergrund`, `/etc/schemas/`, `/etc/schirm.conf`,
+`/etc/zeit.conf`, `/etc/netz.conf` keep their names — Osum opens them by
+name, and renaming another project's files from here would break it.
+Their contents (`modus=fest`, `maske=`) are Osum's format too. Everything
+this addendum *introduced* is English: `pref`, `theme`, `wallpaper`,
+`taskbar.edge/height/autohide`, `config/desktop/`, `taskbar.conf`,
+`asset-pack`, `class=`, `userland/themes/`, `userland/wallpapers/`,
+`pkg/osym.py`. The full list, with the reason for each, is in
+[CONFIG-LEVELS.md](CONFIG-LEVELS.md) § 8.
+
+---
 
 ## 11. What the next round needs
 

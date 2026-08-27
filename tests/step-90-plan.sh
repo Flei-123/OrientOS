@@ -123,9 +123,9 @@ plan2_check() {
     # GEGENPROBE: eine geloeschte Einstellung nimmt ihre Datei mit. Ohne
     # das waere der Baum keine FUNKTION des Plans, sondern seiner
     # Geschichte.
-    $O set --root "$A" screen.mode 800x600 >/dev/null 2>&1
+    $O set --root "$A" display.mode 800x600 >/dev/null 2>&1
     if [[ -f "$A/etc/schirm.conf" ]]; then
-        $O unset --root "$A" screen.mode >/dev/null 2>&1
+        $O unset --root "$A" display.mode >/dev/null 2>&1
         [[ ! -f "$A/etc/schirm.conf" ]] \
             && ok "GEGENPROBE: 'unset' nimmt /etc/schirm.conf wieder aus dem Baum" \
             || nok "/etc/schirm.conf bleibt stehen, nachdem die Einstellung weg ist"

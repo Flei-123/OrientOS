@@ -1,0 +1,19 @@
+# dawn -- the light scheme. Paper, not white; ink, not black.
+bg=f2efe9
+fg=23201c
+dim=8a857c
+panel=e3ded4
+btn=ded8cc
+btnhi=f7f4ee
+btndn=c9c2b4
+line=b3aca0
+sel=3c6e91
+selfg=ffffff
+focus=3c6e91
+entry=fbfaf7
+head=d5cec1
+scroll=e8e3da
+thumb=b3aca0
+accent=b06a2c
+dlg=eae5dc
+menu=e3ded4

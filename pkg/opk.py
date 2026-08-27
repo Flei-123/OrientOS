@@ -390,8 +390,10 @@ def paket_lesen(roh):
 #     else                        -> error, and say which line
 #
 # The one thing that rule can get wrong is an application literally named
-# `app`, `kernel`, `source`, `setting` or `account` -- five names. They are
-# therefore REFUSED at build time and at install time (`reserved_name`),
+# `app`, `kernel`, `source`, `setting`, `account`, `pref` or `arch` -- the
+# whole of PLAN_TYPES, and the list is not written out a second time
+# anywhere. They are REFUSED at build time and at install time
+# (`reserved_name`),
 # which turns a silent misreading into a loud error at the only moment
 # where it can still be fixed.
 #
@@ -418,7 +420,217 @@ def paket_lesen(roh):
 # measured as such -- see `docs/ROUND-PLAN2.md`.
 # ---------------------------------------------------------------------------
 
-PLAN_TYPES = ("account", "app", "kernel", "pref", "setting", "source")
+PLAN_TYPES = ("account", "app", "arch", "kernel", "pref", "setting",
+              "source")
+
+
+
+# ---------------------------------------------------------------------------
+# TWO MACHINES (round PLAN2, second addendum of 27.08.2026)
+#
+# Firn, Osum and OrientOS are to run on x86-64 AND on AArch64. Firn's
+# round 80 already compiles the same source for both (290 of 294 cases
+# behave identically), and round OSUM-ARM is putting an architecture seam
+# through the kernel. That leaves one question for the package manager,
+# and it is the one this block answers: WHAT DOES A HASH MEAN NOW?
+#
+# THE ANSWER IS THAT IT MEANS WHAT IT MEANT. A package is identified by
+# the SHA-256 of its content. Machine code for a different machine is
+# different content, so it is a different package with a different hash,
+# and nothing about that had to be invented -- it fell out. Everything
+# below is about making that fact VISIBLE and REFUSABLE instead of
+# leaving it implicit.
+#
+# WHERE THE ARCHITECTURE LIVES. Three places were possible and only one
+# of them is the truth; the other two would have been copies of it.
+#
+#   IN THE PACKAGE NAME (`explorer-x86_64`) -- REJECTED. The name is what
+#   a human types, what `braucht=` refers to and what `/apps/<name>.prog`
+#   is called. Putting the machine in it makes a dependency unwritable
+#   ("needs explorer" would have to say which explorer, in a file that
+#   cannot know where it will be installed), makes the plan unportable
+#   between machines that should differ in exactly one line, and puts the
+#   word "x86_64" on the desktop of a person who does not care.
+#
+#   IN THE PACKAGE METADATA (`arch=`) -- CHOSEN, and it is the truth,
+#   because the metadata is INSIDE the hash. A package cannot change what
+#   it says it is for without becoming a different package. That is the
+#   whole reason this is the right place and the name is the wrong one.
+#
+#   IN THE PLAN (`arch<TAB><name>`) -- CHOSEN AS WELL, and it says a
+#   different thing: not what a package is for, but what THIS MACHINE is.
+#   One line, exactly like `setting display.mode`. Without it a plan
+#   handed to a foreign machine could be rebuilt into a tree of binaries
+#   that cannot run, and nothing would have said so. With it the rebuild
+#   either works or is REFUSED BY NAME.
+#
+# So there are two facts and they are different facts, in different
+# places, each written down once: `arch=` in a package says what it is
+# for, `arch` in a plan says what the machine is. Nothing is stored
+# twice.
+#
+# THE ARCHITECTURE IS NOT DECLARED, IT IS MEASURED. A recipe does not
+# have to say `arch=`; `bauen` reads the ELF header of every file it puts
+# into the package and takes the machine from there (`e_machine`, two
+# octets at offset 18). A recipe MAY say it, and then the declaration and
+# the measurement must agree -- one accepted exception, named in
+# ARCH_EXCEPTIONS. This is the same rule as everywhere else in this
+# program: a second place where a name lives is the place that stops
+# being true, so the octets decide and the text is checked against them.
+#
+# THE PAYOFF FALLS OUT OF THE SAME RULE. A package with NO machine code
+# in it -- a colour scheme, a wallpaper, a font, a translation -- gets
+# `arch=any` without anyone deciding, because there was no ELF header to
+# read. `any` is the same eight octets on both machines, so the metadata
+# is the same, so THE HASH IS THE SAME, so the store holds it ONCE and
+# both machines name it. That is not a feature that was added; it is what
+# content addressing does when it is not fought.
+# ---------------------------------------------------------------------------
+ARCH_ANY = "any"
+
+# The machine names are FIRN'S, not new ones. `compiler/src/target.rs`
+# lines 80-81 accept `x86_64-linux | x86-64-linux | x86_64` and
+# `aarch64-linux | arm64-linux | aarch64`. The bare machine is taken and
+# the `-linux` half is dropped, because the half after the dash is the
+# operating system and in an `.opk` that is always Osum -- writing
+# `-linux` there would be false, and writing `-osum` would be a second
+# name for something that is already implied by the file extension.
+ARCHS = ("aarch64", "x86_64")
+
+# ELF `e_machine` -> the name above. The numbers are from the ELF
+# specification and are not ours to choose.
+#
+# EM_386 IS DELIBERATELY THE SAME MACHINE AS EM_X86_64, and this is the
+# one line here that is a judgement rather than a lookup. A multiboot
+# kernel image is a 32-bit i386 ELF because the firmware enters it in
+# protected mode; the image switches to long mode itself. Measured on the
+# pinned tree: `vendor/osum/osum.mb` is EM_386, class 1, and
+# `vendor/osum/osum.mb.elf` is EM_X86_64, class 2 -- the same kernel in
+# its two forms. Calling the boot form a third architecture would mean
+# the kernel package could not be installed on the machine it boots.
+#
+# THIS REPLACED SOMETHING WORSE. The first version of this file had a
+# table of accepted exceptions, `ARCH_EXCEPTIONS`, so that a recipe could
+# declare `arch=x86_64` and be forgiven for an EM_386 file. Building the
+# 73 packages showed it never fired once: with EM_386 mapped here, the
+# declaration and the measurement already agree, and the table was code
+# that could not be reached. It is gone. If OrientOS ever supports a
+# machine that is really 32-bit only, this line becomes wrong and the fix
+# is a third name -- not an exception to a rule.
+ELF_MACHINE = {3: "x86_64", 62: "x86_64", 183: "aarch64"}
+ELF_MACHINE_NAME = {3: "EM_386", 62: "EM_X86_64", 183: "EM_AARCH64"}
+
+
+def elf_machine(oktette):
+    """The ELF `e_machine` of these octets, or None if they are not ELF."""
+    if len(oktette) < 20 or oktette[:4] != b"\x7fELF":
+        return None
+    # EI_DATA at index 5: 1 = little endian, 2 = big. Everything this
+    # project has ever produced is little endian; a big endian file is
+    # not silently misread, it is reported as unknown.
+    if oktette[5] != 1:
+        return -1
+    return int.from_bytes(oktette[18:20], "little")
+
+
+def archive_machines(daten):
+    """Every ELF machine in a package archive, with the file that proves it.
+
+    Returns (set-of-numbers, [(filename, number), ...]). A package with
+    two different machines in it is a `fat` package, and this is where it
+    is caught -- see `arch_decide`.
+    """
+    gefunden, belege = set(), []
+    for typ, name, modus, inhalt in archiv_lesen(daten):
+        if typ != "f":
+            continue
+        m = elf_machine(inhalt)
+        if m is None:
+            continue
+        gefunden.add(m)
+        belege.append((name, m))
+    return gefunden, belege
+
+
+def arch_decide(erklaert, gefunden, belege, paket="this package"):
+    """What architecture a package IS. Measured first, declared second."""
+    erklaert = (erklaert or "").strip()
+    if len(gefunden) > 1:
+        zeilen = ", ".join("%s=%s" % (n, ELF_MACHINE_NAME.get(m, "machine %d" % m))
+                           for n, m in sorted(belege))
+        raise SystemExit(
+            "opk: %s holds machine code for %d different machines (%s). "
+            "A `fat` package is refused on purpose: its SHA-256 would name "
+            "two things at once, and `which of the two is installed here` "
+            "would then be a decision taken outside the plan. Build one "
+            "package per architecture -- they get different hashes, which "
+            "is the point." % (paket, len(gefunden), zeilen))
+    if not gefunden:
+        if erklaert and erklaert != ARCH_ANY:
+            if erklaert not in ARCHS:
+                raise SystemExit("opk: %s declares arch=%s, which is not one "
+                                 "of %s" % (paket, erklaert, ", ".join(ARCHS)))
+            print("   arch=%s BY DECLARATION -- there is no machine code in "
+                  "%s, so nothing measured it" % (erklaert, paket))
+            return erklaert
+        return ARCH_ANY
+    m = sorted(gefunden)[0]
+    gemessen = ELF_MACHINE.get(m)
+    if gemessen is None:
+        raise SystemExit(
+            "opk: %s holds an ELF for machine %s, which this program has no "
+            "name for. Refusing rather than guessing: add it to ELF_MACHINE "
+            "and to ARCHS, or the package would be installed on a machine "
+            "that cannot run it."
+            % (paket, ELF_MACHINE_NAME.get(m, "e_machine=%d" % m)))
+    if not erklaert or erklaert == gemessen:
+        return gemessen
+    raise SystemExit(
+        "opk: %s says arch=%s, but the file %s is %s. The recipe and the "
+        "octets disagree, and the octets are the ones that will run."
+        % (paket, erklaert, belege[0][0] if belege else "?",
+           ELF_MACHINE_NAME.get(m, str(m))))
+
+
+def arch_ok(plan_arch, paket_arch):
+    """May a package of `paket_arch` be part of a plan of `plan_arch`?
+
+    The whole rule, and every row of it is deliberate:
+
+        plan     package    result
+        -----    -------    ------------------------------------------
+        unset    anything   ACCEPT -- an old plan makes no claim, so
+                            there is nothing to check it against. This
+                            is the backward-compatible door and it is
+                            the only quiet one.
+        set      any        ACCEPT -- no machine code, runs anywhere.
+        set      equal      ACCEPT.
+        set      other      REFUSE.
+        set      unset      REFUSE -- an unlabelled binary on a machine
+                            that knows what it is IS the silent
+                            mis-install this exists to prevent.
+    """
+    if not plan_arch:
+        return True
+    if paket_arch == ARCH_ANY:
+        return True
+    return bool(paket_arch) and paket_arch == plan_arch
+
+
+def arch_refusal(name, plan_arch, paket_arch):
+    if not paket_arch:
+        return ("opk: %s does not say which machine it is for, and this "
+                "system does (arch %s). An unlabelled binary is exactly the "
+                "silent mis-installation this check exists for -- rebuild "
+                "the package; `opk.py bauen` measures the architecture out "
+                "of the ELF header and stamps it in."
+                % (name, plan_arch))
+    return ("opk: %s is for %s, this system is %s -- REFUSED. A package is "
+            "its content, so the %s build of %s is a different package with "
+            "a different hash. Fetch that one; it can sit in the same store "
+            "and the same source next to this one."
+            % (name, paket_arch, plan_arch, plan_arch, name))
+
 
 # ---------------------------------------------------------------------------
 # TWO LEVELS, AND WHY THEY ARE TWO (round PLAN2, addendum of 27.08.2026)
@@ -556,7 +768,7 @@ ACCOUNT_FIELDS = ("uid", "gid", "home", "shell", "secret")
 
 
 def reserved_name(name):
-    """True for the five names that would make an old PLAN ambiguous."""
+    """True for the names that would make an old PLAN line ambiguous."""
     return name in PLAN_TYPES
 
 
@@ -596,6 +808,7 @@ class Plan(object):
 
     def __init__(self):
         self.apps = {}          # name -> full sha256
+        self.arch = None        # what MACHINE this system is, or None
         self.kernel = None      # full sha256 or None
         self.sources = {}       # url -> ed25519 public key, hex
         self.settings = {}      # key -> value        (system level)
@@ -622,7 +835,20 @@ class Plan(object):
                 raise ValueError("%s line %d: '%s' is not a known type and "
                                  "the line is not the old two-field shape"
                                  % (where, nr, kind))
-            if kind == "app":
+            if kind == "arch":
+                if len(f) != 2:
+                    raise ValueError("%s line %d: arch needs exactly one "
+                                     "machine name" % (where, nr))
+                if f[1] not in ARCHS:
+                    raise ValueError("%s line %d: '%s' is not a machine this "
+                                     "program knows (%s)"
+                                     % (where, nr, f[1], ", ".join(ARCHS)))
+                if p.arch is not None and p.arch != f[1]:
+                    raise ValueError("%s line %d: a second, different arch "
+                                     "line -- a system is one machine"
+                                     % (where, nr))
+                p.arch = f[1]
+            elif kind == "app":
                 if len(f) != 3:
                     raise ValueError("%s line %d: app needs name and hash"
                                      % (where, nr))
@@ -665,6 +891,8 @@ class Plan(object):
         out = []
         for name in self.apps:
             out.append("app\t%s\t%s" % (name, self.apps[name]))
+        if self.arch:
+            out.append("arch\t%s" % self.arch)
         if self.kernel:
             out.append("kernel\t%s" % self.kernel)
         for url in self.sources:
@@ -688,6 +916,7 @@ class Plan(object):
     def copy(self):
         p = Plan()
         p.apps = dict(self.apps)
+        p.arch = self.arch
         p.kernel = self.kernel
         p.sources = dict(self.sources)
         p.settings = dict(self.settings)
@@ -717,9 +946,10 @@ class Plan(object):
         return {k: v for (w, k), v in self.prefs.items() if w == wer}
 
     def summary(self):
-        return ("%d app(s), kernel %s, %d source(s), %d setting(s), "
-                "%d account(s), %d preference(s) for %d user(s)"
-                % (len(self.apps),
+        return ("%d app(s), arch %s, kernel %s, %d source(s), "
+                "%d setting(s), %d account(s), %d preference(s) for "
+                "%d user(s)"
+                % (len(self.apps), (self.arch or "unstated"),
                    (self.kernel[:12] if self.kernel else "none"),
                    len(self.sources), len(self.settings), len(self.accounts),
                    len(self.prefs), len(self.users())))
@@ -1235,10 +1465,10 @@ def bauen(args):
     # would make an old-shape PLAN line unreadable (see PLAN v2 above).
     # Refusing it here is the last moment at which it costs nothing.
     if reserved_name(felder.get("name", "")):
-        raise SystemExit("opk: '%s' is one of the five PLAN types and cannot "
+        raise SystemExit("opk: '%s' is one of the %d PLAN types and cannot "
                          "be a package name -- a line `%s<TAB><hash>` could "
                          "not be told apart from a typed line"
-                         % (felder["name"], felder["name"]))
+                         % (felder["name"], len(PLAN_TYPES), felder["name"]))
     basis = os.path.dirname(os.path.abspath(args.rezept))
     arbeit = os.path.join(os.path.dirname(os.path.abspath(args.aus)),
                           ".bau-" + felder["name"])
@@ -1259,14 +1489,21 @@ def bauen(args):
         shutil.rmtree(arbeit)
         raise SystemExit("opk: das Rezept nennt, was es nicht gibt: %s"
                          % " ".join(fehlt))
-    meta = meta_bauen(felder, felder.get("braucht", []), felder.get("handle", []))
     daten = archiv_bauen(arbeit)
     shutil.rmtree(arbeit)
+    # THE ARCHITECTURE IS READ OUT OF THE OCTETS THAT WILL RUN, not out
+    # of the recipe. A recipe that says nothing gets the right answer; a
+    # recipe that says something wrong is refused.
+    gefunden, belege = archive_machines(daten)
+    felder["arch"] = arch_decide(felder.get("arch"), gefunden, belege,
+                                 felder.get("name", args.rezept))
+    meta = meta_bauen(felder, felder.get("braucht", []), felder.get("handle", []))
     roh, h = paket_packen(meta, daten)
     with open(args.aus, "wb") as f:
         f.write(roh)
-    print("%-12s %-8s %8d Oktette  %s" % (felder["name"], felder.get("fassung", "-"),
-                                          len(roh), h))
+    print("%-12s %-8s %-8s %8d Oktette  %s"
+          % (felder["name"], felder.get("fassung", "-"), felder["arch"],
+             len(roh), h))
     return 0
 
 
@@ -1279,6 +1516,8 @@ def zeigen(args):
           % (len(roh), len(meta), len(daten)))
     for k in FELDER:
         print("%-8s %s" % (k, felder.get(k, "")))
+    print("arch     %s" % (felder.get("arch") or "UNSTATED (built before "
+                           "round PLAN2 knew about machines)"))
     if braucht:
         print("braucht  %s" % ", ".join(braucht))
     if handles:
@@ -1300,10 +1539,29 @@ def index_bauen(verzeichnis):
         roh = open(os.path.join(verzeichnis, datei), "rb").read()
         meta, daten, h = paket_lesen(roh)
         felder, _, _ = meta_lesen(meta)
-        zeilen.append("%s\t%s\t%s\t%d\t%s"
+        # THE SIXTH COLUMN IS THE ARCHITECTURE, and it exists so that one
+        # source can serve both machines -- the build server case. Without
+        # it two packages called `cat` would collide in a file that is
+        # keyed by name. Old five-column indexes are still read (see
+        # `_index_zeile`); they simply say nothing about machines, and a
+        # plan that states its architecture will then refuse the packages
+        # rather than guess.
+        zeilen.append("%s\t%s\t%s\t%d\t%s\t%s"
                       % (felder["name"], felder.get("fassung", "-"), h,
-                         len(roh), datei))
+                         len(roh), datei, felder.get("arch") or ""))
     return ("\n".join(zeilen) + "\n").encode("utf-8") if zeilen else b""
+
+
+def _index_zeile(z):
+    """One INDEX line, in the six-column shape or the old five-column one."""
+    f = z.split("\t")
+    if len(f) == 5:
+        f = f + [""]
+    if len(f) != 6:
+        raise SystemExit("opk: an INDEX line has %d fields, not 5 or 6: %r"
+                         % (len(f), z[:60]))
+    name, fassung, h, groesse, datei, parch = f
+    return name, fassung, h, int(groesse), datei, parch
 
 
 def schluessel(args):
@@ -1350,7 +1608,7 @@ def quelle(args):
     return 0
 
 
-def quelle_lesen(verzeichnis, schluessel_datei=None):
+def quelle_lesen(verzeichnis, schluessel_datei=None, arch=None):
     """Den Index einer Quelle lesen -- und die Signatur PRUEFEN.
 
     Ohne oeffentlichen Schluessel wird nicht heimlich weitergemacht: dann
@@ -1373,29 +1631,75 @@ def quelle_lesen(verzeichnis, schluessel_datei=None):
         if not eigen:
             raise SystemExit("opk: die Signatur des Index passt nicht")
         signiert = True
-    eintraege = {}
+    # A SOURCE MAY HOLD BOTH MACHINES. That is the build server, and it
+    # is why this is not a plain dictionary comprehension any more: two
+    # entries can share a name and differ in architecture. `arch` says
+    # which machine is asking; entries for another machine are dropped
+    # here, so that everything downstream sees one `cat` and not two.
+    # If the caller does not say which machine it is and the source
+    # offers a choice, nothing is picked -- the ambiguity is reported at
+    # the moment somebody asks for that name.
+    nach_name = {}
     for z in idx.decode("utf-8").splitlines():
         if not z.strip():
             continue
-        name, fassung, h, groesse, datei = z.split("\t")
-        eintraege[name] = (fassung, h, int(groesse), datei)
-    return eintraege, signiert
+        name, fassung, h, groesse, datei, parch = _index_zeile(z)
+        nach_name.setdefault(name, []).append((fassung, h, groesse, datei,
+                                               parch))
+    eintraege, mehrdeutig = {}, {}
+    for name, kandidaten in nach_name.items():
+        passend = [k for k in kandidaten if arch_ok(arch, k[4])]
+        if len(passend) == 1:
+            eintraege[name] = passend[0]
+        elif not passend:
+            mehrdeutig[name] = ("the source has %d build(s) of %s (%s) and "
+                                "none of them is for %s"
+                                % (len(kandidaten), name,
+                                   ", ".join(sorted(k[4] or "unstated"
+                                                    for k in kandidaten)),
+                                   arch or "this machine"))
+        else:
+            mehrdeutig[name] = ("the source has %d build(s) of %s (%s) and "
+                                "nothing said which machine this is for -- "
+                                "set the architecture of the system "
+                                "(`opk.py arch <name>`) or the choice would "
+                                "be made by accident"
+                                % (len(passend), name,
+                                   ", ".join(sorted(k[4] or "unstated"
+                                                    for k in passend))))
+    return _SourceIndex(eintraege, mehrdeutig), signiert
+
+
+class _SourceIndex(dict):
+    """A source index that REFUSES an ambiguous name instead of picking one."""
+
+    def __init__(self, eintraege, mehrdeutig):
+        dict.__init__(self, eintraege)
+        self.mehrdeutig = mehrdeutig
+
+    def __contains__(self, name):
+        return dict.__contains__(self, name) or name in self.mehrdeutig
+
+    def __getitem__(self, name):
+        if name in self.mehrdeutig:
+            raise SystemExit("opk: %s" % self.mehrdeutig[name])
+        return dict.__getitem__(self, name)
 
 
 # ---------------------------------------------------------------------------
 # Die Befehle am System
 # ---------------------------------------------------------------------------
-def _paket_holen(args):
+def _paket_holen(args, arch=None):
     """Gibt (roh, herkunft, erwarteter_hash|None)."""
     if args.was.endswith(".opk") and os.path.exists(args.was):
         return open(args.was, "rb").read(), args.was, None
     if not args.quelle:
         raise SystemExit("opk: '%s' ist keine Datei, und es ist keine Quelle "
                          "genannt (--quelle)" % args.was)
-    eintraege, signiert = quelle_lesen(args.quelle, args.schluessel)
+    eintraege, signiert = quelle_lesen(args.quelle, args.schluessel, arch)
     if args.was not in eintraege:
         raise SystemExit("opk: die Quelle kennt '%s' nicht" % args.was)
-    fassung, h, groesse, datei = eintraege[args.was]
+    fassung, h, groesse, datei, parch = eintraege[args.was]
     roh = open(os.path.join(args.quelle, datei), "rb").read()
     if not signiert:
         print("   ACHTUNG: die Quelle ist NICHT signiert")
@@ -1406,7 +1710,8 @@ def _paket_holen(args):
 def installieren(args):
     w = Wurzel(args.wurzel)
     w.anlegen()
-    roh, herkunft, erwartet = _paket_holen(args)
+    plan_arch = w.plan_full(w.aktuell()).arch
+    roh, herkunft, erwartet = _paket_holen(args, plan_arch)
     meta, daten, h = paket_lesen(roh)      # <- hier faellt eine falsche Summe
     if erwartet is not None and erwartet != h:
         raise SystemExit("opk: der Index nennt %s, die Datei ist %s"
@@ -1414,12 +1719,20 @@ def installieren(args):
     felder, braucht, handles = meta_lesen(meta)
     name = felder["name"]
     if reserved_name(name):
-        raise SystemExit("opk: '%s' is one of the five PLAN types and cannot "
-                         "be installed under that name" % name)
+        raise SystemExit("opk: '%s' is one of the %d PLAN types and cannot "
+                         "be installed under that name"
+                         % (name, len(PLAN_TYPES)))
     if felder.get("kind") == "kernel":
         raise SystemExit("opk: %s is a kernel package -- it belongs to the "
                          "generation, not to /apps. Use `opk.py kernel`."
                          % name)
+
+    # THE MACHINE CHECK, before anything is written. This is the door
+    # that Justin asked for: rebuild cleanly, or refuse by name -- never
+    # install quietly and let it fail at the first instruction.
+    paket_arch = felder.get("arch")
+    if not arch_ok(plan_arch, paket_arch):
+        raise SystemExit(arch_refusal(name, plan_arch, paket_arch))
 
     voll = w.plan_full(w.aktuell()).copy()
     plan = voll.apps
@@ -1429,6 +1742,21 @@ def installieren(args):
     if fehlend:
         raise SystemExit("opk: %s braucht, was nicht installiert ist: %s"
                          % (name, ", ".join(fehlend)))
+    # AND DEPENDENCIES ARE RESOLVED PER MACHINE. `braucht=libfoo` names a
+    # name, and a name on a two-machine store is not enough: the libfoo
+    # that is installed here must be one this package can actually call.
+    # Two `any` packages are always fine -- that is what `any` means.
+    for b in braucht:
+        bn = b.split(" ")[0]
+        b_arch = _stored_arch(w, plan[bn])
+        if paket_arch in (None, "", ARCH_ANY) or b_arch in (None, "", ARCH_ANY):
+            continue
+        if b_arch != paket_arch:
+            raise SystemExit(
+                "opk: %s is %s and needs %s, but the %s installed here is "
+                "%s. A dependency is resolved by name, and on a machine "
+                "with two architectures a name alone is not enough."
+                % (name, paket_arch, bn, bn, b_arch))
     neu = w.store_schreiben(h, meta, daten)
     if plan.get(name) == h:
         print("%s %s ist schon in dieser Fassung da (%s)"
@@ -1524,7 +1852,8 @@ def aktualisieren(args):
     w = Wurzel(args.wurzel)
     if not args.quelle:
         raise SystemExit("opk: aktualisieren braucht eine --quelle")
-    eintraege, signiert = quelle_lesen(args.quelle, args.schluessel)
+    eintraege, signiert = quelle_lesen(args.quelle, args.schluessel,
+                                       w.plan_full(w.aktuell()).arch)
     plan = w.plan(w.aktuell())
     namen = [args.was] if args.was else sorted(plan)
     getan = 0
@@ -1535,7 +1864,7 @@ def aktualisieren(args):
         if name not in eintraege:
             print("  %s kennt die Quelle nicht" % name)
             continue
-        fassung, h, groesse, datei = eintraege[name]
+        fassung, h, groesse, datei, parch = eintraege[name]
         if h == plan[name]:
             print("  %s %s ist aktuell" % (name, fassung))
             continue
@@ -1758,12 +2087,18 @@ def cmd_kernel(args):
         n = _next_generation(w, plan, "removed kernel %s" % alt[:12])
         print("kernel removed, generation %d" % n)
         return 0
-    roh, herkunft, erwartet = _paket_holen(args)
+    roh, herkunft, erwartet = _paket_holen(args, plan.arch)
     meta, daten, h = paket_lesen(roh)
     if erwartet is not None and erwartet != h:
         raise SystemExit("opk: the index says %s, the file is %s"
                          % (erwartet[:16], h[:16]))
     felder, braucht, handles = meta_lesen(meta)
+    # A KERNEL FOR THE WRONG MACHINE IS THE WORST ONE OF ALL: it is the
+    # one failure that cannot report itself, because nothing is running
+    # yet to report it.
+    if not arch_ok(plan.arch, felder.get("arch")):
+        raise SystemExit(arch_refusal(felder.get("name", "this kernel"),
+                                      plan.arch, felder.get("arch")))
     if felder.get("kind") != "kernel":
         raise SystemExit("opk: %s is not a kernel package (kind=%s). A kernel "
                          "package carries `kind=kernel` and a file `image` -- "
@@ -2006,13 +2341,15 @@ def _open_source(pfad, erlaubt, woher):
     if passt is None:
         return None, "%s: the index is not signed by any of the %d key(s) " \
                      "this plan names" % (pfad, len(erlaubt))
+    # Keyed by HASH, so two machines never collide here: a source that
+    # serves both simply has two entries and the plan names one of them.
     eintraege = {}
     for z in idx.decode("utf-8").splitlines():
         if not z.strip():
             continue
-        name, fassung, h, groesse, datei = z.split("\t")
-        eintraege[h] = (name, fassung, int(groesse),
-                        os.path.join(pfad, datei))
+        name, fassung, h, groesse, datei, parch = _index_zeile(z)
+        eintraege[h] = (name, fassung, groesse,
+                        os.path.join(pfad, datei), parch)
     return (eintraege, passt, woher), None
 
 
@@ -2037,9 +2374,24 @@ def asset_bauen(datei, klasse, name, aus):
         shutil.rmtree(arbeit)
     os.makedirs(arbeit)
     shutil.copyfile(datei, os.path.join(arbeit, "blob"))
-    meta = meta_bauen(felder, [], [])
     daten = archiv_bauen(arbeit)
     shutil.rmtree(arbeit)
+    # AN ASSET IS CONTENT, NOT CODE, and this is where that is checked
+    # rather than assumed. The measurement is the same one `bauen` makes,
+    # so an asset gets `arch=any` because nothing in it has an ELF header
+    # -- and `any` is the same octets on every machine, which is why the
+    # store holds a wallpaper ONCE for both.
+    gefunden, belege = archive_machines(daten)
+    if gefunden:
+        raise SystemExit(
+            "opk: %s holds machine code (%s is %s) and would be an asset -- "
+            "refused. An asset is a colour scheme or an image; if this is a "
+            "program it belongs in a program package, where its architecture "
+            "is checked against the machine."
+            % (name, belege[0][0],
+               ELF_MACHINE_NAME.get(belege[0][1], str(belege[0][1]))))
+    felder["arch"] = ARCH_ANY
+    meta = meta_bauen(felder, [], [])
     roh, h = paket_packen(meta, daten)
     with open(aus, "wb") as f:
         f.write(roh)
@@ -2070,7 +2422,7 @@ def _asset_in_store(w, wert, klasse, quelle=None, schluessel=None):
             return wert
         if quelle:
             eintraege, signiert = quelle_lesen(quelle, schluessel)
-            for name, (fassung, h, groesse, datei) in eintraege.items():
+            for name, (fassung, h, groesse, datei, parch) in eintraege.items():
                 if h != wert:
                     continue
                 roh = open(os.path.join(quelle, datei), "rb").read()
@@ -2185,6 +2537,137 @@ def cmd_prefs(args):
     return 0
 
 
+# ------------------------------------------------------------ architecture
+def _stored_arch(w, h):
+    """What the store says a package is for, or None if it never said."""
+    p = os.path.join(w.store, kurz(h), "PAKET")
+    if not os.path.exists(p):
+        return None
+    felder, _, _ = meta_lesen(open(p, "rb").read())
+    return felder.get("arch") or None
+
+
+def _stored_name(w, h):
+    p = os.path.join(w.store, kurz(h), "PAKET")
+    if not os.path.exists(p):
+        return h[:12]
+    felder, _, _ = meta_lesen(open(p, "rb").read())
+    return felder.get("name") or h[:12]
+
+
+def cmd_arch(args):
+    """Show, or SET, the machine this system is.
+
+    Setting it is a generation like every other decision -- so it can be
+    rolled back, and so a machine that was moved from one architecture to
+    the other has that move in its history rather than in somebody's
+    memory.
+    """
+    w = _root(args)
+    w.anlegen()
+    plan = _current(w).copy()
+    if not args.name:
+        if not plan.arch:
+            print("this system does not state its architecture.")
+            print("   A plan without an `arch` line is an OLD plan: it is "
+                  "read, and no package is checked against it, because "
+                  "there is nothing to check against.")
+        else:
+            print("arch %s" % plan.arch)
+        gefunden = {}
+        for name, h in sorted(plan.apps.items()):
+            gefunden.setdefault(_stored_arch(w, h) or "unstated",
+                                []).append(name)
+        if plan.kernel:
+            gefunden.setdefault(_stored_arch(w, plan.kernel) or "unstated",
+                                []).append("(kernel)")
+        for a in sorted(gefunden):
+            print("   %-9s %3d package(s): %s"
+                  % (a, len(gefunden[a]),
+                     ", ".join(sorted(gefunden[a])[:8])
+                     + (" ..." if len(gefunden[a]) > 8 else "")))
+        return 0
+    if args.name not in ARCHS:
+        raise SystemExit("opk: '%s' is not a machine this program knows (%s)"
+                         % (args.name, ", ".join(ARCHS)))
+    if plan.arch == args.name:
+        print("this system is already %s -- nothing to do" % args.name)
+        return 0
+    # NOTHING IS SET THAT WOULD MAKE THE TREE UNRUNNABLE. Declaring the
+    # machine is cheap; declaring it wrongly would turn every installed
+    # binary into a lie, and the plan would still look tidy.
+    schlecht = []
+    for name, h in sorted(plan.apps.items()):
+        a = _stored_arch(w, h)
+        if not arch_ok(args.name, a):
+            schlecht.append((name, a or "unstated"))
+    if plan.kernel and not arch_ok(args.name, _stored_arch(w, plan.kernel)):
+        schlecht.append(("(kernel)", _stored_arch(w, plan.kernel) or "unstated"))
+    if schlecht:
+        raise SystemExit(
+            "opk: this system cannot be called %s: %d installed package(s) "
+            "are not for it (%s). Changing the word would not change the "
+            "octets -- install the %s builds first, then say so."
+            % (args.name, len(schlecht),
+               ", ".join("%s=%s" % (n, a) for n, a in schlecht[:6]),
+               args.name))
+    alt = plan.arch
+    plan.arch = args.name
+    n = _next_generation(w, plan, "arch %s" % args.name)
+    w.aktivieren(n)
+    print("arch %s -> %s, generation %d"
+          % (alt or "unstated", args.name, n))
+    print("   every package installed from now on is checked against it; "
+          "one for another machine is refused by name")
+    return 0
+
+
+def cmd_archs(args):
+    """What the STORE holds -- the build server's view, not the device's.
+
+    A device runs one machine. A store does not have to: entries are
+    named by the SHA-256 of their content, so the x86_64 and the aarch64
+    build of one program are simply two entries that never met. This
+    command counts them, and counts what `arch=any` saves by being the
+    SAME entry for both.
+    """
+    w = _root(args)
+    if not os.path.isdir(w.store):
+        raise SystemExit("opk: %s has no store" % w.p)
+    proarch = {}
+    for k in sorted(os.listdir(w.store)):
+        p = os.path.join(w.store, k, "PAKET")
+        if not os.path.exists(p):
+            continue
+        felder, _, _ = meta_lesen(open(p, "rb").read())
+        gross = 0
+        for wurzel, _v, dateien in os.walk(os.path.join(w.store, k)):
+            for d in dateien:
+                gross += os.path.getsize(os.path.join(wurzel, d))
+        a = felder.get("arch") or "unstated"
+        eintrag = proarch.setdefault(a, {"n": 0, "oktette": 0, "namen": []})
+        eintrag["n"] += 1
+        eintrag["oktette"] += gross
+        eintrag["namen"].append(felder.get("name", k))
+    plan = _current(w)
+    print("store %s, this system is %s" % (w.store, plan.arch or "unstated"))
+    for a in sorted(proarch):
+        e = proarch[a]
+        print("  %-9s %3d entr(y/ies) %10d octet(s)  %s"
+              % (a, e["n"], e["oktette"],
+                 ", ".join(sorted(e["namen"])[:6])
+                 + (" ..." if len(e["namen"]) > 6 else "")))
+    maschinen = [a for a in proarch if a in ARCHS]
+    gemeinsam = proarch.get(ARCH_ANY, {"n": 0, "oktette": 0})
+    n_m = max(len(maschinen), 1)
+    print("  %d machine(s) side by side in one store; `any` is %d entr(y/ies) "
+          "and %d octet(s), held ONCE instead of %d times -- %d octet(s) that "
+          "do not exist twice"
+          % (len(maschinen), gemeinsam["n"], gemeinsam["oktette"], n_m,
+             gemeinsam["oktette"] * (n_m - 1)))
+    return 0
+
+
 def cmd_rebuild(args):
     """Build a whole system tree FROM A PLAN, on a machine that has none.
 
@@ -2243,18 +2726,32 @@ def cmd_rebuild(args):
     w = Wurzel(args.wurzel)
     w.default_user = args.nutzer or "justin"
     w.anlegen()
-    oktette = 0
+    oktette, geteilt = 0, 0
     for h in gebraucht:
-        name, fassung, groesse, datei = index[h]
+        name, fassung, groesse, datei, parch = index[h]
         roh = open(datei, "rb").read()
         meta, daten, ist = paket_lesen(roh)     # the checksum falls here
         if ist != h:
             raise SystemExit("opk: %s says it is %s but is %s"
                              % (datei, h[:16], ist[:16]))
+        # EVERY PACKAGE IS CHECKED AGAINST THE MACHINE THE PLAN NAMES,
+        # before it is written into the store. A plan for another machine
+        # does not half-rebuild here; it is refused with the name of the
+        # first package that does not fit.
+        felder, _, _ = meta_lesen(meta)
+        if not arch_ok(plan.arch, felder.get("arch")):
+            raise SystemExit(arch_refusal(name, plan.arch,
+                                          felder.get("arch")))
+        if felder.get("arch") == ARCH_ANY:
+            geteilt += len(roh)
         w.store_schreiben(ist, meta, daten)
         oktette += len(roh)
     print("   %d package(s) fetched and verified, %d octet(s)"
           % (len(gebraucht), oktette))
+    if plan.arch:
+        print("   every one of them checked against arch %s; %d octet(s) of "
+              "that is `any` and would be the SAME file on the other machine"
+              % (plan.arch, geteilt))
 
     if args.secrets:
         os.makedirs(w.secrets, exist_ok=True)
@@ -2433,8 +2930,49 @@ def cmd_verify(args):
 
     for name in sorted(plan.apps):
         sagen(not reserved_name(name),
-              "the application name '%s' is not one of the five plan types"
-              % name)
+              "the application name '%s' is not one of the %d plan types"
+              % (name, len(PLAN_TYPES)))
+
+    # THE MACHINE. Three questions, and the third is the one that would
+    # otherwise be found by a device that will not boot.
+    if plan.arch:
+        sagen(plan.arch in ARCHS,
+              "the plan states a machine this program knows: %s" % plan.arch)
+        schlecht = []
+        for name, h in sorted(plan.apps.items()):
+            a = _stored_arch(w, h)
+            if not arch_ok(plan.arch, a):
+                schlecht.append("%s=%s" % (name, a or "unstated"))
+        if plan.kernel and not arch_ok(plan.arch, _stored_arch(w, plan.kernel)):
+            schlecht.append("kernel=%s"
+                            % (_stored_arch(w, plan.kernel) or "unstated"))
+        sagen(not schlecht,
+              "every package of this generation can run on %s (%d checked)%s"
+              % (plan.arch, len(plan.apps) + (1 if plan.kernel else 0),
+                 "" if not schlecht else " -- NOT: " + ", ".join(schlecht[:6])))
+        # And the dependency graph, per machine.
+        krumm = []
+        for name, h in sorted(plan.apps.items()):
+            p = os.path.join(w.store, kurz(h), "PAKET")
+            if not os.path.exists(p):
+                continue
+            felder_p, braucht_p, _ = meta_lesen(open(p, "rb").read())
+            ma = felder_p.get("arch")
+            if ma in (None, "", ARCH_ANY):
+                continue
+            for b in braucht_p:
+                bn = b.split(" ")[0]
+                if bn not in plan.apps:
+                    continue
+                ba = _stored_arch(w, plan.apps[bn])
+                if ba not in (None, "", ARCH_ANY) and ba != ma:
+                    krumm.append("%s(%s)->%s(%s)" % (name, ma, bn, ba))
+        sagen(not krumm,
+              "no dependency crosses the architecture boundary%s"
+              % ("" if not krumm else ": " + ", ".join(krumm[:6])))
+    else:
+        sagen(True, "this plan states no machine -- it is an old plan, and "
+                    "no package is checked against a claim it does not make")
 
     for h in sorted(plan.hashes()):
         d = os.path.join(w.store, kurz(h))
@@ -2626,6 +3164,9 @@ def main(argv):
     s.add_argument("key"); s.set_defaults(f=cmd_pref_unset)
     s = mit_wurzel(u.add_parser("prefs")); s.add_argument("user", nargs="?")
     s.set_defaults(f=cmd_prefs)
+    s = mit_wurzel(u.add_parser("arch")); s.add_argument("name", nargs="?")
+    s.set_defaults(f=cmd_arch)
+    s = mit_wurzel(u.add_parser("archs")); s.set_defaults(f=cmd_archs)
     s = mit_wurzel(u.add_parser("snapshot")); s.set_defaults(f=cmd_snapshot)
     s = mit_wurzel(u.add_parser("verify")); s.set_defaults(f=cmd_verify)
     s = mit_wurzel(u.add_parser("rebuild"))

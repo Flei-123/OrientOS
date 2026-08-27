@@ -29,12 +29,22 @@ und ob die Dokumente dasselbe sagen wie der Baum.
 | `step-60-elf-korpus.sh` | 53 kaputte ELF-Abbilder durch den Lader |
 | `step-70-doku.sh` | die Dokumente gegen den Baum |
 | `step-80-pakete.sh` | Paketformat, Prüfsumme, Generationen, Quelle **und** ein Paket, das im gebooteten System wirklich läuft |
+| `step-90-plan.sh` | the typed PLAN: kernel in the generation, sources with their keys, settings, accounts — and a whole tree rebuilt from **one text file**, byte for byte |
 
 `step-80-pakete.sh` misst die Paketverwaltung (ROADMAP 6.1/6.2, Format in
 [PAKETE.md](../PAKETE.md)). Der zweite seiner beiden Schritte startet das
 Produkt und lässt `/apps/hallo.prog/start` laufen — alles davor läuft auf
 dem Wirt, und ein Paket, dessen Oktette man nur zählen kann, ist
 installiert, nicht nachweislich lauffähig.
+
+`step-90-plan.sh` came with round PLAN2 (27.08.2026) and measures the one
+thing `step-80` could not: that the system state in `PLAN` is **complete
+enough to rebuild a machine from**. Its core assertion runs
+`opk.py rebuild` on an empty directory from a 745-octet plan plus a
+signed source, and compares the result with `opk.py snapshot` — identical
+over 39 entries, 18 files and 3 470 309 octets. Format and rejected
+alternatives: [docs/PLAN-FORMAT.md](../docs/PLAN-FORMAT.md); numbers:
+[docs/ROUND-PLAN2.md](../docs/ROUND-PLAN2.md).
 
 `step-05-patches.sh` ist am 26.08.2026 dazugekommen und misst etwas, das
 es vorher nicht gab: **Patches auf den festgenagelten Kernel.** Osums

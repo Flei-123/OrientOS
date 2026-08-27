@@ -46,9 +46,16 @@ A line is TAB separated. The first field is a **type**.
 app       <name>    <sha256>
 kernel    <sha256>
 source    <url>     <ed25519-public-key, 64 hex digits>
-setting   <key>     <value>
+setting   <key>     <value>                 SYSTEM level  -> /etc/...
+pref      <user>    <key>     <value>       USER level    -> /users/<who>/config/
 account   <name> <uid> <gid> <home> <shell> <secret-sha256 | ->
 ```
+
+`pref` came with the addendum of 27.08.2026 and is the answer to "does a
+new device **look** the same". Why it is a separate type and not another
+`setting` is argued in [CONFIG-LEVELS.md](CONFIG-LEVELS.md): the test is
+not "is it about looks", it is *would two people on one machine want
+different answers*. There are six types, so six reserved names.
 
 A real one, from the run in the round log:
 
@@ -69,6 +76,18 @@ source	file:///…/build/quelle	1c39291b4c4687c807c505c14545703e…
 ```
 
 13 lines, 745 octets. That is a whole machine.
+
+With a face on it — colour scheme, wallpaper, taskbar — it is **15
+lines, 855 octets**:
+
+```
+pref	justin	taskbar.autohide	yes
+pref	justin	taskbar.edge	left
+pref	justin	taskbar.height	40
+pref	justin	theme	380961b0606dcd6789f3071c4e10a0bfbf5d417a818733383f24cb7162ce2c28
+pref	justin	wallpaper	cb90bea23844a4518c362c8ec1c50c0415b255cc1e0ce77ef0e0f4b6a3ced051
+setting	display.mode	1024x768
+```
 
 ### It is sorted by the octets of the whole line
 
@@ -102,8 +121,8 @@ so out loud (“1 line(s) were read in the OLD two-field shape”) instead of
 quietly pretending the file was always typed.
 
 **The one hole, and how it is closed.** An application literally named
-`app`, `kernel`, `source`, `setting` or `account` would make an old-shape
-line ambiguous. Five names. They are refused by `opk.py bauen` and by
+`app`, `kernel`, `source`, `setting`, `pref` or `account` would make an
+old-shape line ambiguous. Six names. They are refused by `opk.py bauen` and by
 `opk.py installieren`, which turns a silent misreading into a loud error
 at the only two moments where it can still be fixed. `kernelchen` builds
 fine — it is exactly those five words and not everything that sounds like
@@ -196,7 +215,7 @@ friction.
 | key | renders | read by |
 |---|---|---|
 | `time.offset` | `/etc/zeit.conf` (`offset=…`) | `kernel/user/einstellungen.fi` |
-| `screen.mode` | `/etc/schirm.conf` (`modus=…`) | `kernel/user/einstellungen.fi` |
+| `display.mode` | `/etc/schirm.conf` (`modus=…`) | `kernel/user/einstellungen.fi` |
 | `net.mode` `net.address` `net.netmask` `net.gateway` | `/etc/netz.conf` | `kernel/user/dhcp.fi`, `einstellungen.fi` |
 | `hostname` | `/etc/hostname` | **nothing yet** |
 | `timezone` | `/etc/timezone` | **nothing yet** |
@@ -245,6 +264,40 @@ written by `opk.py secret-set`. Two consequences, both wanted:
 `$osum1$<rounds>$<salt>$<derived>`), and `/etc/shadow` is written `0600`
 — the whole reason for splitting it off `passwd` in the first place.
 
+## 6a. The user level, and content that is not text
+
+The addendum of 27.08.2026 added a second level. Full argument in
+[CONFIG-LEVELS.md](CONFIG-LEVELS.md); the format part is short.
+
+```
+pref	<user>	theme	<sha256>
+pref	<user>	wallpaper	<sha256>
+pref	<user>	taskbar.edge	bottom | top | left | right
+pref	<user>	taskbar.height	<12..200>
+pref	<user>	taskbar.autohide	yes | no
+```
+
+Five keys, closed set, rendered to
+`/users/<who>/config/desktop/{theme,wallpaper,taskbar.conf}`.
+
+**A plan line holds a decision; a file holds content.** `taskbar.edge` is
+a decision — four values, nothing to store twice. A wallpaper is content,
+and no image goes into a tab-separated line. So the two blob-valued keys
+carry a **SHA-256** and the octets become an **asset package**: an
+ordinary `.opk` with `kind=asset`, `class=theme|wallpaper`, one file
+called `blob`. Same header, same store, same collector, same signed
+`INDEX`, same `rebuild` — a wallpaper needs no mechanism a program does
+not already have. A second blob store beside `store/` was considered and
+dropped for exactly that reason.
+
+`opk.py pref <user> <key> <value>` takes a hash, an `.opk`, **or any
+ordinary file** — in the last case it packs it into an asset on the spot,
+so "I picked this photo" is one command. The class is checked: a
+wallpaper offered as a colour scheme is refused.
+
+Measured: the wallpaper has **three names and one inode** (store, user
+config, compatibility view), 172 812 octets lying there once.
+
 ## 7. Sources, and why the key travels with the plan
 
 ```
@@ -277,6 +330,10 @@ opk.py source-remove  --root R <url>
 opk.py set / unset    --root R <key> [<value>]
 opk.py settings       --root R        the closed key set and its consumers
 opk.py account-add    --root R <name> [--uid --gid --home --shell]
+opk.py asset-pack     <file> -o F --class theme|wallpaper [--name N]
+opk.py pref           --root R <user> <key> <value>
+opk.py pref-unset     --root R <user> <key>
+opk.py prefs          --root R [<user>]
 opk.py account-remove --root R <name>
 opk.py secret-set     --root R <name> <file|->
 opk.py snapshot       --root R        what the plan determines, canonically
@@ -306,7 +363,15 @@ of the design:
   original had fifteen. Demanding they match would be demanding that the
   rebuild fake a past it does not have.
 * **The contents of `users/<who>/{config,state,cache}/<app>`.** A plan
-  describes a system, not the work done on it. The directories are
-  compared; what is in them is not. That is the same line
+  describes a system, not the work done on it. The *directories* are
+  compared, and so are the few files under `config/desktop/` that the
+  plan generates — the user's own files are not. That is the same line
   [BACKUP.md](BACKUP.md) draws.
+
+  **A correction, because it was wrong for a day.** The first version of
+  `snapshot_lines` walked the three pots and therefore compared the
+  user's documents, which no plan determines. It passed unnoticed
+  because the pots were empty in the run that measured it. Fixed with
+  the addendum; the pots are now walked for their directory structure
+  only.
 * **`system/secrets/`.** Credentials are not in a plan by construction.

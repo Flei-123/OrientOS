@@ -30,6 +30,7 @@ und ob die Dokumente dasselbe sagen wie der Baum.
 | `step-70-doku.sh` | die Dokumente gegen den Baum |
 | `step-80-pakete.sh` | Paketformat, Prüfsumme, Generationen, Quelle **und** ein Paket, das im gebooteten System wirklich läuft |
 | `step-90-plan.sh` | the typed PLAN: kernel in the generation, sources with their keys, settings, accounts — and a whole tree rebuilt from **one text file**, byte for byte |
+| `step-91-look.sh` | the **appearance** in the system state: colour scheme, wallpaper and taskbar as per-user `pref` lines, images content-addressed — and a rebuilt tree that *looks* the same |
 
 `step-80-pakete.sh` misst die Paketverwaltung (ROADMAP 6.1/6.2, Format in
 [PAKETE.md](../PAKETE.md)). Der zweite seiner beiden Schritte startet das
@@ -45,6 +46,16 @@ signed source, and compares the result with `opk.py snapshot` — identical
 over 39 entries, 18 files and 3 470 309 octets. Format and rejected
 alternatives: [docs/PLAN-FORMAT.md](../docs/PLAN-FORMAT.md); numbers:
 [docs/ROUND-PLAN2.md](../docs/ROUND-PLAN2.md).
+
+`step-91-look.sh` came with the addendum of the same day and answers one
+question: *does a device rebuilt from its plan **look** the same?* A
+system with another colour scheme, another wallpaper, the taskbar on the
+left and another timezone is rebuilt on an empty root and compared -- 62
+entries, 35 files, 4 396 976 octets identical in the full demo, 45 / 25 /
+3 923 350 in the suite. It also measures the level split: with **two**
+accounts the `/etc` compatibility view disappears, because there is no
+honest answer to whose theme `/etc/theme` would be. Design:
+[docs/CONFIG-LEVELS.md](../docs/CONFIG-LEVELS.md).
 
 `step-05-patches.sh` ist am 26.08.2026 dazugekommen und misst etwas, das
 es vorher nicht gab: **Patches auf den festgenagelten Kernel.** Osums

@@ -30,12 +30,12 @@
 step "Pakete: Format, Pruefsumme, Generationen, Quelle -- jede Zusage mit ihrer Gegenprobe"
 pakete_check() {
     RC=0
-    local O="python3 pkg/opkg.py"
+    local O="python3 pkg/opk.py"
     local T; T=$(mktemp -d "${TMPDIR:-/tmp}/orientos-pakete-XXXXXX")
 
     test -d build/pakete || ./pkg/bauen.sh >/dev/null 2>&1
-    if [[ ! -f build/pakete/explorer.opkg ]]; then
-        nok "build/pakete/explorer.opkg fehlt — pkg/bauen.sh ist nicht durchgelaufen"
+    if [[ ! -f build/pakete/explorer.opk ]]; then
+        nok "build/pakete/explorer.opk fehlt — pkg/bauen.sh ist nicht durchgelaufen"
         rm -rf "$T"; return 1
     fi
 
@@ -46,23 +46,23 @@ pakete_check() {
     # Wahrheit: derselbe Inhalt haette dann verschiedene Hashes, und der
     # Store liefe voll mit Eintraegen, die dasselbe sind.
     local h1 h2
-    $O bauen build/pakete/explorer.rezept -o "$T/a.opkg" >/dev/null 2>&1
-    $O bauen build/pakete/explorer.rezept -o "$T/b.opkg" >/dev/null 2>&1
-    h1=$(sha256sum "$T/a.opkg" | cut -d' ' -f1)
-    h2=$(sha256sum "$T/b.opkg" | cut -d' ' -f1)
-    if [[ "$h1" == "$h2" && -s "$T/a.opkg" ]]; then
-        ok "zweimal gebaut, Oktett fuer Oktett dasselbe Paket ($(stat -c%s "$T/a.opkg") Oktette)"
+    $O bauen build/pakete/explorer.rezept -o "$T/a.opk" >/dev/null 2>&1
+    $O bauen build/pakete/explorer.rezept -o "$T/b.opk" >/dev/null 2>&1
+    h1=$(sha256sum "$T/a.opk" | cut -d' ' -f1)
+    h2=$(sha256sum "$T/b.opk" | cut -d' ' -f1)
+    if [[ "$h1" == "$h2" && -s "$T/a.opk" ]]; then
+        ok "zweimal gebaut, Oktett fuer Oktett dasselbe Paket ($(stat -c%s "$T/a.opk") Oktette)"
     else
         nok "derselbe Bau ergibt zwei verschiedene Pakete — der Hash taugt nicht als Identitaet"
     fi
     # Der Hash IM Paket ist der Hash UEBER das Paket, nicht irgendeiner.
     local imkopf gerechnet
-    imkopf=$($O zeigen "$T/a.opkg" | awk '/^hash/{print $2}')
+    imkopf=$($O zeigen "$T/a.opk" | awk '/^hash/{print $2}')
     gerechnet=$(python3 -c "
 import hashlib,sys,struct
 roh=open(sys.argv[1],'rb').read()
 ml,dl=struct.unpack_from('<QQ',roh,8)
-print(hashlib.sha256(roh[64:64+ml+dl]).hexdigest())" "$T/a.opkg")
+print(hashlib.sha256(roh[64:64+ml+dl]).hexdigest())" "$T/a.opk")
     [[ "$imkopf" == "$gerechnet" ]] \
         && ok "der Hash im Kopf ist die SHA-256 ueber Metadaten und Daten (${imkopf:0:16})" \
         || nok "der Hash im Kopf passt nicht zum Inhalt"
@@ -76,17 +76,17 @@ print(hashlib.sha256(roh[64:64+ml+dl]).hexdigest())" "$T/a.opkg")
     python3 - "$T" <<'PY'
 import sys
 T = sys.argv[1]
-roh = open('build/pakete/explorer.opkg', 'rb').read()
+roh = open('build/pakete/explorer.opk', 'rb').read()
 for pos, name in ((70000, 'daten'), (70, 'meta'), (24, 'hash')):
     b = bytearray(roh)
     b[pos] ^= 0x01
-    open('%s/kaputt-%s.opkg' % (T, name), 'wb').write(bytes(b))
+    open('%s/kaputt-%s.opk' % (T, name), 'wb').write(bytes(b))
 b = bytearray(roh)
-open('%s/heil.opkg' % T, 'wb').write(bytes(b))
+open('%s/heil.opk' % T, 'wb').write(bytes(b))
 PY
     local art abgelehnt=0
     for art in daten meta hash; do
-        if $O installieren --wurzel "$T/w1" "$T/kaputt-$art.opkg" >"$T/aus" 2>&1; then
+        if $O installieren --wurzel "$T/w1" "$T/kaputt-$art.opk" >"$T/aus" 2>&1; then
             nok "ein Paket mit beschaedigtem Teil '$art' wurde ANGENOMMEN"
         else
             abgelehnt=$((abgelehnt + 1))
@@ -95,7 +95,7 @@ PY
     done
     # ...UND die Gegenprobe zur Ablehnung: das unversehrte Paket MUSS
     # durchgehen. Sonst waere „lehnt alles ab" hier eine bestandene Probe.
-    if $O installieren --wurzel "$T/w1" "$T/heil.opkg" >"$T/aus" 2>&1; then
+    if $O installieren --wurzel "$T/w1" "$T/heil.opk" >"$T/aus" 2>&1; then
         ok "dasselbe Paket UNVERSEHRT wird angenommen — die Pruefung laesst nicht alles fallen"
     else
         nok "auch das unversehrte Paket wird abgelehnt: $(head -1 "$T/aus")"
@@ -106,7 +106,7 @@ PY
     # Verglichen wird die kanonische Beschreibung des Baums: Art, Pfad,
     # Modus, Groesse und die SHA-256 jedes Inhalts.
     local w="$T/w2"
-    $O installieren --wurzel "$w" build/pakete/terminal.opkg >/dev/null 2>&1
+    $O installieren --wurzel "$w" build/pakete/terminal.opk >/dev/null 2>&1
     $O baum --wurzel "$w" --ohne system > "$T/vorher"
     local zeilen; zeilen=$(wc -l < "$T/vorher")
     if [[ "$zeilen" -ge 15 ]]; then
@@ -114,7 +114,7 @@ PY
     else
         nok "der Baum vorher hat nur $zeilen Eintraege — dieser Vergleich waere leer"
     fi
-    $O installieren --wurzel "$w" build/pakete/explorer.opkg >/dev/null 2>&1
+    $O installieren --wurzel "$w" build/pakete/explorer.opk >/dev/null 2>&1
     $O baum --wurzel "$w" --ohne system > "$T/mittendrin"
     # DIE GEGENPROBE ZUM VERGLEICH SELBST: mittendrin MUSS anders sein.
     if cmp -s "$T/vorher" "$T/mittendrin"; then
@@ -153,10 +153,10 @@ PY
 
     # --------------------------------------- 5. Generationen und zurueck
     local g="$T/w3"
-    $O installieren --wurzel "$g" build/pakete/terminal.opkg >/dev/null 2>&1
-    $O installieren --wurzel "$g" build/pakete/explorer.opkg >/dev/null 2>&1
+    $O installieren --wurzel "$g" build/pakete/terminal.opk >/dev/null 2>&1
+    $O installieren --wurzel "$g" build/pakete/explorer.opk >/dev/null 2>&1
     $O baum --wurzel "$g" --ohne system --ohne store --ohne users > "$T/gen2"
-    $O installieren --wurzel "$g" build/pakete/widgets.opkg >/dev/null 2>&1
+    $O installieren --wurzel "$g" build/pakete/widgets.opk >/dev/null 2>&1
     $O entfernen --wurzel "$g" explorer >/dev/null 2>&1
     $O baum --wurzel "$g" --ohne system --ohne store --ohne users > "$T/gen4"
     if cmp -s "$T/gen2" "$T/gen4"; then
@@ -194,18 +194,18 @@ PY
         > "$T/rez/unten.rezept"
     printf 'name=oben\nfassung=1.0.0\ntitel=Oben\nbraucht=unten\ndatei=start %s/vendor/osum/bin/false\n' "$repo" \
         > "$T/rez/oben.rezept"
-    $O bauen "$T/rez/unten.rezept" -o "$T/unten.opkg" >"$T/aus" 2>&1 \
-        && ok "das Hilfspaket 'unten' laesst sich bauen ($(stat -c%s "$T/unten.opkg" 2>/dev/null || echo 0) Oktette)" \
+    $O bauen "$T/rez/unten.rezept" -o "$T/unten.opk" >"$T/aus" 2>&1 \
+        && ok "das Hilfspaket 'unten' laesst sich bauen ($(stat -c%s "$T/unten.opk" 2>/dev/null || echo 0) Oktette)" \
         || nok "das Hilfspaket 'unten' laesst sich nicht bauen: $(head -1 "$T/aus")"
-    $O bauen "$T/rez/oben.rezept" -o "$T/oben.opkg" >/dev/null 2>&1
+    $O bauen "$T/rez/oben.rezept" -o "$T/oben.opk" >/dev/null 2>&1
     local d="$T/w4"
-    if $O installieren --wurzel "$d" "$T/oben.opkg" >"$T/aus" 2>&1; then
+    if $O installieren --wurzel "$d" "$T/oben.opk" >"$T/aus" 2>&1; then
         nok "'oben' liess sich ohne 'unten' installieren — die Abhaengigkeit wird nicht geprueft"
     else
         ok "ohne die Abhaengigkeit abgelehnt: $(grep -m1 braucht "$T/aus" | cut -c1-64)"
     fi
-    $O installieren --wurzel "$d" "$T/unten.opkg" >/dev/null 2>&1
-    if $O installieren --wurzel "$d" "$T/oben.opkg" >"$T/aus" 2>&1; then
+    $O installieren --wurzel "$d" "$T/unten.opk" >/dev/null 2>&1
+    if $O installieren --wurzel "$d" "$T/oben.opk" >"$T/aus" 2>&1; then
         ok "mit der Abhaengigkeit geht es — die Pruefung lehnt nicht grundsaetzlich ab"
     else
         nok "'oben' geht auch MIT 'unten' nicht: $(head -1 "$T/aus")"
@@ -222,12 +222,12 @@ PY
         read -r eigen fremd < <(python3 - <<'PY'
 import sys
 sys.path.insert(0, 'pkg')
-import opkg
+import opk
 idx = open('build/quelle/INDEX', 'rb').read()
 sig = open('build/quelle/INDEX.sig', 'rb').read()
 pk = open('build/quelle/oeffentlich.key', 'rb').read()
-print(opkg.ed25519_verify(pk, idx, sig),
-      opkg.ed25519_verify_bibliothek(pk, idx, sig))
+print(opk.ed25519_verify(pk, idx, sig),
+      opk.ed25519_verify_bibliothek(pk, idx, sig))
 PY
 )
         [[ "$eigen" == "True" ]] \
@@ -242,7 +242,7 @@ PY
         fi
         # GEGENPROBE: ein veraenderter Index darf NICHT durchgehen.
         rm -rf "$T/q"; cp -r build/quelle "$T/q"
-        printf 'schadsoftware\t9.9.9\t%064d\t1\tboese.opkg\n' 0 >> "$T/q/INDEX"
+        printf 'schadsoftware\t9.9.9\t%064d\t1\tboese.opk\n' 0 >> "$T/q/INDEX"
         if $O installieren --wurzel "$T/w5" explorer --quelle "$T/q" >"$T/aus" 2>&1; then
             nok "eine Quelle mit veraendertem Index wurde benutzt"
         else
@@ -259,7 +259,7 @@ PY
         rm -rf "$T/q2"; cp -r build/quelle "$T/q2"
         python3 -c "
 import sys
-p = sys.argv[1] + '/explorer.opkg'
+p = sys.argv[1] + '/explorer.opk'
 b = bytearray(open(p, 'rb').read())
 b[70000] ^= 1
 open(p, 'wb').write(bytes(b))" "$T/q2"

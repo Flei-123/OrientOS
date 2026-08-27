@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """pkg/mkfs-spec.py -- aus einer Paketwurzel die Angaben fuer mkfs.py.
 
-Zwischen der Wurzel, die `opkg.py` auf dem Wirt baut, und dem
+Zwischen der Wurzel, die `opk.py` auf dem Wirt baut, und dem
 OFS-Abbild, das ins Produkt kommt, steht genau eine Uebersetzung: aus
 Verzeichnissen, Dateien und HARTEN VERWEISEN werden die Angaben, die
 `vendor/osum/mkfs.py` versteht.
@@ -12,7 +12,7 @@ Verzeichnissen, Dateien und HARTEN VERWEISEN werden die Angaben, die
 
 DIE DRITTE FORM IST DER GRUND, WARUM ES DIESES WERKZEUG GIBT. In der
 Wurzel ist `apps/explorer.prog/start` derselbe Inode wie
-`store/<hash>/start` -- ein harter Verweis, den `opkg.py` mit `os.link`
+`store/<hash>/start` -- ein harter Verweis, den `opk.py` mit `os.link`
 gelegt hat. Wuerde man beide als Datei uebergeben, laege das Programm
 ZWEIMAL im Abbild: 234 448 Oktette auf einer Platte von zwei
 Megaoktett. Deshalb wird hier nach `st_ino` gruppiert: der erste Name

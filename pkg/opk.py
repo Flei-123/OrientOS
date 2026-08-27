@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""pkg/opkg.py -- die Paketverwaltung von OrientOS.
+"""pkg/opk.py -- die Paketverwaltung von OrientOS.
 
 Der Entwurf steht in PACKAGING.md und ist aelter als dieses Werkzeug; das
 Format, das hier wirklich gebaut wird, steht in PAKETE.md. Umgesetzt sind
@@ -39,20 +39,20 @@ legt deshalb nichts unter `bin/` ab. Was dort liegt, kommt aus
 
 Die Befehle:
 
-    opkg.py bauen <rezept> -o <datei.opkg>
-    opkg.py zeigen <datei.opkg>
-    opkg.py installieren --wurzel W <datei.opkg | name>
-    opkg.py entfernen    --wurzel W <name>
-    opkg.py liste        --wurzel W
-    opkg.py aktualisieren --wurzel W [<name>]
-    opkg.py generationen --wurzel W
-    opkg.py zurueck      --wurzel W <n>
-    opkg.py aufraeumen   --wurzel W [--behalte N]
-    opkg.py pruefen      --wurzel W
-    opkg.py baum         --wurzel W [--ohne system]
-    opkg.py verweise     --wurzel W
-    opkg.py schluessel   <verzeichnis>
-    opkg.py quelle       <verzeichnis> [--schluessel <datei>]
+    opk.py bauen <rezept> -o <datei.opk>
+    opk.py zeigen <datei.opk>
+    opk.py installieren --wurzel W <datei.opk | name>
+    opk.py entfernen    --wurzel W <name>
+    opk.py liste        --wurzel W
+    opk.py aktualisieren --wurzel W [<name>]
+    opk.py generationen --wurzel W
+    opk.py zurueck      --wurzel W <n>
+    opk.py aufraeumen   --wurzel W [--behalte N]
+    opk.py pruefen      --wurzel W
+    opk.py baum         --wurzel W [--ohne system]
+    opk.py verweise     --wurzel W
+    opk.py schluessel   <verzeichnis>
+    opk.py quelle       <verzeichnis> [--schluessel <datei>]
 """
 
 import argparse
@@ -410,7 +410,7 @@ class Wurzel:
             h = plan[name]
             quelle = os.path.join(self.store, kurz(h))
             if not os.path.isdir(quelle):
-                raise SystemExit("opkg: Generation %d nennt %s (%s), "
+                raise SystemExit("opk: Generation %d nennt %s (%s), "
                                  "aber der Store hat den Eintrag nicht"
                                  % (n, name, h[:12]))
             self._verweisen(quelle, os.path.join(self.apps, name + ".prog"))
@@ -436,7 +436,7 @@ class Wurzel:
             voll = self.store_hash(kurz(h))
             if voll != h:
                 raise SystemExit(
-                    "opkg: store/%s ist belegt von %s, das neue Paket ist %s "
+                    "opk: store/%s ist belegt von %s, das neue Paket ist %s "
                     "-- achtzig Bit sind kollidiert. Das ist ein Fehler und "
                     "kein Zufall, den man uebergeht." % (kurz(h), voll[:24], h[:24]))
             return False          # schon da: gleicher Hash = gleicher Inhalt
@@ -572,7 +572,7 @@ def bauen(args):
         shutil.copyfile(q, z)
     if fehlt:
         shutil.rmtree(arbeit)
-        raise SystemExit("opkg: das Rezept nennt, was es nicht gibt: %s"
+        raise SystemExit("opk: das Rezept nennt, was es nicht gibt: %s"
                          % " ".join(fehlt))
     meta = meta_bauen(felder, felder.get("braucht", []), felder.get("handle", []))
     daten = archiv_bauen(arbeit)
@@ -610,7 +610,7 @@ def zeigen(args):
 def index_bauen(verzeichnis):
     zeilen = []
     for datei in sorted(os.listdir(verzeichnis)):
-        if not datei.endswith(".opkg"):
+        if not datei.endswith(".opk"):
             continue
         roh = open(os.path.join(verzeichnis, datei), "rb").read()
         meta, daten, h = paket_lesen(roh)
@@ -659,7 +659,7 @@ def quelle(args):
         print("signiert   %s..." % sig.hex()[:32])
         print("geprueft   eigene Umsetzung=%s, Bibliothek=%s" % (eigen, fremd))
         if not eigen or fremd is False:
-            raise SystemExit("opkg: die eigene Signatur wird nicht anerkannt")
+            raise SystemExit("opk: die eigene Signatur wird nicht anerkannt")
     else:
         print("INDEX      %d Eintraege, %d Oktette (NICHT signiert)" % (n, len(idx)))
     return 0
@@ -681,12 +681,12 @@ def quelle_lesen(verzeichnis, schluessel_datei=None):
         eigen = ed25519_verify(pk, idx, sig)
         fremd = ed25519_verify_bibliothek(pk, idx, sig)
         if fremd is not None and fremd != eigen:
-            raise SystemExit("opkg: die beiden Ed25519-Umsetzungen sind sich "
+            raise SystemExit("opk: die beiden Ed25519-Umsetzungen sind sich "
                              "uneins (eigen=%s, Bibliothek=%s) -- das ist ein "
                              "Fehler in einer von beiden, kein Paketproblem"
                              % (eigen, fremd))
         if not eigen:
-            raise SystemExit("opkg: die Signatur des Index passt nicht")
+            raise SystemExit("opk: die Signatur des Index passt nicht")
         signiert = True
     eintraege = {}
     for z in idx.decode("utf-8").splitlines():
@@ -702,14 +702,14 @@ def quelle_lesen(verzeichnis, schluessel_datei=None):
 # ---------------------------------------------------------------------------
 def _paket_holen(args):
     """Gibt (roh, herkunft, erwarteter_hash|None)."""
-    if args.was.endswith(".opkg") and os.path.exists(args.was):
+    if args.was.endswith(".opk") and os.path.exists(args.was):
         return open(args.was, "rb").read(), args.was, None
     if not args.quelle:
-        raise SystemExit("opkg: '%s' ist keine Datei, und es ist keine Quelle "
+        raise SystemExit("opk: '%s' ist keine Datei, und es ist keine Quelle "
                          "genannt (--quelle)" % args.was)
     eintraege, signiert = quelle_lesen(args.quelle, args.schluessel)
     if args.was not in eintraege:
-        raise SystemExit("opkg: die Quelle kennt '%s' nicht" % args.was)
+        raise SystemExit("opk: die Quelle kennt '%s' nicht" % args.was)
     fassung, h, groesse, datei = eintraege[args.was]
     roh = open(os.path.join(args.quelle, datei), "rb").read()
     if not signiert:
@@ -724,7 +724,7 @@ def installieren(args):
     roh, herkunft, erwartet = _paket_holen(args)
     meta, daten, h = paket_lesen(roh)      # <- hier faellt eine falsche Summe
     if erwartet is not None and erwartet != h:
-        raise SystemExit("opkg: der Index nennt %s, die Datei ist %s"
+        raise SystemExit("opk: der Index nennt %s, die Datei ist %s"
                          % (erwartet[:16], h[:16]))
     felder, braucht, handles = meta_lesen(meta)
     name = felder["name"]
@@ -734,7 +734,7 @@ def installieren(args):
     # sein. Es wird NICHT nachgeladen -- was fehlt, wird benannt.
     fehlend = [b for b in braucht if b.split(" ")[0] not in plan]
     if fehlend:
-        raise SystemExit("opkg: %s braucht, was nicht installiert ist: %s"
+        raise SystemExit("opk: %s braucht, was nicht installiert ist: %s"
                          % (name, ", ".join(fehlend)))
     neu = w.store_schreiben(h, meta, daten)
     if plan.get(name) == h:
@@ -761,7 +761,7 @@ def entfernen(args):
     w = Wurzel(args.wurzel)
     plan = dict(w.plan(w.aktuell()))
     if args.was not in plan:
-        raise SystemExit("opkg: '%s' ist nicht installiert" % args.was)
+        raise SystemExit("opk: '%s' ist nicht installiert" % args.was)
     # Was von diesem Paket abhaengt, darf nicht ins Leere zeigen.
     haengt = []
     for name, hh in plan.items():
@@ -772,7 +772,7 @@ def entfernen(args):
         if any(b.split(" ")[0] == args.was for b in braucht):
             haengt.append(name)
     if haengt and not args.trotzdem:
-        raise SystemExit("opkg: %s wird gebraucht von: %s (--trotzdem erzwingt es)"
+        raise SystemExit("opk: %s wird gebraucht von: %s (--trotzdem erzwingt es)"
                          % (args.was, ", ".join(sorted(haengt))))
     h = plan.pop(args.was)
     n = w.neue_generation(plan, "entfernt %s" % args.was)
@@ -828,7 +828,7 @@ def liste(args):
 def aktualisieren(args):
     w = Wurzel(args.wurzel)
     if not args.quelle:
-        raise SystemExit("opkg: aktualisieren braucht eine --quelle")
+        raise SystemExit("opk: aktualisieren braucht eine --quelle")
     eintraege, signiert = quelle_lesen(args.quelle, args.schluessel)
     plan = w.plan(w.aktuell())
     namen = [args.was] if args.was else sorted(plan)
@@ -868,7 +868,7 @@ def zurueck(args):
     w = Wurzel(args.wurzel)
     n = int(args.n)
     if n not in w.generationen():
-        raise SystemExit("opkg: Generation %d gibt es nicht" % n)
+        raise SystemExit("opk: Generation %d gibt es nicht" % n)
     vorher = w.aktuell()
     w.aktivieren(n)
     plan = w.plan(n)
@@ -959,7 +959,7 @@ def verweise(args):
 
 def main(argv):
     p = argparse.ArgumentParser(
-        prog="opkg.py", description=__doc__,
+        prog="opk.py", description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
     u = p.add_subparsers(dest="befehl", required=True)
 
@@ -999,7 +999,7 @@ def main(argv):
     try:
         return a.f(a)
     except ValueError as e:
-        print("opkg: %s" % e, file=sys.stderr)
+        print("opk: %s" % e, file=sys.stderr)
         return 1
 
 

@@ -1,0 +1,8 @@
+# GitHub kennt Firn nicht. Ohne diese Datei zaehlt Linguist nur die
+# Nebendateien und schreibt "Shell" bzw. "Rust" an ein Repo, dessen
+# Inhalt zu ueber 90 Prozent Firn ist. Der Balken wird deshalb
+# abgeschaltet, statt eine falsche Sprache zu behaupten.
+*.fi linguist-language=Firn
+*.fi -linguist-detectable
+vendor/** linguist-vendored
+docs/** linguist-documentation

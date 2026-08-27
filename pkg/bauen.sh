@@ -14,7 +14,7 @@
 #     vendor/osum/apps/<name>.prog/start.txt  WELCHES Programm `start` ist
 #     vendor/osum/bin/<programm>              die ausfuehrbare Datei
 #            |
-#            +-> build/pakete/<name>.opkg
+#            +-> build/pakete/<name>.opk
 #
 # DER ANZEIGENAME WIRD NICHT ABGESCHRIEBEN. Er steht in Osums INFO, und
 # er wird von dort gelesen — dieselbe Regel, die Osum selbst aufstellt
@@ -81,7 +81,7 @@ for d in vendor/osum/apps/*.prog; do
             done
         fi
     } > "$rez"
-    python3 pkg/opkg.py bauen "$rez" -o "$AUS/$name.opkg"
+    python3 pkg/opk.py bauen "$rez" -o "$AUS/$name.opk"
     n=$((n + 1))
 done
 
@@ -90,7 +90,7 @@ done
 shopt -s nullglob
 for rez in pkg/rezepte/*.rezept; do
     name=$(grep -m1 '^name=' "$rez" | cut -d= -f2)
-    python3 pkg/opkg.py bauen "$rez" -o "$AUS/$name.opkg"
+    python3 pkg/opk.py bauen "$rez" -o "$AUS/$name.opk"
     n=$((n + 1))
 done
 shopt -u nullglob
@@ -107,7 +107,7 @@ if [[ $MIT_QUELLE -eq 1 ]]; then
     # damit ohnehin niemandem gehoert.
     rm -rf "$QUELLE" "$SCHLUESSEL"
     mkdir -p "$QUELLE"
-    python3 pkg/opkg.py schluessel "$SCHLUESSEL" >/dev/null
-    cp "$AUS"/*.opkg "$QUELLE"/
-    python3 pkg/opkg.py quelle "$QUELLE" --schluessel "$SCHLUESSEL/geheim.key"
+    python3 pkg/opk.py schluessel "$SCHLUESSEL" >/dev/null
+    cp "$AUS"/*.opk "$QUELLE"/
+    python3 pkg/opk.py quelle "$QUELLE" --schluessel "$SCHLUESSEL/geheim.key"
 fi

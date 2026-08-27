@@ -220,7 +220,7 @@ für den Namen. Der Ausweg ist nicht, den Hash zu ersetzen — die
 Identität bleibt die volle SHA-256, sie steht in jedem `PLAN` und wird
 bei jeder Installation nachgerechnet. Verkürzt ist nur der
 Verzeichnisname, auf zwanzig Hexziffern = 80 Bit. Und die Kollision wird
-nicht weggehofft: liegt der kurze Name schon da, rechnet `opkg` den
+nicht weggehofft: liegt der kurze Name schon da, rechnet `opk` den
 vollen Hash des vorhandenen Eintrags nach und **bricht ab**, wenn er ein
 anderer ist.
 
@@ -307,7 +307,7 @@ wirklich schützt, ist Nachrechnen:
 Eine Quelle ist ein Verzeichnis mit den Paketen, einem `INDEX` und einer
 Ed25519-Signatur über dessen Oktette. **Ed25519 steht zweimal da**:
 einmal als eigene Umsetzung nach RFC 8032 (rund 90 Zeilen in
-`pkg/opkg.py`), einmal als Aufruf der Bibliothek des Wirts. Beide
+`pkg/opk.py`), einmal als Aufruf der Bibliothek des Wirts. Beide
 rechnen bei jedem Signieren und jedem Prüfen; sind sie sich uneins,
 bricht das Werkzeug mit dieser Meldung ab, statt sich für eine zu
 entscheiden. Derselbe Gedanke, aus dem `mkfs.py` die zweite Umsetzung
@@ -416,9 +416,9 @@ kostete 458.
 
 ## Was offen bleibt
 
-* **`opkg` läuft auf dem Wirt, nicht auf Osum.** Das gebootete System
+* **`opk` läuft auf dem Wirt, nicht auf Osum.** Das gebootete System
   liest den Store, benutzt die Bündel und startet ein Paket; es kann
-  nicht installieren, entfernen oder zurückrollen. Ein `/bin/opkg` in
+  nicht installieren, entfernen oder zurückrollen. Ein `/bin/opk` in
   Firn wäre die ehrliche Fortsetzung — Osum hat seit K13 SHA-256 in
   Firn (`kernel/user/pw.fi`, 838 Zeilen) und seit K14 ein VFS, es fehlt
   also nicht der Unterbau, sondern die Runde.

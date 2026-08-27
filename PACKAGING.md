@@ -7,7 +7,7 @@ Phase 3 mehr als eine Absichtserklärung.
 > **NACHTRAG VOM 26.08.2026.** Bis zu diesem Tag stand hier, vom
 > Verteilmodell sei „noch **nichts** gebaut — dafür fehlt das
 > Dateisystem". Das Dateisystem steht seit Osums Runde K14, und das
-> Modell ist seitdem gebaut: `pkg/opkg.py`, Format und Abweichungen vom
+> Modell ist seitdem gebaut: `pkg/opk.py`, Format und Abweichungen vom
 > Entwurf in [PAKETE.md](PAKETE.md), Zahlen in
 > [docs/RUNDE-PAKETE.md](docs/RUNDE-PAKETE.md). Dieses Dokument bleibt
 > der **Entwurf** und wird nicht nachträglich passend gemacht: wo der

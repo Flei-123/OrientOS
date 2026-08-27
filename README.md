@@ -108,13 +108,16 @@ values (`./build.sh --brand <name>`).
 - **No desktop.** There are windows, a mouse and fonts, but no
   applications in them apart from the terminal and a test window: no file
   manager, no themes, no wallpapers, no settings.
-- **No users.** No `uid`/`gid`, no `chmod`, no login — everything runs
-  with all rights.
-- **No `init`, no services.** The kernel starts the shell directly.
-- **No VFS.** Only OFS; FAT32, ext4 and other file systems are missing,
-  and foreign disks are therefore unreadable.
-- **No package management.** The format is designed
-  ([PACKAGING.md](PACKAGING.md)), but not built.
+- **No ext4.** The kernel has read and written FAT32 since K14, ext4 not:
+  there is not one line about it in the kernel tree.
+- **`firnc` is not in the product.** Osum has compiled itself since K16,
+  but `vendor/osum/fetch-osum.sh` only builds the programs from
+  `kernel/user/*.fi` -- among them `fas` and `firun`, not `firnc`. On a
+  booted OrientOS an `.s` can be assembled today, an `.fi` cannot be
+  compiled.
+- **Package management runs on the HOST.** Format, store, generations and
+  a signed source exist ([PAKETE.md](PAKETE.md)); the booted system reads
+  the store and starts packages, but cannot install, remove or roll back.
 - **No swapping**, no `mmap` on files, **no USB**, **no sound**, **no
   power management** (ACPI can only switch off so far: no P-states, no
   profiles, no battery level, no brightness, no standby).
@@ -262,7 +265,9 @@ osum (own repo, Firn)                    orientos (this repo)
 ├── kernel/user/  shell, 25 tools  │     ├── brands/*.toml        brands
 ├── lib/libc/     libc in Firn     └──►  ├── userland/PROGRAMME   what goes into the ISO
 ├── vendor/firn/COMMIT (its own          ├── userland/dateien/    what OrientOS contributes
-│                       compiler)        ├── PACKAGING.md         packages
+│                       compiler)        ├── PACKAGING.md         design: packages
+├── assets/apps/  .osp bundles (K15)     ├── PAKETE.md            the format as built
+│                                         ├── pkg/opk.py           the package manager
 └── test.sh       15 sections,           ├── ASSISTENT.md         interface
                   >1100 checks           ├── build.sh             kernel + userland → ISO
                                          └── test.sh              acceptance of the system
@@ -308,14 +313,18 @@ Honestly and completely in [KERNELWECHSEL.md § 4](KERNELWECHSEL.md) and
 * **Channels, ports, namespaces, `ProcessSpawn`, memory objects** of the
   native ABI answer `NotSupported` (−9). What is ported is the handle
   model underneath, not the objects that hang off it.
-* **Of the distribution model** ([PACKAGING.md](PACKAGING.md)) nothing is
-  built: the root file system of the ISO is a fixed list, not a store
-  with content hashes.
+* **Of the distribution model** the host half is built and the system
+  half is not: store, generations, rollback and a signed source run as
+  `pkg/opk.py` on the host ([PAKETE.md](PAKETE.md)), and the ISO carries
+  the result (`/store`, `/apps`, `/system`). There is no `/bin/opk` in
+  Firn.
 * **The module is a RAM disk.** Changes do not survive the run. For a
   system that installs itself, a write path to a real disk and a
   partition table reader are missing.
-* No window system, no name resolution, no USB, no SATA/AHCI, no
-  journal, no users/permissions, no dynamic linking.
+* No name resolution, no USB, no SATA/AHCI, no journal, no dynamic
+  linking. (The kernel has had a window system since K10 and users and
+  permissions since K13 — this list stood at the state of `7a53ac3`
+  until 26.08.2026, see [ROADMAP.md](ROADMAP.md) § 10.)
 * **Testing happens in QEMU**, not on real hardware.
 
 ---
@@ -329,7 +338,8 @@ Honestly and completely in [KERNELWECHSEL.md § 4](KERNELWECHSEL.md) and
 | [ROADMAP.md](ROADMAP.md) | where this is going, sorted by dependency |
 | [LANGUAGE.md](LANGUAGE.md) | the logbook of the friction points between Rust and a kernel — history, and still a list of requirements for Firn |
 | [BRANDING.md](BRANDING.md) · [RENAME.md](RENAME.md) · [NAMEN.md](NAMEN.md) | brands, renaming, finding names |
-| [PACKAGING.md](PACKAGING.md) · [FILESYSTEM.md](FILESYSTEM.md) | distribution model and file system design |
+| [PACKAGING.md](PACKAGING.md) · [FILESYSTEM.md](FILESYSTEM.md) | distribution model and file system — the **design** |
+| [PAKETE.md](PAKETE.md) · [docs/RUNDE-PAKETE.md](docs/RUNDE-PAKETE.md) | the package format **as built**, where it departs from the design, and the figures |
 | [ASSISTENT.md](ASSISTENT.md) | the interface for an assistant (instead of screenshots) |
 | [NETZWERK.md](NETZWERK.md) | redirection layer, kernel/userspace boundary, Tor/WireGuard |
 | [userland/README.md](userland/README.md) | how the userland gets into the ISO and what is to become of it |

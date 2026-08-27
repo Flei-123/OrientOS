@@ -1,0 +1,19 @@
+# dusk -- the dark scheme. Low light, one warm accent, nothing pure black.
+bg=1b1f24
+fg=e6e3dd
+dim=7d8590
+panel=252b32
+btn=2d343c
+btnhi=3a424b
+btndn=1f242a
+line=3a424b
+sel=4e8fbe
+selfg=0f1216
+focus=4e8fbe
+entry=13171b
+head=2d343c
+scroll=252b32
+thumb=4a525b
+accent=d08b3f
+dlg=222830
+menu=252b32

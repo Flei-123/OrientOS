@@ -48,13 +48,26 @@ produkt_check() {
     fi
     # Der Wirt liest sein eigenes Abbild zurueck: steht wirklich drin, was
     # userland/PROGRAMME sagt?
-    local liste soll ist fehlt=""
+    local liste soll ist fehlt="" pakete=0 pfehlt=""
     liste=$(python3 vendor/osum/mkfs.py list "$img" 2>/dev/null)
     soll=0
     while read -r z; do
         z=${z%%#*}; z=$(echo "$z" | xargs || true)
         [[ -z "$z" ]] && continue
-        case "$z" in bloecke:*|verzeichnis\ *|datei\ *) continue ;; esac
+        case "$z" in
+            bloecke:*|inodes:*|verzeichnis\ *|datei\ *) continue ;;
+            # SEIT DEM 26.08.2026 gibt es eine zweite Art Eintrag. Ein
+            # Programm unter `/bin` ist eine kopierte Datei; ein PAKET ist
+            # installiert und liegt als Buendel unter `/apps` samt einem
+            # unveraenderlichen Eintrag unter `/store` (PAKETE.md). Beides
+            # in denselben Topf zu werfen hiesse, den Unterschied nicht zu
+            # messen, um den es geht.
+            paket\ *)
+                set -- $z
+                pakete=$((pakete + 1))
+                grep -q "^/apps/$2\.prog/$" <<<"$liste" || pfehlt="$pfehlt $2"
+                continue ;;
+        esac
         soll=$((soll + 1))
         grep -q "^/bin/$z " <<<"$liste" || fehlt="$fehlt $z"
     done < userland/PROGRAMME
@@ -62,6 +75,18 @@ produkt_check() {
         ok "alle $soll Programme aus userland/PROGRAMME stehen im Abbild"
     else
         nok "im Abbild fehlen:$fehlt"
+    fi
+    if [[ $pakete -gt 0 ]]; then
+        if [[ -z "$pfehlt" ]]; then
+            ok "alle $pakete Pakete stehen als Buendel unter /apps"
+        else
+            nok "diese Pakete fehlen unter /apps:$pfehlt"
+        fi
+        local ns
+        ns=$(grep -c '^/store/[0-9a-f]\{20\}/$' <<<"$liste")
+        [[ "$ns" -eq "$pakete" ]] \
+            && ok "und $ns unveraenderliche Eintraege unter /store — einer je Paket" \
+            || nok "unter /store stehen $ns Eintraege, erwartet $pakete"
     fi
     # ...und die Datei, die aus DIESEM Repo kommt.
     if grep -q '^/etc/ausgabe.txt' <<<"$liste"; then

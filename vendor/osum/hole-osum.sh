@@ -41,6 +41,8 @@
 #   vendor/osum/osum.mb.elf  dieselbe Sache als ELF64, mit Symbolen
 #   vendor/osum/bin/*        die unprivilegierten Programme, ELF64 statisch
 #   vendor/osum/mkfs.py      der Dateisystembauer aus demselben Commit
+#   vendor/osum/apps/*       die Buendeldaten (INFO, symbol, daten/) --
+#                            das Symbol schon als OSYM gerechnet
 #   vendor/osum/.gebaut      der Commit, aus dem das alles entstand
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -167,6 +169,38 @@ mkdir -p "$HIER/bin"
     echo "   $n Programme"
 )
 cp -f "$BAU/tools/osum/mkfs.py" "$HIER/mkfs.py"
+
+# --- Die Buendeldaten. NICHT NUR PROGRAMME, sondern auch das, was sie
+# beschreibt: Osums Runde K15 legt je Programm ein Buendel
+# `assets/apps/<name>.prog/` an -- INFO (Anzeigename, Beschreibung,
+# Schluesselwoerter), symbol.txt (die Zeichnung) und daten/. Das gehoert
+# zum Programm und kommt deshalb aus DEMSELBEN festgenagelten Commit.
+#
+# Was hier passiert, ist genau zwei Dinge: kopieren, und aus jeder
+# `symbol.txt` mit dem Werkzeug DIESES Commits (`tools/k15/symbol.py`)
+# die Bilddatei `symbol` im Format OSYM rechnen. `start` entsteht NICHT
+# hier -- das ist die ausfuehrbare Datei, und welche es ist, steht in
+# `start.txt`; OrientOS setzt sie beim Paketbau ein.
+echo ">> Buendeldaten holen (assets/apps aus demselben Commit)"
+rm -rf "$HIER/apps"
+mkdir -p "$HIER/apps"
+if [[ -d $BAU/assets/apps ]]; then
+    n=0
+    for d in "$BAU"/assets/apps/*.prog; do
+        [[ -d $d ]] || continue
+        name=$(basename "$d")
+        mkdir -p "$HIER/apps/$name"
+        cp -f "$d/INFO" "$HIER/apps/$name/INFO"
+        cp -f "$d/start.txt" "$HIER/apps/$name/start.txt"
+        [[ -d $d/daten ]] && cp -r "$d/daten" "$HIER/apps/$name/"
+        if [[ -f $d/symbol.txt ]]; then
+            python3 "$BAU/tools/k15/symbol.py" "$d/symbol.txt" \
+                    "$HIER/apps/$name/symbol" >/dev/null
+        fi
+        n=$((n + 1))
+    done
+    echo "   $n Buendel"
+fi
 
 cp -f "$BAU/osum.mb" "$HIER/osum.mb"
 cp -f "$BAU/osum.mb.elf" "$HIER/osum.mb.elf"

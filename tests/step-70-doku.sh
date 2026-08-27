@@ -99,6 +99,14 @@ import re, pathlib
 # ohne Verzeichnis (`Cargo.toml`, `mkfs.py`, `acpi.fi`, `osum.sh` — das
 # ist in NAMEN.md eine Domain!) sind Namen, keine Pfade.
 #
+# `docs/` steht ABSICHTLICH NICHT in dieser Liste, obwohl dieses Repo seit
+# dem 26.08.2026 selbst eines hat: BEIDE Repos haben ein `docs/`, und die
+# Dokumente hier verweisen mit gutem Grund auf Osums Rundenlogbuecher
+# (`docs/ROUNDK15.md` und andere), die dort und nicht hier liegen. Ein
+# Praefix, das in zwei Repos etwas anderes bedeutet, taugt nicht als
+# Unterscheidungsmerkmal -- und ein Test, der deshalb falsch anschlaegt,
+# waere schlimmer als keiner.
+#
 # Geprueft wird deshalb genau das, was ein Leser HIER anklicken koennen
 # muss: ein Pfad, dessen erster Bestandteil ein Verzeichnis dieses Repos
 # ist, oder eine Datei im Wurzelverzeichnis mit .md-Endung.
@@ -106,7 +114,7 @@ import re, pathlib
 # UND: ein solcher Pfad darf fehlen, WENN er in tests/GELOESCHT.md steht.
 # Das ist keine Ausnahme, sondern der Punkt — wer etwas loescht, sagt
 # dort, wo es jetzt steht. Wer das vergisst, faellt hier durch.
-lokal = {'tests', 'userland', 'brands', 'vendor', 'vorlage', 'assets'}
+lokal = {'tests', 'userland', 'brands', 'vendor', 'vorlage', 'assets', 'pkg'}
 muster = re.compile(r'`([A-Za-z0-9_./-]+\.(?:md|sh|py|toml|fi|rs|conf|json|ld|asm|img|txt))`')
 geloescht = pathlib.Path('tests/GELOESCHT.md').read_text(encoding='utf-8')
 fehlt = set()
@@ -145,7 +153,7 @@ PY
     : > "$tmp/tests/GELOESCHT.md"
     if (cd "$tmp" && python3 - <<'PY' | grep -q .
 import re, pathlib
-lokal = {'tests', 'userland', 'brands', 'vendor', 'vorlage', 'assets'}
+lokal = {'tests', 'userland', 'brands', 'vendor', 'vorlage', 'assets', 'pkg'}
 muster = re.compile(r'`([A-Za-z0-9_./-]+\.(?:md|sh|py|toml|fi|rs|conf|json|ld|asm|img|txt))`')
 geloescht = pathlib.Path('tests/GELOESCHT.md').read_text()
 for md in sorted(pathlib.Path('.').glob('*.md')):

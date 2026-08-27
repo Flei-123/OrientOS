@@ -1,0 +1,43 @@
+Betrifft: Osum c5fe12f, tools/osum/mkfs.py, Funktion load()
+Befund:   `Fs.__init__` hat die Signatur (blocks, version, inodes).
+          `load()` ruft sie mit ZWEI Argumenten auf -- die Inodezahl aus
+          dem Superblock landet dadurch im Feld `version`, und `inodes`
+          faellt auf die Vorgabe 128 zurueck.
+Wirkung:  Jedes Abbild mit mehr als 128 Inodes wird auf dem Wirt mit
+          FALSCHER Geometrie gelesen:
+            * `mkfs.py list` meldet "inodes=85/128" statt "85/512",
+            * `self.data_start` steht auf 34 statt auf 130 -- also auf
+              der Inodetabelle. Lesen geht trotzdem, weil ein Inode
+              absolute Blocknummern traegt; SCHREIBEN wuerde die Tabelle
+              ueberschreiben.
+            * `self.version` traegt 512 statt 2. Dass daraus kein Schaden
+              entsteht, ist Zufall: geprueft wird `version >= OFS_V2`,
+              und 512 ist groesser.
+
+Warum es OrientOS trifft: seit dem 26.08.2026 baut dieses Repo ein
+          Abbild mit `--inodes=512` (userland/PROGRAMME), weil ein
+          Paketbaum mehr Namen braucht als 128. Ein Testschritt, der
+          `mkfs.py list` liest, bekaeme sonst eine Zahl, die nicht stimmt.
+
+Die Aenderung: `version` aus dem Superblock lesen (SB["VERSION"], mit
+          OFS_V2 als Rueckfall fuer ein Abbild ohne dieses Feld) und
+          Fs(blocks, version, inodes) mit drei Argumenten rufen.
+
+Probe: python3 -c "import sys;sys.path.insert(0,'tools/osum');import mkfs;fs=mkfs.Fs(4096,mkfs.OFS_V2,512);fs.format();open('/tmp/opkg-probe.img','wb').write(bytes(fs.d));g=mkfs.load('/tmp/opkg-probe.img');sys.exit(0 if (g.inodes==512 and g.version==mkfs.OFS_V2) else 1)"
+
+Warum hier: siehe 0001-kmain-merge-klammer.patch, gleicher Grund.
+
+--- a/tools/osum/mkfs.py	2026-08-26 16:10:01.222253951 +0000
++++ b/tools/osum/mkfs.py	2026-08-26 16:10:01.236340412 +0000
+@@ -472,9 +472,10 @@
+     if len(raw) < BS:
+         return None
+     inodes = struct.unpack_from("<Q", raw, SB["INODES"])[0] or INODE_COUNT
++    version = struct.unpack_from("<Q", raw, SB["VERSION"])[0] or OFS_V2
+     fs = Fs(max(len(raw) // BS, INODE_START
+                 + (inodes + INODES_PER_BLOCK - 1) // INODES_PER_BLOCK + 8),
+-            inodes)
++            version, inodes)
+     fs.d[:len(raw)] = raw
+     if fs.g64(SB["MAGIC"]) != MAGIC:
+         return None

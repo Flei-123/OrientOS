@@ -1,10 +1,19 @@
 # Software distribution in OrientOS
 
 A design decision, settled. This document describes the **goal** and gives the
-reasons for it; of the distribution model itself (store, generations, three
-data pools) **nothing** is built yet — the file system for it is missing. What
-the kernel brings along as a foundation is in § 7 and has been more than a
-declaration of intent since phase 3.
+reasons for it; what the kernel brings along as a foundation is in § 7 and has
+been more than a declaration of intent since phase 3.
+
+> **ADDENDUM OF 26.08.2026.** Until that day this said that **nothing** of
+> the distribution model was built yet, "because the file system for it is
+> missing". The file system has been there since Osum's round K14, and the
+> model has been built since: `pkg/opk.py`, format and departures from the
+> design in [PAKETE.md](PAKETE.md), figures in
+> [docs/RUNDE-PAKETE.md](docs/RUNDE-PAKETE.md). This document stays the
+> **design** and is not made to fit after the fact: where the built state
+> departs from it -- `/apps/<name>.osp/` instead of a link, a shortened
+> store name, no boot menu with generations -- that is written down in
+> PAKETE.md § 1 and § 5 with the reason beside it.
 
 ---
 

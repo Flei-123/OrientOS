@@ -54,6 +54,7 @@ Ohne diese Punkte ist Osum ein Vorfuehrsystem, kein Arbeitsgeraet.
 | 2.5 | **Terminalfenster** — die Shell in einem Fenster statt auf der ganzen Flaeche | **fertig** (K10, `/bin/sh` laeuft darin) |
 | 2.6 | **Datei-Explorer** — `/bin/explorer`, angezeigt als Datei-Explorer, zweiter Name `/bin/files`. KEIN Eigenname: der Name IST die Beschreibung, wie bei Windows. Dazu ein Programmverzeichnis `/apps/<name>.prog/` (Buendel wie bei Apple, aber NICHT `.app` — zu sehr Apple) und eine sofortige Suche ueber das ganze Dateisystem nach dem Vorbild von Everything. | **fertig** (K15). `kernel/user/explorer.fi` 1013 Zeilen; `/bin/files` ist ein **zweiter Verzeichniseintrag auf dieselbe Inode**, kein zweites Exemplar. Buendel: `kernel/user/appdir.fi` 503 Z., fuenf `.prog`-Verzeichnisse mit `INFO`, `start`, `symbol` (Format OSYM, 12 Oktette Kopf) und `daten/`; `start` ist wieder ein zweiter Name auf `/bin/<prog>`, fuenf Buendel fuer 896 KiB Programme kosten deshalb 5 x 1036 Oktette Symbol und **keinen** Block Code. Starter mit Schluesselwortsuche: `starter.fi` 443 Z. Namensindex nach dem Everything-Verfahren: `kernel/nidx.fi` 191 Z. (Journalring im Kernelspeicher, beschrieben an genau zwei Stellen — `fs.dir_add` und `fs.dir_remove`), `kernel/user/nidx.fi` 531 Z., `suchen.fi` 356 Z. Zahlen unten in der eigenen Tabelle. Gemessen: `tools/k15/run.sh` **251 Zusagen, 0 Fehler**, 31 QEMU-Laeufe, 26 davon mit Bildschirmfoto |
 | 2.6b | **Der Namensindex, in Zahlen** — steht hier und nicht in einer Fussnote, weil er die einzige Zusage dieser Gruppe ist, die eine Groessenordnung behauptet | **gemessen** (K15, `tools/k15/gross.py`, Abbild mit 4000 leeren Dateien in siebzehn Ordnern, `--inodes=4096`). Siehe die Tabelle unter dieser Gruppe |
+| 2.6c | **Speicherplatzanalyse** — `/bin/speicher` als Fenster und `/bin/du` auf der Kommandozeile, nach dem Vorbild von TreeSize, aber **ohne Durchlauf beim Start**. Am 27.08.2026 von Justin gewuenscht („so ein Tool wie TreeSize, nur besser und bereits integriert“). Moeglich, weil der Namensindex aus 2.6b schon steht: er traegt seit dieser Runde auch die **Groesse**, aufsummiert bis zur Wurzel, nachgefuehrt vom Aenderungsjournal des Kernels. | **fertig** (Runde SPEICHER, Zweig `speicher`). `kernel/user/speicher.fi` 909 Zeilen (Baum links, groesste Dateien rechts, Treemap nach „slice and dice“ unten, Loeschen aus dem Programm heraus), `kernel/user/du.fi` auf **denselben** Index umgestellt — zwei Wege mit verschiedenen Zahlen waeren ein Fehler. Der Journalring von 56 auf **127** Saetze vergroessert und in zwei eigene kdata-Seiten gezogen, weil seit dieser Runde **jeder `write`, der eine Datei waechst**, ein Satz ist. Zahlen unten in der eigenen Tabelle. Logbuch: Osum `docs/ROUNDSPEICHER.md` |
 | 2.7 | **Einstellungen, Themen, Hintergrundbilder** — Farbschema als Datei, Bild laden, ein Programm dafuer. Fleissarbeit, sobald der Fensterserver steht. | offen |
 | 2.7b | **Optischer Feinschliff der Oberflaeche** — am 27.08.2026 von Justin beanstandet: die Bildschirmfotos sehen schlecht aus. Belegt und nicht geraten: der Bildschirm laeuft mit **800x600** (Fenster, Titelleisten und Schrift wirken dadurch grob), das Farbschema hat nur **160 bis 178** verschiedene Farben, und ein einziger Blauton (47,95,156) traegt die gesamte Hervorhebung. Zu tun: hoehere Aufloesung ueber GOP/VBE (mindestens 1280x800), groessere Schriftgrade, gleichmaessige Abstaende und Randbreiten, ein durchdachtes Farbschema statt gewachsener Einzelwerte, Fensterrahmen und Titelleiste neu gezeichnet. | offen |
 | 2.8 | **Aufgabenverwaltung** — `top` auf der Konsole, danach grafisch: Prozesse, Speicher, Last, Beenden | `top` fertig (K11), grafisch offen |
@@ -86,6 +87,56 @@ beide Wege liefern nicht nur dieselbe Zahl, sondern dieselben Namen,
 sortiert und Oktett fuer Oktett verglichen (`ungleich=0`). Die Zeiten
 schwanken mit der Last der Maschine um etwa ein Fuenftel, die
 Groessenordnung nicht.
+
+### Der Groessenindex gegen den Verzeichnisdurchlauf (SPEICHER)
+
+Dieselbe Anordnung wie oben, aber ein Abbild, in dem die Dateien **Inhalt
+haben** (`tools/speicher/baum.py`): 4000 Dateien in siebzehn Ordnern,
+davon 308 mit Inhalt, 419 868 Oktette unter `/daten`. Leere Dateien
+taugen fuer einen Namensindex, fuer eine Speicherplatzanalyse nicht —
+alle Summen waeren null, und ein Fehler in der Aufsummierung fiele nicht
+auf, weil 0 + 0 immer 0 ergibt.
+
+| | |
+|---|---:|
+| Namen aus der Inode-Tabelle | **4030** |
+| Aufbau des Index, einmalig | 1 365 386 µs (1,37 s) |
+| **Abfrage aus dem Index** (`/daten`) | **13,4 µs** (zehn Abfragen in 134 µs) |
+| **Vollstaendiger Durchlauf** (`/daten`) | **220 661 633 µs** (220,66 s) |
+| Abfrage gegen Durchlauf | **16 467 286x** |
+| **Aufbau** gegen Durchlauf | **161,6x** |
+| Verzeichnisse gegengerechnet | **21 von 21**, Oktett fuer Oktett |
+| Aufbau der ganzen Anzeige in `/bin/speicher` | 5 882 µs |
+
+**Die letzte Zeile der oberen Haelfte ist die ehrlichere.** Der Index muss
+ja auch erst entstehen. Er entsteht ueber `fs.scan` — die Inode-Tabelle
+am Stueck, genau der Trick, mit dem WizTree schnell ist —, und schon
+dieser Aufbau ist **161-mal** schneller als der Durchlauf. Er passiert
+**einmal**, nicht bei jeder Frage.
+
+**Drei Zahlen, nicht zwei.** Index und Durchlauf stehen in derselben
+Datei und lesen dieselben Inodes; ein Denkfehler in der Regel, *was*
+gezaehlt wird, stuende in beiden gleich falsch drin. Deshalb rechnet
+`tools/speicher/baum.py` dieselben Summen ein drittes Mal auf dem **Wirt**,
+in Python, ohne Kenntnis des Kernels. Alle 21 Verzeichnisse stimmen in
+allen drei Wegen Oktett fuer Oktett ueberein.
+
+**Dass das Journal Wachstum mitbekommt, ist der Kern der Sache** — nicht,
+dass es neue Namen mitbekommt. Gemessen: 80 Bloecke zu 512 Oktetten in
+eine neue Datei geschrieben ergeben **81 Journalsaetze**, `lost=0`, und
+die Wurzelsumme bewegt sich um **genau** 40 960 Oktette (1 101 656 →
+1 142 616); das Loeschen bringt genau den alten Stand zurueck; der Index
+wurde im ganzen Lauf **einmal** gebaut. Die Gegenprobe ohne Nachziehen
+steht daneben (`erwartet=1 142 616`, `nachher=1 101 656`, `ok=0`) — also
+zog vorher wirklich das Journal.
+
+**Was das NICHT ist: ein Vergleich mit TreeSize.** Gemessen wurde Osum
+gegen Osum. Dass TreeSize durchlaufen *muss*, ist eine Aussage ueber
+seinen Aufbau, keine Messung an seinem Programm. Und die Zeiten gelten
+fuer QEMU ohne KVM — auf echter Hardware waeren beide kleiner. Die
+uebrigen Einschraenkungen (harte Verweise ungeprueft, Index fasst 4200
+Namen, nur 308 Dateien mit Inhalt) stehen in `docs/ROUNDSPEICHER.md`,
+Abschnitt „Was NICHT bewiesen ist“.
 
 **Und die Gegenprobe war zuerst kaputt, das gehoert dazu.** Der
 Baumdurchlauf merkte sich anfangs *jeden* gelesenen Namen und war nach

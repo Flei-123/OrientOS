@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # tests/step-94-move.sh -- sourced by test.sh, not started on its own.
 #
 # "IF I HAVE A BACKUP ON A USB STICK -- CAN I SET A NEW DEVICE UP FROM IT

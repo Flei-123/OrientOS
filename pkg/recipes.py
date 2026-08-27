@@ -37,11 +37,18 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 
-# The five words a package must not be called: they are the types of a
-# typed PLAN line, and a package with such a name would make an old-shape
-# plan line ambiguous. `pkg/opk.py` refuses them too -- this is the
-# earlier of the two doors.
-RESERVED = ("account", "app", "kernel", "setting", "source")
+# The words a package must not be called: they are the types of a typed
+# PLAN line, and a package with such a name would make an old-shape plan
+# line ambiguous. `pkg/opk.py` refuses them too -- this is the earlier of
+# the two doors.
+#
+# THE LIST IS IMPORTED AND NOT COPIED. It used to be written out here as
+# five names, and by the time round PLAN2 had added `pref` and `arch` the
+# copy was wrong by two -- a package called `pref` would have been built
+# here and refused three commands later. One list, in the program that
+# owns the format.
+sys.path.insert(0, HERE)
+from opk import PLAN_TYPES as RESERVED          # noqa: E402
 
 # The handles every packaged program gets: the three pots and the
 # console. What an application may do stands in the package and not in

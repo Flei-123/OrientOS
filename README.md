@@ -1,19 +1,10 @@
 # OrientOS — Betriebssystem von Grund auf
 
-**OS: `OrientOS` · Kernel: `osum` (Firn, [eigenes Repo](KERNELWECHSEL.md)) · Produkt: `build/orientos.iso`, bootet ueber BIOS und UEFI**
+**OS: `OrientOS` · Kernel: `osum` (Firn, eigenes Repo) · Produkt: `build/orientos.iso`, bootet ueber BIOS und UEFI**
 
 Kein Linux-Fork, kein uebernommener Fremdcode. Der Kernel ist in
 [Firn](LANGUAGE.md) geschrieben, einer eigenen Sprache; OrientOS ist das
 System darum herum.
-
-> **Der Kernelwechsel ist am 26.08.2026 abgeschlossen.** Der alte
-> Rust-Kernel dieses Repos ist **geloescht** — 18.255 Zeilen Rust,
-> 1.206 Zeilen C und 965 Zeilen Firn, die zu ihm gehoerten, nachdem jeder
-> offene Punkt abgearbeitet war. Eine
-> einzige Datei bleibt als unuebersetzte **Vorlage** stehen
-> (`vorlage/arch_iface.rs`, mit Begruendung im Kopf). Was verglichen
-> wurde, was portiert ist, was noch fehlt und was genau weggefallen ist:
-> **[KERNELWECHSEL.md](KERNELWECHSEL.md)**.
 
 ## Was es kann
 
@@ -269,7 +260,7 @@ osum (eigenes Repo, Firn)                orientos (dieses Repo)
 ├── vendor/firn/COMMIT (eigener          ├── userland/dateien/    was OrientOS beisteuert
 │                       Übersetzer)      ├── PACKAGING.md         Entwurf: Pakete
 ├── assets/apps/  .prog-Bündel (K15)      ├── PAKETE.md            gebautes Format
-                                         ├── pkg/opkg.py          die Paketverwaltung
+                                         ├── pkg/opk.py          die Paketverwaltung
 └── test.sh       15 Abschnitte,         ├── ASSISTENT.md         Schnittstelle
                   >1100 Zusagen          ├── build.sh             Kernel + Userland → ISO
                                          └── test.sh              Abnahme des Systems
@@ -317,8 +308,8 @@ Ehrlich und vollständig in [KERNELWECHSEL.md § 4](KERNELWECHSEL.md) und
   Handle-Modell darunter, nicht die Objekte daran.
 * **Vom Verteilmodell** ist der Wirtsteil gebaut, der Systemteil nicht:
   Store, Generationen, Zurueckrollen und eine signierte Quelle laufen als
-  `pkg/opkg.py` auf dem Wirt ([PAKETE.md](PAKETE.md)), und das ISO traegt
-  das Ergebnis (`/store`, `/apps`, `/system`). Ein `/bin/opkg` in Firn
+  `pkg/opk.py` auf dem Wirt ([PAKETE.md](PAKETE.md)), und das ISO traegt
+  das Ergebnis (`/store`, `/apps`, `/system`). Ein `/bin/opk` in Firn
   gibt es nicht.
 * **Das Modul ist eine RAM-Platte.** Änderungen überleben den Lauf nicht.
   Für ein System, das sich installiert, fehlen ein Schreibpfad auf eine

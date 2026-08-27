@@ -135,7 +135,7 @@ if [[ $MIT_USERLAND -eq 1 ]]; then
     # ------------------------------------------------------ die Pakete
     #
     # DAS IST DER UNTERSCHIED ZU `/bin`. Ein Programm unter `/bin` wird
-    # hier kopiert; ein Paket wird INSTALLIERT — von `pkg/opkg.py` in
+    # hier kopiert; ein Paket wird INSTALLIERT — von `pkg/opk.py` in
     # eine Wurzel unter `build/wurzel`, mit Store, Generation, den drei
     # Toepfen und harten Verweisen. Was ins Abbild kommt, ist das
     # ERGEBNIS dieser Installation und nicht eine Liste von Dateien.
@@ -149,13 +149,13 @@ if [[ $MIT_USERLAND -eq 1 ]]; then
         WURZEL=build/wurzel
         rm -rf "$WURZEL"
         for p in "${PAKETE[@]}"; do
-            test -f "build/pakete/$p.opkg" || {
+            test -f "build/pakete/$p.opk" || {
                 echo "userland/PROGRAMME nennt das Paket '$p', das es nicht gibt" >&2
                 exit 1; }
-            python3 pkg/opkg.py installieren --wurzel "$WURZEL" \
+            python3 pkg/opk.py installieren --wurzel "$WURZEL" \
                     --quelle build/quelle --schluessel build/quelle/oeffentlich.key \
                     "$p" >> build/pakete.log 2>&1 || {
-                echo "opkg installieren $p fehlgeschlagen:" >&2
+                echo "opk installieren $p fehlgeschlagen:" >&2
                 tail -5 build/pakete.log >&2; exit 1; }
         done
         while read -r z; do SPEC+=("$z"); done < <(python3 pkg/mkfs-spec.py "$WURZEL")

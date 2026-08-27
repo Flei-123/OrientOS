@@ -71,7 +71,7 @@ verzeichnis /home
 #
 # Gebaut werden die Pakete von `pkg/bauen.sh` aus demselben
 # festgenagelten Osum-Commit (`vendor/osum/bin/` + `vendor/osum/apps/`),
-# installiert von `pkg/opkg.py` in eine Wurzel unter `build/`, und von
+# installiert von `pkg/opk.py` in eine Wurzel unter `build/`, und von
 # dort uebersetzt `pkg/mkfs-spec.py` sie in Angaben fuer mkfs.py.
 #
 # WARUM NUR DREI. Ein Abbild hat 4096 Bloecke zu 512 Oktetten, davon

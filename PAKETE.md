@@ -12,7 +12,7 @@ Entwurf abweicht und warum.
 
 | | |
 |---|---|
-| Werkzeug | `pkg/opkg.py` |
+| Werkzeug | `pkg/opk.py` |
 | Paketbau aus dem festgenagelten Osum-Stand | `pkg/bauen.sh` |
 | Übersetzung in ein OFS-Abbild | `pkg/mkfs-spec.py` |
 | Was ins Produkt kommt | `userland/PROGRAMME`, Zeilen `paket <name>` |
@@ -86,18 +86,18 @@ mkfs: the name '478632825585ffb1b8639f68da1bd3b0d132ea42e2cab51de820a320552d8f95
 Der Ausweg ist **nicht**, den Hash zu ersetzen. Die Identität eines
 Pakets bleibt die volle SHA-256: sie steht in jedem `PLAN`, sie wird bei
 jeder Installation über den ganzen Inhalt nachgerechnet, und
-`opkg pruefen` rechnet sie für jeden Store-Eintrag noch einmal nach.
+`opk pruefen` rechnet sie für jeden Store-Eintrag noch einmal nach.
 Verkürzt ist nur der **Verzeichnisname**, auf zwanzig Hexziffern = 80
 Bit. Derselbe Handel, den Nix mit seinen 32 Base-32-Zeichen macht, an
 eine kleinere Zahl angepasst.
 
 Und die Kollision wird nicht weggehofft: liegt der kurze Name schon da,
-liest `opkg` das `PAKET` des vorhandenen Eintrags, rechnet dessen vollen
+liest `opk` das `PAKET` des vorhandenen Eintrags, rechnet dessen vollen
 Hash nach und **bricht ab**, wenn er ein anderer ist.
 
 ---
 
-## 2. Die Datei `<name>.opkg`
+## 2. Die Datei `<name>.opk`
 
 ```
 Kopf, 64 Oktette
@@ -159,20 +159,20 @@ gebaut, **237 075 Oktette, Oktett für Oktett dasselbe**.
 ## 3. Was die Befehle tun
 
 ```
-opkg.py bauen <rezept> -o <datei.opkg>
-opkg.py zeigen <datei.opkg>
-opkg.py installieren  --wurzel W <datei.opkg | name> [--quelle Q]
-opkg.py entfernen     --wurzel W <name> [--trotzdem] [--behalte-daten]
-opkg.py liste         --wurzel W
-opkg.py aktualisieren --wurzel W [<name>] --quelle Q
-opkg.py generationen  --wurzel W
-opkg.py zurueck       --wurzel W <n>
-opkg.py aufraeumen    --wurzel W [--behalte N]
-opkg.py pruefen       --wurzel W
-opkg.py baum          --wurzel W [--ohne <verzeichnis>]
-opkg.py verweise      --wurzel W
-opkg.py schluessel <verzeichnis>
-opkg.py quelle     <verzeichnis> [--schluessel <datei>]
+opk.py bauen <rezept> -o <datei.opk>
+opk.py zeigen <datei.opk>
+opk.py installieren  --wurzel W <datei.opk | name> [--quelle Q]
+opk.py entfernen     --wurzel W <name> [--trotzdem] [--behalte-daten]
+opk.py liste         --wurzel W
+opk.py aktualisieren --wurzel W [<name>] --quelle Q
+opk.py generationen  --wurzel W
+opk.py zurueck       --wurzel W <n>
+opk.py aufraeumen    --wurzel W [--behalte N]
+opk.py pruefen       --wurzel W
+opk.py baum          --wurzel W [--ohne <verzeichnis>]
+opk.py verweise      --wurzel W
+opk.py schluessel <verzeichnis>
+opk.py quelle     <verzeichnis> [--schluessel <datei>]
 ```
 
 **Installieren** ist: Hash nachrechnen → Abhängigkeiten prüfen →
@@ -198,7 +198,7 @@ sie robuster, und bei ein paar Textdateien ist sie auch die billigere).
 
 ## 4. Die Quelle und ihre Signatur (Roadmap 6.2)
 
-Eine Quelle ist ein Verzeichnis mit den `.opkg`-Dateien, einem `INDEX`
+Eine Quelle ist ein Verzeichnis mit den `.opk`-Dateien, einem `INDEX`
 (`name TAB fassung TAB hash TAB groesse TAB datei`) und `INDEX.sig`,
 einer Ed25519-Signatur über die Oktette des `INDEX`.
 
@@ -216,7 +216,7 @@ kommt. Das steht schon in PACKAGING.md § 8 („Der Hash beweist
 Unverändertheit, nicht Herkunft") und ist genau so gebaut.
 
 **Ed25519 steht zweimal da.** Einmal als eigene Umsetzung nach RFC 8032
-in `pkg/opkg.py`, einmal als Aufruf der Bibliothek des Wirts
+in `pkg/opk.py`, einmal als Aufruf der Bibliothek des Wirts
 (`cryptography`). Beide rechnen bei jedem Signieren und jedem Prüfen,
 und wenn sie sich uneins sind, bricht das Werkzeug mit dieser Meldung
 ab statt sich für eine zu entscheiden. Derselbe Gedanke, aus dem
@@ -229,8 +229,8 @@ immer „ja" sagt, fällt bei keinem gültigen Paket auf.
 
 Das gehört hierher und nicht in eine Fußnote.
 
-* **`opkg` läuft auf dem Wirt, nicht auf Osum.** Es ist ein
-  Python-Programm; das gebootete System hat kein Python. Ein `/bin/opkg`
+* **`opk` läuft auf dem Wirt, nicht auf Osum.** Es ist ein
+  Python-Programm; das gebootete System hat kein Python. Ein `/bin/opk`
   in Firn wäre die ehrliche Fortsetzung — Osum hat seit Runde K13
   SHA-256 in Firn (`kernel/user/pw.fi`) und seit K14 ein VFS, es fehlt
   also nicht das Werkzeug, sondern die Runde. **Was das gebootete System

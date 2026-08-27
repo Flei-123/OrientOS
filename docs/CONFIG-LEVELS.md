@@ -24,10 +24,10 @@ names, and none of it was in a `PLAN` or under `/users/<who>/config`:
 |---|---|---|---|
 | `/etc/theme` | the active colour scheme | `einstellungen.fi` | `wlibc.theme_load`, `leiste.fi:579`, `schreibtisch.fi:204` |
 | `/etc/schemas/` | the schemes to choose from | shipped | `einstellungen.fi:301` |
-| `/etc/hintergrund` | the wallpaper, an OSYM image | `einstellungen.fi` | `schreibtisch.fi:203` |
-| `/etc/schirm.conf` | resolution for the next start | `einstellungen.fi` | `einstellungen.fi` |
-| `/etc/zeit.conf` | timezone offset | `einstellungen.fi` | `leiste.fi:228` |
-| `/etc/netz.conf` | address, mask, gateway | `einstellungen.fi`, `dhcp.fi` | both |
+| `/etc/wallpaper` | the wallpaper, an OSYM image | `einstellungen.fi` | `schreibtisch.fi:203` |
+| `/etc/display.conf` | resolution for the next start | `einstellungen.fi` | `einstellungen.fi` |
+| `/etc/time.conf` | timezone offset | `einstellungen.fi` | `leiste.fi:228` |
+| `/etc/network.conf` | address, mask, gateway | `einstellungen.fi`, `dhcp.fi` | both |
 | `/etc/shadow` | password hashes | `passwd.fi`, `einstellungen.fi` | `pw.fi` |
 | `/etc/taskbar.conf` | taskbar edge/height/autohide | round DESKTOP, **not there yet** | `leiste.fi` |
 
@@ -145,14 +145,14 @@ else under `config/` is ever touched. Measured: a user's own file in
 
 Moving the truth to the user does **not** move Osum's programs. The
 taskbar and the desktop open the absolute paths `/etc/theme` and
-`/etc/hintergrund`, today, in the pinned commit.
+`/etc/wallpaper`, today, in the pinned commit.
 
 So activation additionally writes a **compatibility view** under `/etc` —
 **hard links to the very same store octets**, not copies:
 
 ```
 etc/theme        -> the single account's theme
-etc/hintergrund  -> the single account's wallpaper
+etc/wallpaper  -> the single account's wallpaper
 etc/taskbar.conf -> the single account's taskbar
 etc/schemas/<name> -> every scheme any user of this plan has chosen
 ```
@@ -205,15 +205,15 @@ RENAME, and renaming another project's file from here would break it.
 
 | stays as it is | why |
 |---|---|
-| `/etc/theme`, `/etc/hintergrund`, `/etc/schemas/` | Osum opens these paths by name today |
-| `/etc/schirm.conf`, `/etc/zeit.conf`, `/etc/netz.conf` | ditto; and their *contents* (`modus=fest`, `maske=`) are Osum's format |
+| `/etc/theme`, `/etc/wallpaper`, `/etc/schemas/` | Osum opens these paths by name today |
+| `/etc/display.conf`, `/etc/time.conf`, `/etc/network.conf` | ditto; and their *contents* (`modus=fest`, `maske=`) are Osum's format |
 | `/etc/passwd`, `/etc/shadow` | the shape `pw.fi` reads |
-| `konsole` as a handle name | the existing handle namespace; two names for one object is worse than one German name |
+| `console` as a handle name | the existing handle namespace; two names for one object is worse than one German name |
 | `fassung`, `braucht`, `handle`, `titel` in package metadata | changing them moves every package hash |
 
 | renamed here, and why it was allowed | |
 |---|---|
-| `screen.mode` → **`display.mode`** | the key is *ours* and was one day old, with no consumer anywhere. The **file** it renders keeps Osum's name `schirm.conf`. |
+| `screen.mode` → **`display.mode`** | the key is *ours* and was one day old, with no consumer anywhere. The **file** it renders keeps Osum's name, which round `rename` made `display.conf`. |
 
 New things introduced by this addendum, all English:
 `pref` · `theme` · `wallpaper` · `taskbar.edge` · `taskbar.height` ·

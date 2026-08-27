@@ -11,7 +11,7 @@ Verzeichnissen, Dateien und HARTEN VERWEISEN werden die Angaben, die
     <neu>@<vorhanden>             ein ZWEITER NAME derselben Datei
 
 DIE DRITTE FORM IST DER GRUND, WARUM ES DIESES WERKZEUG GIBT. In der
-Wurzel ist `apps/explorer.prog/start` derselbe Inode wie
+Wurzel ist `apps/explorer.osp/start` derselbe Inode wie
 `store/<hash>/start` -- ein harter Verweis, den `opk.py` mit `os.link`
 gelegt hat. Wuerde man beide als Datei uebergeben, laege das Programm
 ZWEIMAL im Abbild: 234 448 Oktette auf einer Platte von zwei

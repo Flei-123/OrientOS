@@ -2,16 +2,16 @@
 # pkg/bauen.sh — aus dem festgenagelten Osum-Stand PAKETE machen.
 #
 # WAS HIER ZU EINEM PAKET WIRD, und woher es kommt. Osums Runde K15 legt
-# je Programm ein Buendel an: `assets/apps/<name>.prog/` mit INFO
+# je Programm ein Buendel an: `assets/apps/<name>.osp/` mit INFO
 # (Anzeigename, Beschreibung, Schluesselwoerter), `symbol.txt` und
-# `daten/`. `vendor/osum/hole-osum.sh` holt beides aus DEMSELBEN
+# `data/`. `vendor/osum/hole-osum.sh` holt beides aus DEMSELBEN
 # festgenagelten Commit — die Programme nach `vendor/osum/bin/`, die
 # Buendeldaten nach `vendor/osum/apps/`.
 #
 # Dieses Skript setzt sie zusammen:
 #
-#     vendor/osum/apps/<name>.prog/INFO       Anzeigename, keys, fassung
-#     vendor/osum/apps/<name>.prog/start.txt  WELCHES Programm `start` ist
+#     vendor/osum/apps/<name>.osp/INFO       Anzeigename, keys, fassung
+#     vendor/osum/apps/<name>.osp/start.txt  WELCHES Programm `start` ist
 #     vendor/osum/bin/<programm>              die ausfuehrbare Datei
 #            |
 #            +-> build/pakete/<name>.opk
@@ -47,10 +47,10 @@ rm -rf "$AUS"; mkdir -p "$AUS"
 feld() { sed 's/#.*//' "$1" | grep -m1 "^$2=" | cut -d= -f2- | sed 's/[[:space:]]*$//'; }
 
 n=0
-for d in vendor/osum/apps/*.prog; do
+for d in vendor/osum/apps/*.osp; do
     [[ -d $d ]] || continue
-    voll=$(basename "$d")            # explorer.prog
-    name=${voll%.prog}               # explorer
+    voll=$(basename "$d")            # explorer.osp
+    name=${voll%.osp}               # explorer
     prog=$(grep -v '^#' "$d/start.txt" | grep -m1 '^/' | tr -d '[:space:]')
     datei=vendor/osum/bin/$(basename "$prog")
     if [[ ! -f $datei ]]; then
@@ -71,13 +71,13 @@ for d in vendor/osum/apps/*.prog; do
         echo "handle=config"
         echo "handle=state"
         echo "handle=cache"
-        echo "handle=konsole"
+        echo "handle=console"
         echo "datei=start ../../$datei"
         echo "datei=INFO ../../$d/INFO"
         [[ -f $d/symbol ]] && echo "datei=symbol ../../$d/symbol"
-        if [[ -d $d/daten ]]; then
-            for f in "$d"/daten/*; do
-                [[ -f $f ]] && echo "datei=daten/$(basename "$f") ../../$f"
+        if [[ -d $d/data ]]; then
+            for f in "$d"/data/*; do
+                [[ -f $f ]] && echo "datei=data/$(basename "$f") ../../$f"
             done
         fi
     } > "$rez"

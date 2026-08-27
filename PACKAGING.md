@@ -11,9 +11,16 @@ Phase 3 mehr als eine Absichtserklärung.
 > Entwurf in [PAKETE.md](PAKETE.md), Zahlen in
 > [docs/RUNDE-PAKETE.md](docs/RUNDE-PAKETE.md). Dieses Dokument bleibt
 > der **Entwurf** und wird nicht nachträglich passend gemacht: wo der
-> gebaute Stand abweicht — `/apps/<name>.prog/` statt eines Verweises,
+> gebaute Stand abweicht — `/apps/<name>.osp/` statt eines Verweises,
 > ein verkürzter Store-Name, kein Bootmenü mit Generationen —, steht das
 > in PAKETE.md § 1 und § 5 mit dem Grund daneben.
+
+> **`.opk` is what you hold, `.osp` is what runs.** Die Paketdatei
+> (`.opk`) ist das, was man traegt, aufbewahrt und ueber ihre SHA-256
+> benennt. Das installierte Buendel (`.osp`, OrientOS Program) ist das,
+> was unter `/apps/<name>.osp/` steht und startet. Zwei Endungen, zwei
+> Zustaende derselben Software -- sie werden nicht durcheinander
+> gebracht.
 
 ---
 
@@ -189,7 +196,7 @@ ProcessSpawn(
     handles   = [ config:  READ|WRITE,
                   state:   READ|WRITE,
                   cache:   READ|WRITE|CREATE,
-                  konsole: WRITE ]
+                  console: WRITE ]
 )
 ```
 

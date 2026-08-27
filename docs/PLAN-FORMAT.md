@@ -214,9 +214,9 @@ friction.
 
 | key | renders | read by |
 |---|---|---|
-| `time.offset` | `/etc/zeit.conf` (`offset=…`) | `kernel/user/einstellungen.fi` |
-| `display.mode` | `/etc/schirm.conf` (`modus=…`) | `kernel/user/einstellungen.fi` |
-| `net.mode` `net.address` `net.netmask` `net.gateway` | `/etc/netz.conf` | `kernel/user/dhcp.fi`, `einstellungen.fi` |
+| `time.offset` | `/etc/time.conf` (`offset=…`) | `kernel/user/einstellungen.fi` |
+| `display.mode` | `/etc/display.conf` (`modus=…`) | `kernel/user/einstellungen.fi` |
+| `net.mode` `net.address` `net.netmask` `net.gateway` | `/etc/network.conf` | `kernel/user/dhcp.fi`, `einstellungen.fi` |
 | `hostname` | `/etc/hostname` | **nothing yet** |
 | `timezone` | `/etc/timezone` | **nothing yet** |
 | `keymap` | `/etc/keymap` | **nothing yet** |
@@ -233,7 +233,7 @@ into our own namespace would have been the easier and the wrong choice.
 
 **`/etc` is derived, never edited.** Activation deletes every path in
 `GENERATED_FILES` and then writes the ones the plan asks for. That is why
-`unset screen.mode` makes `/etc/schirm.conf` disappear: the tree is a
+`unset screen.mode` makes `/etc/display.conf` disappear: the tree is a
 **function of the plan**, not of its history. Files under `/etc` that are
 not in that fixed list are never touched.
 

@@ -41,7 +41,7 @@
 #   vendor/osum/osum.mb.elf  dieselbe Sache als ELF64, mit Symbolen
 #   vendor/osum/bin/*        die unprivilegierten Programme, ELF64 statisch
 #   vendor/osum/mkfs.py      der Dateisystembauer aus demselben Commit
-#   vendor/osum/apps/*       die Buendeldaten (INFO, symbol, daten/) --
+#   vendor/osum/apps/*       die Buendeldaten (INFO, symbol, data/) --
 #                            das Symbol schon als OSYM gerechnet
 #   vendor/osum/.gebaut      der Commit, aus dem das alles entstand
 set -euo pipefail
@@ -138,7 +138,7 @@ if [[ ${#PATCHES[@]} -gt 0 ]]; then
 fi
 
 echo ">> Osums eigenen Firn-Uebersetzer bauen ($(cut -c1-8 "$BAU/vendor/firn/COMMIT"))"
-( cd "$BAU" && FIRN_REPO="$FIRN" bash vendor/firn/hole-firnc.sh >/dev/null )
+( cd "$BAU" && FIRN_REPO="$FIRN" bash vendor/firn/fetch-firnc.sh >/dev/null )
 
 echo ">> Kernel bauen (tools/build-kernel.sh aus dem Osum-Repo)"
 ( cd "$BAU" && bash tools/build-kernel.sh "$BAU/osum.mb" )
@@ -172,12 +172,12 @@ cp -f "$BAU/tools/osum/mkfs.py" "$HIER/mkfs.py"
 
 # --- Die Buendeldaten. NICHT NUR PROGRAMME, sondern auch das, was sie
 # beschreibt: Osums Runde K15 legt je Programm ein Buendel
-# `assets/apps/<name>.prog/` an -- INFO (Anzeigename, Beschreibung,
-# Schluesselwoerter), symbol.txt (die Zeichnung) und daten/. Das gehoert
+# `assets/apps/<name>.osp/` an -- INFO (Anzeigename, Beschreibung,
+# Schluesselwoerter), symbol.txt (die Zeichnung) und data/. Das gehoert
 # zum Programm und kommt deshalb aus DEMSELBEN festgenagelten Commit.
 #
 # Was hier passiert, ist genau zwei Dinge: kopieren, und aus jeder
-# `symbol.txt` mit dem Werkzeug DIESES Commits (`tools/k15/symbol.py`)
+# `symbol.txt` mit dem Werkzeug DIESES Commits (`tools/k15/icon.py`)
 # die Bilddatei `symbol` im Format OSYM rechnen. `start` entsteht NICHT
 # hier -- das ist die ausfuehrbare Datei, und welche es ist, steht in
 # `start.txt`; OrientOS setzt sie beim Paketbau ein.
@@ -186,15 +186,15 @@ rm -rf "$HIER/apps"
 mkdir -p "$HIER/apps"
 if [[ -d $BAU/assets/apps ]]; then
     n=0
-    for d in "$BAU"/assets/apps/*.prog; do
+    for d in "$BAU"/assets/apps/*.osp; do
         [[ -d $d ]] || continue
         name=$(basename "$d")
         mkdir -p "$HIER/apps/$name"
         cp -f "$d/INFO" "$HIER/apps/$name/INFO"
         cp -f "$d/start.txt" "$HIER/apps/$name/start.txt"
-        [[ -d $d/daten ]] && cp -r "$d/daten" "$HIER/apps/$name/"
+        [[ -d $d/data ]] && cp -r "$d/data" "$HIER/apps/$name/"
         if [[ -f $d/symbol.txt ]]; then
-            python3 "$BAU/tools/k15/symbol.py" "$d/symbol.txt" \
+            python3 "$BAU/tools/k15/icon.py" "$d/symbol.txt" \
                     "$HIER/apps/$name/symbol" >/dev/null
         fi
         n=$((n + 1))

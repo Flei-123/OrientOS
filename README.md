@@ -259,7 +259,7 @@ osum (eigenes Repo, Firn)                orientos (dieses Repo)
 ├── lib/libc/     libc in Firn     └──►  ├── userland/PROGRAMME   was ins ISO kommt
 ├── vendor/firn/COMMIT (eigener          ├── userland/dateien/    was OrientOS beisteuert
 │                       Übersetzer)      ├── PACKAGING.md         Entwurf: Pakete
-├── assets/apps/  .prog-Bündel (K15)      ├── PAKETE.md            gebautes Format
+├── assets/apps/  .osp-Bündel (K15)      ├── PAKETE.md            gebautes Format
                                          ├── pkg/opk.py          die Paketverwaltung
 └── test.sh       15 Abschnitte,         ├── ASSISTENT.md         Schnittstelle
                   >1100 Zusagen          ├── build.sh             Kernel + Userland → ISO

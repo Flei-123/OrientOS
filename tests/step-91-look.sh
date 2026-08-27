@@ -4,8 +4,8 @@
 #
 # Das ist die Frage, die diesen Schritt begruendet, und bis zum Nachtrag
 # zur Runde PLAN2 war die Antwort NEIN. Osums Einstellungen schreiben
-# /etc/theme, /etc/schemas/, /etc/hintergrund, /etc/schirm.conf,
-# /etc/zeit.conf und /etc/netz.conf -- und nichts davon stand in einem
+# /etc/theme, /etc/schemas/, /etc/wallpaper, /etc/display.conf,
+# /etc/time.conf und /etc/network.conf -- und nichts davon stand in einem
 # PLAN. Ein nachgebautes Geraet hatte die Programme des alten und das
 # Aussehen einer frischen Installation.
 #
@@ -130,9 +130,9 @@ look_check() {
          "$A/system/generations/$(cat "$A/system/AKTUELL")/PLAN")
     i1=$(stat -c%i "$A/store/${wh:0:20}/blob" 2>/dev/null || echo x)
     i2=$(stat -c%i "$A/users/justin/config/desktop/wallpaper" 2>/dev/null || echo y)
-    i3=$(stat -c%i "$A/etc/hintergrund" 2>/dev/null || echo z)
+    i3=$(stat -c%i "$A/etc/wallpaper" 2>/dev/null || echo z)
     if [[ "$i1" == "$i2" && "$i2" == "$i3" ]]; then
-        ok "das Hintergrundbild hat drei Namen und einen Inode ($i1, $(stat -c%s "$A/etc/hintergrund") Oktette)"
+        ok "das Hintergrundbild hat drei Namen und einen Inode ($i1, $(stat -c%s "$A/etc/wallpaper") Oktette)"
     else
         nok "das Hintergrundbild liegt mehrfach da (store=$i1 config=$i2 etc=$i3)"
     fi
@@ -194,8 +194,8 @@ look_check() {
     fi
     # Und die Dateien, um die es geht, sind wirklich da und wirklich gleich.
     local f gleich=0 anzahl=0
-    for f in etc/theme etc/hintergrund etc/taskbar.conf etc/schirm.conf \
-             etc/zeit.conf users/justin/config/desktop/theme \
+    for f in etc/theme etc/wallpaper etc/taskbar.conf etc/display.conf \
+             etc/time.conf users/justin/config/desktop/theme \
              users/justin/config/desktop/wallpaper \
              users/justin/config/desktop/taskbar.conf; do
         anzahl=$((anzahl + 1))
@@ -239,15 +239,15 @@ look_check() {
     # DAS IST DER PUNKT: mit zwei Konten gibt es KEIN /etc/theme mehr,
     # weil es keine ehrliche Antwort auf "wessen" gaebe. Der Fehler wird
     # sichtbar, statt willkuerlich entschieden zu werden.
-    if [[ -e "$C/etc/theme" || -e "$C/etc/hintergrund" || -e "$C/etc/taskbar.conf" ]]; then
+    if [[ -e "$C/etc/theme" || -e "$C/etc/wallpaper" || -e "$C/etc/taskbar.conf" ]]; then
         nok "bei zwei Konten steht immer noch ein /etc/theme da -- wessen?"
     else
         ok "bei ZWEI Konten verschwindet die Vertraeglichkeitssicht unter /etc -- es gibt kein 'wessen Schema' mehr"
     fi
     # ...und die Gegenprobe: bei EINEM Konto ist sie da. Sonst waere
     # „loescht immer alles" hier gruen.
-    [[ -f "$A/etc/theme" && -f "$A/etc/hintergrund" && -f "$A/etc/taskbar.conf" ]] \
-        && ok "GEGENPROBE: bei EINEM Konto liegen etc/theme, etc/hintergrund und etc/taskbar.conf da -- das lesen Osums Taskleiste und Schreibtisch heute" \
+    [[ -f "$A/etc/theme" && -f "$A/etc/wallpaper" && -f "$A/etc/taskbar.conf" ]] \
+        && ok "GEGENPROBE: bei EINEM Konto liegen etc/theme, etc/wallpaper und etc/taskbar.conf da -- das lesen Osums Taskleiste und Schreibtisch heute" \
         || nok "auch bei einem Konto fehlt die Vertraeglichkeitssicht"
     # /etc/schemas ist die Liste, die Osums Einstellungen anzeigen.
     local nsch; nsch=$(ls "$C/etc/schemas" 2>/dev/null | wc -l)

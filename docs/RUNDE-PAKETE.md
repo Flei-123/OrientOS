@@ -4,6 +4,10 @@
 Osum `c5fe12f` · Abnahme: `./test.sh` → **ALLE 14 SCHRITTE BESTANDEN,
 201 Zusagen**, 0 Fehler (davor 11 Schritte, 151 Zusagen)
 
+> **`.opk` is what you hold, `.osp` is what runs.** Das Paket ist die
+> Datei, die man haelt; das Buendel unter `/apps/<name>.osp/` ist das,
+> was laeuft. (Die Endung hiess bis zur Runde `rename` `.prog`.)
+
 Die 50 dazugekommenen Zusagen, aufgeschlüsselt: 13 im Patchschritt
 (`step-05`), 29 + 6 in den beiden Paketschritten (`step-80`) und 2 in
 `step-20`, das jetzt zwischen einem kopierten Programm unter `/bin` und
@@ -36,7 +40,7 @@ Diese Runde hat zwei Hälften, und die erste war nicht geplant.
 `hole-osum.sh` laufen lassen, `./test.sh` fahren. Vier Runden Kernel
 lagen dazwischen — K13 (Benutzer, Rechte, `/sbin/init` als Prozess 1),
 K14 (VFS, `/proc`, `/dev`, FAT32, Partitionstafeln), K15 (Widgets,
-`/bin/explorer`, `.prog`-Bündel, Namensindex), K16 (der Firn-Übersetzer
+`/bin/explorer`, `.osp`-Bündel, Namensindex), K16 (der Firn-Übersetzer
 läuft auf Osum selbst). `git diff --stat 7a53ac3 c5fe12f`: 103 Dateien,
 **32 525 eingefügte** und 267 gelöschte Zeilen.
 
@@ -186,7 +190,7 @@ vorher" nicht mehr messen, sondern nur behaupten. Deshalb auch kein
 über denselben Baum ergeben verschiedene Oktette. Der Datenteil eines
 Pakets ist ein eigenes, sortiertes Archiv von fünfzehn Zeilen Code.
 
-**Harte Verweise statt Kopien.** `apps/explorer.prog/start` ist ein
+**Harte Verweise statt Kopien.** `apps/explorer.osp/start` ist ein
 zweiter Name auf dieselbe Datei im Store — dasselbe Verfahren, mit dem
 Osums K15 `/bin/explorer` und `/bin/files` verbindet, und dasselbe, das
 `mkfs.py` mit `<neu>@<vorhanden>` in ein OFS-Abbild schreibt. Auf dem
@@ -203,7 +207,7 @@ erreicht". Es kostet Verzeichniseinträge und keinen einzigen Block.
 **OFS kennt keine symbolischen Verweise.** PACKAGING.md zeichnet
 `/apps/editor -> /store/8f3a…c1`. Den Pfeil gibt es in diesem
 Dateisystem nicht: der Inodetyp ist `T_FREE`, `T_FILE` oder `T_DIR`.
-Gebaut ist deshalb `/apps/<name>.prog/` als Verzeichnis mit zweiten
+Gebaut ist deshalb `/apps/<name>.osp/` als Verzeichnis mit zweiten
 Namen darin — was auch der Form entspricht, die Osums Starter und
 Datei-Explorer ohnehin suchen.
 
@@ -334,19 +338,19 @@ wird. Aus dem seriellen Anschluss der Maschine, wörtlich:
 
 ```
 osum$ ls /apps
-./ ../ explorer.prog/ hallo.prog/ widgets.prog/
+./ ../ explorer.osp/ hallo.osp/ widgets.osp/
 osum$ ls /store
 ./ ../ 478632825585ffb1b863/ 73d3f6f3c4e8256de0b4/ e9cc64391932e1ed26f1/
 osum$ cat /system/AKTUELL
 3
-osum$ /apps/hallo.prog/start
+osum$ /apps/hallo.osp/start
 hello: argc1
-hello: arg 0 /apps/hallo.prog/start
+hello: arg 0 /apps/hallo.osp/start
 hello: bss 0
 hello: data 3735928559
 hello: ro 424242
-osum$ wc -c /apps/explorer.prog/start
-234448 /apps/explorer.prog/start
+osum$ wc -c /apps/explorer.osp/start
+234448 /apps/explorer.osp/start
 ```
 
 `hallo` ist im Produkt, weil die beiden großen Kandidaten aus K15 — der

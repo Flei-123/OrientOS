@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
 # pkg/bauen.sh — aus dem festgenagelten Osum-Stand PAKETE machen.
 #
 # WAS HIER ZU EINEM PAKET WIRD, und woher es kommt. Osums Runde K15 legt

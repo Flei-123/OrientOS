@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # Marke: XoffiOS — zweite Marke, gleicher Quelltext.
 #
 # Bauen:  ./build.sh --brand xoffi

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # tests/step-20-produkt.sh — wird von test.sh gesourct, nicht direkt gestartet.
 #
 # AUS EINEM KERNEL UND EINEM HAUFEN PROGRAMME WIRD EIN PRODUKT.

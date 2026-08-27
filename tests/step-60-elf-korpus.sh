@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # tests/step-60-elf-korpus.sh — wird von test.sh gesourct, nicht direkt gestartet.
 #
 # DREIUNDFUENFZIG KAPUTTE ABBILDER, DURCH DEN LADER DES PRODUKTS.

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # tests/step-70-doku.sh — wird von test.sh gesourct, nicht direkt gestartet.
 #
 # DAMIT DIE DOKU NICHT LEISE VERROTTET.

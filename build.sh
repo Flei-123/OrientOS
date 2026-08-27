@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
 # OrientOS — das bootfaehige Produkt bauen.
 #
 # WAS DIESES SKRIPT SEIT DEM 26.08.2026 IST, und was es nicht mehr ist.

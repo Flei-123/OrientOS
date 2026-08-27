@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
 # Benennt Kernel und Betriebssystem im GESAMTEN Baum um.
 #
 #   ./rename.sh <neuer-kernel-name> <neuer-os-name>

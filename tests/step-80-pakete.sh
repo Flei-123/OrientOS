@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # tests/step-80-pakete.sh — wird von test.sh gesourct, nicht direkt gestartet.
 #
 # DIE PAKETVERWALTUNG (Roadmap 6.1 und 6.2, Format in PAKETE.md).

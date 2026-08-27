@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-only
 """Erzeugt den Massstab fuer den ELF64-Pruefteil.
 
 WARUM ES DEN GIBT

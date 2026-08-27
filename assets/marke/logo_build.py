@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-only
 """osum-Logo — Varianten aus dem Master erzeugen.
 
 Der Master ist `osum-master.json`: die Konturen von Justins Vorlage, mit

@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # tests/step-50-schutz.sh — wird von test.sh gesourct, nicht direkt gestartet.
 #
 # ZWEI EIGENSCHAFTEN, DIE DEN KERNELWECHSEL UEBERLEBT HABEN, im Produkt

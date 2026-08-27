@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-only
 # tests/step-92-arch.sh -- sourced by test.sh, not started on its own.
 #
 # TWO MACHINES. Firn, Osum and OrientOS are to run on x86-64 and on

@@ -1,0 +1,9 @@
+# GitHub kennt Firn nicht.
+*.fi linguist-language=Firn
+*.fi -linguist-detectable
+docs/** linguist-documentation
+tools/** linguist-vendored
+*.sh linguist-vendored
+*.py linguist-vendored
+assets/** linguist-vendored
+vendor/** linguist-vendored

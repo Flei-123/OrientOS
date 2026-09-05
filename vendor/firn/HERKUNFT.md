@@ -39,3 +39,21 @@ Firn ist MPL-2.0. Das ist mit der GPL vertraeglich: Firn darf in diesem
 GPL-lizenzierten Projekt benutzt und mitverteilt werden. Geaenderte
 Firn-Dateien muessen offengelegt bleiben, dieses Projekt bleibt davon
 unberuehrt.
+
+## Nachtrag 05.09.2026 -- der oeffentliche Spiegel steht
+
+Das oeffentliche Repository fuehrt jetzt zwei Commits:
+
+    bd448a3   Firn 0.2 -- neuer Anfang unter MPL-2.0        (Stand 27.08.2026)
+    3863fdb   Firn 0.3 -- Stand der Runde SAMMELN           (Stand 05.09.2026)
+
+`3863fdb` entspricht inhaltlich dem internen Stand `dc07a0ac0` der
+Arbeitskopie (Zweig `sammeln`: anlegeweg + billig + kodierer und die
+uebrigen Zweige der Runde). Die Hashes unterscheiden sich, weil das
+oeffentliche Repository am 05.09.2026 unter MPL-2.0 neu begonnen wurde --
+derselbe Inhalt, andere Vorgeschichte.
+
+Wer von aussen bauen will, nimmt `3863fdb`. Die Datei COMMIT daneben zeigt
+weiterhin auf den internen Hash, gegen den DIESES Repository gruen
+getestet ist; umgezogen wird sie erst, wenn ein Bau gegen den
+oeffentlichen Stand nachweislich gruen ist.

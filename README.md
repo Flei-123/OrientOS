@@ -360,8 +360,9 @@ Linux and Android are GPLv2-only for the same reason.
 
 **Writing a closed-source program for OrientOS is allowed and is meant to
 be.** Nothing in this repository is linked into a user program: the runtime
-such a program links comes from Firn (MIT) and from Osum Ring 3 libraries
-(MIT), and neither is affected by the GPL here. The system stays open; what
+such a program links comes from Firn (MPL-2.0 since 16 September 2026, with
+no Exhibit B notice) and from Osum Ring 3 libraries (MIT), and neither is
+affected by the GPL here. The system stays open; what
 you write for it is yours.
 
 Every source file carries an `SPDX-License-Identifier:` line. Reasoning:

@@ -35,7 +35,7 @@ step "Two machines: one source, two hashes -- and the wrong binary refused by na
 arch_check() {
     RC=0
     local O="python3 pkg/opk.py"
-    local T; T=$(mktemp -d "${TMPDIR:-/tmp}/orientos-arch-XXXXXX")
+    local T; T=$(mktemp -d "${TMPDIR:-/tmp}/osbuild-arch-XXXXXX")
     local FIRNC=../firn/compiler/target/release/firnc
 
     mkdir -p "$T/bx" "$T/ba" "$T/q" "$T/hostx" "$T/hosta"

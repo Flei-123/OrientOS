@@ -80,5 +80,3 @@ verzeichnis /home
 # Repos und keine des Kernels -- genau dafuer gibt es diese Datei.
 inodes: 512
 paket hallo
-paket explorer
-paket widgets

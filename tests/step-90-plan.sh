@@ -25,7 +25,7 @@ step "Plan v2: typed lines, kernel in the generation, and a tree rebuilt from ON
 plan2_check() {
     RC=0
     local O="python3 pkg/opk.py"
-    local T; T=$(mktemp -d "${TMPDIR:-/tmp}/orientos-plan2-XXXXXX")
+    local T; T=$(mktemp -d "${TMPDIR:-/tmp}/osbuild-plan2-XXXXXX")
     local repo; repo=$(pwd)
 
     if [[ ! -f build/pakete/hallo.opk || ! -f build/pakete/osum.opk ]]; then

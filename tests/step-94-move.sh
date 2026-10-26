@@ -39,7 +39,7 @@ step "Moving a system on a stick: no account, no network -- and an identity that
 move_check() {
     RC=0
     local O="python3 pkg/opk.py"
-    local T; T=$(mktemp -d "${TMPDIR:-/tmp}/orientos-move-XXXXXX")
+    local T; T=$(mktemp -d "${TMPDIR:-/tmp}/osbuild-move-XXXXXX")
     local FIRNC=../firn/compiler/target/release/firnc
 
     if [[ ! -f build/pakete/hallo.opk ]]; then ./pkg/bauen.sh >/dev/null 2>&1; fi

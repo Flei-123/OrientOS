@@ -34,7 +34,7 @@ step "Programs with no source: named, carried in the backup, restored -- and nev
 orphan_check() {
     RC=0
     local O="python3 pkg/opk.py"
-    local T; T=$(mktemp -d "${TMPDIR:-/tmp}/orientos-orph-XXXXXX")
+    local T; T=$(mktemp -d "${TMPDIR:-/tmp}/osbuild-orph-XXXXXX")
     local FIRNC=../firn/compiler/target/release/firnc
 
     mkdir -p "$T/appstore" "$T/backup"

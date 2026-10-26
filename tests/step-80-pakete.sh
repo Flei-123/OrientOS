@@ -32,7 +32,7 @@ step "Pakete: Format, Pruefsumme, Generationen, Quelle -- jede Zusage mit ihrer 
 pakete_check() {
     RC=0
     local O="python3 pkg/opk.py"
-    local T; T=$(mktemp -d "${TMPDIR:-/tmp}/orientos-pakete-XXXXXX")
+    local T; T=$(mktemp -d "${TMPDIR:-/tmp}/osbuild-pakete-XXXXXX")
 
     test -d build/pakete || ./pkg/bauen.sh >/dev/null 2>&1
     if [[ ! -f build/pakete/explorer.opk ]]; then
@@ -344,7 +344,7 @@ run pakete_check
 step "Pakete im laufenden System: /apps, /store und ein Paket, das WIRKLICH laeuft"
 pakete_boot() {
     RC=0
-    local log; log=$(mktemp "${TMPDIR:-/tmp}/orientos-pkgboot-XXXXXX.log")
+    local log; log=$(mktemp "${TMPDIR:-/tmp}/osbuild-pkgboot-XXXXXX.log")
     # DER EIGENTLICHE NACHWEIS DIESER RUNDE. Alles davor laeuft auf dem
     # Wirt; hier startet das Produkt, und die Frage ist, ob aus dem
     # installierten Paket auf der gebauten Platte ein PROZESS wird.

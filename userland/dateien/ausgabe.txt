@@ -1,10 +1,10 @@
-OrientOS -- Betriebssystem von Grund auf.
+{{PRODUCT}} -- an operating system from the ground up.
 
-Der Kernel heisst osum, ist in Firn geschrieben und kommt aus einem
-eigenen Repository. Dieses hier ist das System darum herum: Marken,
-Userland-Zusammenstellung, Paketformat, Abnahme.
+The kernel is called osum, is written in Firn and comes from a
+separate repository. This repository is the system around it: brands,
+userland assembly, package format, acceptance.
 
-Diese Datei liegt in der Wurzel des Produkt-ISOs. Sie kommt nicht aus
-dem Kernel-Repo, sondern aus diesem -- userland/dateien/ausgabe.txt --
-und ist damit der Nachweis, dass OrientOS dem Abbild wirklich etwas
-Eigenes hinzufuegt und nicht nur weiterreicht, was Osum baut.
+This file lies in the root of the product ISO. It does not come from
+the kernel repository but from this one -- userland/dateien/ausgabe.txt --
+and is the proof that {{PRODUCT}} adds something of its own to the image
+and does not merely pass on what Osum builds.

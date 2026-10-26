@@ -95,7 +95,7 @@ patches_check() {
         return $RC
     fi
 
-    local roh; roh=$(mktemp -d "${TMPDIR:-/tmp}/orientos-patchprobe-XXXXXX")
+    local roh; roh=$(mktemp -d "${TMPDIR:-/tmp}/osbuild-patchprobe-XXXXXX")
     git -C "$osum" archive "$c" | tar -x -C "$roh"
 
     local hier; hier=$(pwd)

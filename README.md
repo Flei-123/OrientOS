@@ -59,7 +59,7 @@ sudo apt install qemu-system-x86 xorriso mtools ovmf python3 binutils build-esse
 | `./run-osum.sh [--uefi] [--script "..."] [--timeout N]` | boot the ISO in QEMU; exit code 0 when the kernel ends cleanly |
 | `./test.sh` | acceptance suite |
 | `./vendor/osum/hole-osum.sh` | build kernel and programs from `vendor/osum/COMMIT` |
-| `./rename.sh <kernel> <os>` | rename kernel and OS across the tree ([RENAME.md](RENAME.md)) |
+| `./rename.sh <os-name> [slug]` | create a brand and make it the default ([RENAME.md](RENAME.md)) |
 
 ## Layout
 

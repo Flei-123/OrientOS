@@ -93,7 +93,7 @@ produkt_check() {
     if grep -q '^/etc/ausgabe.txt' <<<"$liste"; then
         ok "und die Datei, die dieses Repo beisteuert (/etc/ausgabe.txt)"
     else
-        nok "/etc/ausgabe.txt fehlt im Abbild — OrientOS steuert dem Produkt nichts Eigenes bei"
+        nok "/etc/ausgabe.txt fehlt im Abbild — the product gets nothing of its own from this repo"
     fi
     ist=$(grep -c '^/bin/[a-z]' <<<"$liste")
     ok "im Abbild: $ist Programme unter /bin"

@@ -30,3 +30,6 @@
 
 # Python legt neben jedem importierten Modul einen Zwischenspeicher an.
 /pkg/__pycache__/
+/vendor/osum/.cache/
+/vendor/marke/
+/vendor/marke.conf

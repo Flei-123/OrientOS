@@ -79,7 +79,7 @@ userland_check() {
     # OrientOS dem Produkt wirklich etwas hinzufuegt und nicht nur
     # weiterreicht, was Osum baut.
     if grep -qa 'Betriebssystem von Grund auf' "$log"; then
-        ok "'cat /etc/ausgabe.txt' liest die Datei, die OrientOS beisteuert"
+        ok "'cat /etc/ausgabe.txt' liest die file this repo contributes"
     else
         nok "/etc/ausgabe.txt ist nicht angekommen"
     fi

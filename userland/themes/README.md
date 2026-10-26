@@ -1,4 +1,4 @@
-# `userland/themes/` — the colour schemes OrientOS ships
+# `userland/themes/` — the colour schemes the product ships
 
 Each file is one colour scheme in the shape Osum's `wlibc.theme_load`
 reads (`kernel/user/wlibc.fi`): one `key=rrggbb` per line, `#` starts a

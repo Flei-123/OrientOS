@@ -26,7 +26,7 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 
-# Markenaufloesung (brand_feld, OS_NAME, SLUG) — dieselbe Quelle wie build.sh.
+# Markenaufloesung (brand_field, OS_NAME, SLUG) — dieselbe Quelle wie build.sh.
 # shellcheck source=brand.sh
 source ./brand.sh
 FAIL=0
@@ -88,7 +88,7 @@ herkunft() {
     fi
     # ...und das Bauskript baut wirklich aus genau diesem Commit.
     ./vendor/osum/hole-osum.sh >/dev/null || { nok "hole-osum.sh ist fehlgeschlagen"; return 1; }
-    if [[ "$(cat vendor/osum/.gebaut 2>/dev/null)" == "$c" ]]; then
+    if [[ "$(cut -d" " -f1 vendor/osum/.gebaut 2>/dev/null)" == "$c" ]]; then
         ok "das gebaute Abbild stammt aus ${c:0:8}"
     else
         nok "das gebaute Abbild stammt nicht aus dem festgenagelten Commit"

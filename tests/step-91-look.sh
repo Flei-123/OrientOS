@@ -31,7 +31,7 @@ step "Aussehen: Farbschema, Bild und Taskleiste im PLAN -- und ein Baum, der wie
 look_check() {
     RC=0
     local O="python3 pkg/opk.py"
-    local T; T=$(mktemp -d "${TMPDIR:-/tmp}/orientos-look-XXXXXX")
+    local T; T=$(mktemp -d "${TMPDIR:-/tmp}/osbuild-look-XXXXXX")
     local repo; repo=$(pwd)
 
     if [[ ! -f build/pakete/dusk.opk || ! -f build/pakete/deep.opk ]]; then

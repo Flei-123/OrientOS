@@ -1,111 +1,188 @@
 # SPDX-License-Identifier: GPL-2.0-only
-# tests/step-10-marken.sh — wird von test.sh gesourct, nicht direkt gestartet.
-#
-# EIN QUELLBAUM, ZWEI PRODUKTE. Das ist die Rolle, die OrientOS nach dem
-# Kernelwechsel hat, und sie ist die einzige, die sich NICHT in den Kernel
-# schieben laesst: der Kernel heisst in jeder Marke `osum`, so wie NT in
-# jeder Windows-Ausgabe NT heisst. Was sich unterscheidet, steht in
-# `brands/*.toml` und spaeter in Daten — nie in Code (BRANDING.md).
-#
-# Was hier gemessen wird:
-#
-#   1. Jede Markendatei ist vollstaendig und ihr `slug` taugt als
-#      Dateiname. Ein fehlendes Feld faellt sonst erst beim Bauen auf,
-#      ein doppelter `slug` ueberschreibt ein Abbild.
-#   2. `brands/STANDARD` zeigt auf eine Marke, die es gibt. Seit dem
-#      Kernelwechsel steht die Standardmarke dort und nicht mehr in
-#      `kernel/Cargo.toml` — das gibt es nicht mehr.
-#   3. Die Bauskripte kennen KEINEN Markennamen. Ein hartkodierter Name
-#      faerbt jede Zweitmarke rot, obwohl alles richtig ist.
-#   4. GEGENPROBE MIT WIRKUNG: die zweite Marke wird wirklich gebaut. Es
-#      entsteht ein zweites ISO mit einem anderen Namen, und in seiner
-#      limine.conf steht der andere Produktname.
-#   5. Eine erfundene Marke bricht ab und faellt NICHT still auf die
-#      Standardmarke zurueck.
-step "Marken: ein Quellbaum, zwei Produkte"
-marken_check() {
+# tests/step-10-marken.sh - sourced by test.sh, never started directly.
+
+PROBE_NAME="Probe-Distro"
+PROBE_SLUG="zzprobe"
+PROBE_FILE="brands/${PROBE_SLUG}.toml"
+
+brand_names_in_scripts() {
+    local f name
+    for f in brands/*.toml; do
+        name=$(brand_field "$f" os-name)
+        [[ -n "$name" ]] || continue
+        grep -n "$name" build.sh run-osum.sh brand.sh vendor/osum/hole-osum.sh \
+            | grep -vE '^\S+:[0-9]+:[[:space:]]*#' || true
+    done
+}
+
+scan_build_output() {
+    local pattern="$1" root="${2:-build}" hits
+    hits=$(grep -rail -e "$pattern" "$root/isoroot" "$root/${PROBE_SLUG}-userland.img" 2>/dev/null || true)
+    printf '%s' "$hits"
+}
+
+step "Brands: one source tree, several products"
+brands_check() {
     RC=0
     local n=0 slugs="" f on sl
     shopt -s nullglob
     for f in brands/*.toml; do
+        [[ "$f" == "$PROBE_FILE" ]] && continue
         n=$((n+1))
-        on=$(brand_feld "$f" os-name); sl=$(brand_feld "$f" slug)
+        on=$(brand_field "$f" os-name); sl=$(brand_field "$f" slug)
         if [[ -z "$on" || -z "$sl" ]]; then
-            nok "$f: os-name oder slug fehlt"; continue
+            nok "$f: os-name or slug missing"; continue
         fi
         if [[ ! "$sl" =~ ^[a-z][a-z0-9-]*$ ]]; then
-            nok "$f: slug \"$sl\" taugt nicht als Dateiname"; continue
+            nok "$f: slug \"$sl\" is not usable as a file name"; continue
         fi
-        case " $slugs " in *" $sl "*) nok "slug doppelt vergeben: $sl"; continue ;; esac
+        case " $slugs " in *" $sl "*) nok "duplicate slug: $sl"; continue ;; esac
         slugs="$slugs $sl"
         ok "$f -> $on ($sl)"
     done
-    [[ $n -ge 2 ]] && ok "$n Marken — mehr als eine, sonst misst das hier nichts" \
-                   || nok "nur $n Markendatei(en)"
+    [[ $n -ge 2 ]] && ok "$n brands - more than one, otherwise this measures nothing" \
+                   || nok "only $n brand file(s)"
 
+    local std=""
     if [[ -f brands/STANDARD ]]; then
-        local std
         std=$(tr -d '[:space:]' < brands/STANDARD)
         if [[ -f "brands/$std.toml" ]]; then
-            ok "brands/STANDARD nennt \"$std\", und die Datei gibt es"
+            ok "brands/STANDARD names \"$std\" and the file exists"
         else
-            nok "brands/STANDARD nennt \"$std\" — brands/$std.toml fehlt"
+            nok "brands/STANDARD names \"$std\" but brands/$std.toml is missing"
+        fi
+        if [[ "$std" == "xoffi" && "$(brand_field brands/xoffi.toml os-name)" == "XoffiOS" ]]; then
+            ok "the default brand is XoffiOS (xoffi)"
+        else
+            nok "the default brand is not XoffiOS (xoffi)"
         fi
     else
-        nok "brands/STANDARD fehlt — die Standardmarke haette keine Quelle mehr"
+        nok "brands/STANDARD is missing"
     fi
 
-    # Kein Markenname in den Bauskripten.
-    if grep -n "$OS_NAME" build.sh run-osum.sh brand.sh | grep -vE '^\S+:[0-9]+:[[:space:]]*#'; then
-        nok "Markenname in einem Bauskript hartkodiert (gehoert nach brands/)"
+    if [[ -n "$(brand_names_in_scripts)" ]]; then
+        brand_names_in_scripts
+        nok "a brand name is hardcoded in a build script (it belongs in brands/)"
     else
-        ok "build.sh, run-osum.sh und brand.sh kennen keinen Markennamen"
+        ok "build.sh, run-osum.sh, brand.sh and hole-osum.sh contain no brand name"
     fi
 
-    # GEGENPROBE MIT WIRKUNG: die zweite Marke bauen.
-    local zweit
-    zweit=$(ls brands/*.toml | xargs -n1 basename | sed 's/\.toml$//' \
-            | grep -v "^$BRAND$" | head -1)
-    if [[ -n "$zweit" ]]; then
-        local zslug
-        zslug=$(brand_feld "brands/$zweit.toml" slug)
-        if ./build.sh --brand "$zweit" >/dev/null 2>&1; then
-            ok "die zweite Marke ($zweit) baut durch"
+    local mapped
+    mapped=$(BRAND=xoffi bash -c 'source ./brand.sh; printf "%s|%s|%s|%s|%s" "$OSUM_MARKE_PRODUKT" "$OSUM_MARKE_KURZ" "$OSUM_MARKE_HERSTELLER" "$OSUM_MARKE_WEB" "$OSUM_MARKE_FEED"')
+    if [[ "$mapped" == "XoffiOS|xoffi|FleiTec|https://xoffi.fleitec.com|https://xoffi.fleitec.com/pakete" ]]; then
+        ok "brand.sh maps brands/xoffi.toml onto OSUM_MARKE_* (one value store)"
+    else
+        nok "OSUM_MARKE_* mapping wrong: $mapped"
+    fi
+    mapped=$(BRAND=orientos OSUM_MARKE_PRODUKT=Stale bash -c 'source ./brand.sh; printf "%s" "$OSUM_MARKE_PRODUKT"')
+    [[ "$mapped" == "OrientOS" ]] && ok "the brand file beats a stale OSUM_MARKE_PRODUKT in the environment" \
+                                  || nok "a stale OSUM_MARKE_PRODUKT leaked through: $mapped"
+
+    local second zslug zname
+    second=$(ls brands/*.toml | xargs -n1 basename | sed 's/\.toml$//' \
+             | grep -v -e "^$BRAND$" -e "^$PROBE_SLUG$" | head -1)
+    if [[ -n "$second" ]]; then
+        zslug=$(brand_field "brands/$second.toml" slug)
+        zname=$(brand_field "brands/$second.toml" os-name)
+        if ./build.sh --brand "$second" >/dev/null 2>&1; then
+            ok "the second brand ($second) builds"
         else
-            nok "./build.sh --brand $zweit ist fehlgeschlagen"
+            nok "./build.sh --brand $second failed"
         fi
         if [[ -s "build/$zslug.iso" ]]; then
-            ok "es entsteht build/$zslug.iso ($(( $(stat -c%s "build/$zslug.iso") / 1024 )) KiB)"
+            ok "build/$zslug.iso exists ($(( $(stat -c%s "build/$zslug.iso") / 1024 )) KiB)"
         else
-            nok "build/$zslug.iso fehlt"
+            nok "build/$zslug.iso is missing"
         fi
-        local zname
-        zname=$(brand_feld "brands/$zweit.toml" os-name)
         if grep -qF "/$zname" build/isoroot/boot/limine/limine.conf; then
-            ok "und ihr Bootmenue traegt den anderen Produktnamen ($zname)"
+            ok "its boot menu carries the other product name ($zname)"
         else
-            nok "limine.conf der zweiten Marke nennt nicht $zname"
+            nok "limine.conf of the second brand does not name $zname"
         fi
-        # Und der Kernel heisst trotzdem in beiden gleich.
         if [[ -f build/isoroot/boot/osum ]]; then
-            ok "der Kernel heisst auch dort osum — die Marke faerbt das Produkt, nicht den Kern"
+            ok "the kernel is called osum in both brands"
         else
-            nok "im Abbild der zweiten Marke liegt kein boot/osum"
+            nok "the image of the second brand has no boot/osum"
         fi
     else
-        nok "es gibt keine zweite Marke zum Gegenprobieren"
+        nok "there is no second brand to cross-check"
     fi
 
-    # Eine erfundene Marke MUSS abbrechen.
-    if ./build.sh --brand gibtsnicht >/dev/null 2>&1; then
-        nok "eine erfundene Marke baut durch — der Tippfehler faellt still auf die Standardmarke zurueck"
+    if ./build.sh --brand doesnotexist >/dev/null 2>&1; then
+        nok "an invented brand builds - a typo falls back silently to the default brand"
     else
-        ok "Gegenprobe: eine erfundene Marke bricht ab, statt still die Standardmarke zu nehmen"
+        ok "counter-proof: an invented brand aborts instead of using the default brand"
     fi
 
-    # Zum Schluss die Standardmarke wiederherstellen, damit die folgenden
-    # Schritte das Produkt messen und nicht die Zweitmarke.
-    ./build.sh >/dev/null 2>&1 || nok "die Standardmarke laesst sich nicht wieder bauen"
     return $RC
 }
-run marken_check
+run brands_check
+
+step "Brands: counter-proof, no known brand name in the built output"
+brand_probe_check() {
+    cat > "$PROBE_FILE" <<EOF
+os-name   = "$PROBE_NAME"
+slug      = "$PROBE_SLUG"
+publisher = "Probe Corp"
+web       = "https://probe.example"
+feed      = "https://probe.example/packages"
+EOF
+    brand_probe_body
+    local rc=$?
+    rm -f "$PROBE_FILE"
+    return $rc
+}
+
+brand_probe_body() {
+    RC=0
+    if ./build.sh --brand "$PROBE_SLUG" >/dev/null 2>&1; then
+        ok "the probe brand builds"
+    else
+        nok "./build.sh --brand $PROBE_SLUG failed"
+        return $RC
+    fi
+    if grep -qF "/$PROBE_NAME" build/isoroot/boot/limine/limine.conf; then
+        ok "the probe boot menu carries $PROBE_NAME"
+    else
+        nok "the probe boot menu does not carry $PROBE_NAME"
+    fi
+    if grep -qa "$PROBE_NAME" build/isoroot/boot/osum; then
+        ok "the probe kernel image carries $PROBE_NAME (the brand reaches the kernel)"
+    else
+        nok "the probe kernel image does not carry $PROBE_NAME"
+    fi
+    local f name slug hits
+    for f in brands/*.toml; do
+        [[ "$f" == "$PROBE_FILE" ]] && continue
+        name=$(brand_field "$f" os-name)
+        slug=$(brand_field "$f" slug)
+        hits=$(scan_build_output "$name")
+        if [[ -z "$hits" ]]; then
+            ok "no \"$name\" anywhere in the probe build output"
+        else
+            echo "$hits" | sed 's/^/        /'
+            nok "\"$name\" found in the probe build output"
+        fi
+        hits=$(scan_build_output "$slug")
+        if [[ -z "$hits" ]]; then
+            ok "no \"$slug\" anywhere in the probe build output"
+        else
+            echo "$hits" | sed 's/^/        /'
+            nok "\"$slug\" found in the probe build output"
+        fi
+    done
+    return $RC
+}
+run brand_probe_check
+
+step "Brands: the default brand builds again"
+brand_restore_check() {
+    RC=0
+    if ./build.sh >/dev/null 2>&1; then
+        ok "the default brand builds again"
+    else
+        nok "the default brand does not build again"
+    fi
+    return $RC
+}
+run brand_restore_check

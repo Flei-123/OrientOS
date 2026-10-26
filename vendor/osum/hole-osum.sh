@@ -51,11 +51,22 @@ HIER=$(pwd)
 COMMIT=$(cat COMMIT)
 KURZ=${COMMIT:0:8}
 
+if [[ -z ${OSUM_MARKE_PRODUKT:-} ]]; then
+    pushd "$HIER/../.." >/dev/null
+    source ./brand.sh
+    popd >/dev/null
+fi
+BRAND_KEY=$(printf '%s|' "${OSUM_MARKE_PRODUKT:-}" "${OSUM_MARKE_KERN:-}" "${OSUM_MARKE_HERSTELLER:-}" \
+            "${OSUM_MARKE_KURZ:-}" "${OSUM_MARKE_WEB:-}" "${OSUM_MARKE_FEED:-}" | sha1sum | cut -c1-12)
+BUILD_KEY="$COMMIT $BRAND_KEY"
+KERNEL_CACHE="$HIER/.cache/kernel-$KURZ-$BRAND_KEY"
+USERLAND_CACHE="$HIER/.cache/userland-$KURZ"
+
 FORCE=0
 [[ ${1:-} == --force ]] && FORCE=1
 
 if [[ $FORCE -eq 0 && -f $HIER/osum.mb && -f $HIER/mkfs.py && -d $HIER/bin \
-      && -f $HIER/.gebaut && $(cat "$HIER/.gebaut") == "$COMMIT" ]]; then
+      && -f $HIER/.gebaut && $(cat "$HIER/.gebaut") == "$BUILD_KEY" ]]; then
     echo "Osum ist aktuell ($KURZ, $(ls "$HIER/bin" | wc -l) Programme)"
     exit 0
 fi
@@ -140,71 +151,92 @@ fi
 echo ">> Osums eigenen Firn-Uebersetzer bauen ($(cut -c1-8 "$BAU/vendor/firn/COMMIT"))"
 ( cd "$BAU" && FIRN_REPO="$FIRN" bash vendor/firn/fetch-firnc.sh >/dev/null )
 
-echo ">> Kernel bauen (tools/build-kernel.sh aus dem Osum-Repo)"
-( cd "$BAU" && bash tools/build-kernel.sh "$BAU/osum.mb" )
+if [[ $FORCE -eq 0 && -f $KERNEL_CACHE/osum.mb ]]; then
+    echo ">> Kernel from cache ($KERNEL_CACHE)"
+    cp -f "$KERNEL_CACHE/osum.mb" "$KERNEL_CACHE/osum.mb.elf" "$BAU/"
+else
+    echo ">> Kernel bauen (tools/build-kernel.sh aus dem Osum-Repo)"
+    ( cd "$BAU" && bash tools/build-kernel.sh "$BAU/osum.mb" )
+    mkdir -p "$KERNEL_CACHE"
+    cp -f "$BAU/osum.mb" "$BAU/osum.mb.elf" "$KERNEL_CACHE/"
+fi
 
 # --- Das Userland. Dieselben Schritte wie in Osums tools/userland/run.sh:
 # ein Startstueck in Assembler, je Programm eine Firn-Uebersetzungseinheit,
 # statisch gebunden gegen kernel/user/user.ld. Kein libc-Aufsatz, keine
 # dynamische Bindung — der Lader dieses Kernels bindet nicht.
-echo ">> Userland bauen (unprivilegierte Programme aus demselben Commit)"
-rm -rf "$HIER/bin"
-mkdir -p "$HIER/bin"
-(
-    cd "$BAU"
-    export FIRNLIB="$BAU/lib"
-    as --64 -o crt.o kernel/user/crt.s
-    n=0
-    for f in kernel/user/*.fi; do
-        p=$(basename "$f" .fi)
-        # ulib ist die gemeinsame Bibliothek der Programme, kein Programm.
-        [[ $p == ulib ]] && continue
-        vendor/firn/bin/firnc "$f" -o "$p.o" >/dev/null 2>&1 || continue
-        ld -T kernel/user/user.ld --defsym=USER_ENTRY="_F0.u_start" \
-           -o "$p.elf" crt.o "$p.o" 2>/dev/null || continue
-        strip --strip-all "$p.elf"
-        cp -f "$p.elf" "$HIER/bin/$p"
-        n=$((n + 1))
-    done
-    echo "   $n Programme"
-)
-cp -f "$BAU/tools/osum/mkfs.py" "$HIER/mkfs.py"
+if [[ $FORCE -eq 0 && -d $USERLAND_CACHE/bin ]]; then
+    echo ">> Userland from cache ($USERLAND_CACHE)"
+    rm -rf "$HIER/bin" "$HIER/apps"
+    cp -a "$USERLAND_CACHE/bin" "$USERLAND_CACHE/apps" "$HIER/"
+    cp -f "$USERLAND_CACHE/mkfs.py" "$HIER/mkfs.py"
+else
+    echo ">> Userland bauen (unprivilegierte Programme aus demselben Commit)"
+    rm -rf "$HIER/bin"
+    mkdir -p "$HIER/bin"
+    (
+        cd "$BAU"
+        export FIRNLIB="$BAU/lib"
+        as --64 -o crt.o kernel/user/crt.s
+        n=0
+        for f in kernel/user/*.fi; do
+            p=$(basename "$f" .fi)
+            # ulib ist die gemeinsame Bibliothek der Programme, kein Programm.
+            [[ $p == ulib ]] && continue
+            vendor/firn/bin/firnc "$f" -o "$p.o" >/dev/null 2>&1 || continue
+            ld -T kernel/user/user.ld --defsym=USER_ENTRY="_F0.u_start" \
+               -o "$p.elf" crt.o "$p.o" 2>/dev/null || continue
+            strip --strip-all "$p.elf"
+            cp -f "$p.elf" "$HIER/bin/$p"
+            n=$((n + 1))
+        done
+        echo "   $n Programme"
+    )
+    cp -f "$BAU/tools/osum/mkfs.py" "$HIER/mkfs.py"
 
-# --- Die Buendeldaten. NICHT NUR PROGRAMME, sondern auch das, was sie
-# beschreibt: Osums Runde K15 legt je Programm ein Buendel
-# `assets/apps/<name>.osp/` an -- INFO (Anzeigename, Beschreibung,
-# Schluesselwoerter), symbol.txt (die Zeichnung) und data/. Das gehoert
-# zum Programm und kommt deshalb aus DEMSELBEN festgenagelten Commit.
-#
-# Was hier passiert, ist genau zwei Dinge: kopieren, und aus jeder
-# `symbol.txt` mit dem Werkzeug DIESES Commits (`tools/k15/icon.py`)
-# die Bilddatei `symbol` im Format OSYM rechnen. `start` entsteht NICHT
-# hier -- das ist die ausfuehrbare Datei, und welche es ist, steht in
-# `start.txt`; OrientOS setzt sie beim Paketbau ein.
-echo ">> Buendeldaten holen (assets/apps aus demselben Commit)"
-rm -rf "$HIER/apps"
-mkdir -p "$HIER/apps"
-if [[ -d $BAU/assets/apps ]]; then
-    n=0
-    for d in "$BAU"/assets/apps/*.osp; do
-        [[ -d $d ]] || continue
-        name=$(basename "$d")
-        mkdir -p "$HIER/apps/$name"
-        cp -f "$d/INFO" "$HIER/apps/$name/INFO"
-        cp -f "$d/start.txt" "$HIER/apps/$name/start.txt"
-        [[ -d $d/data ]] && cp -r "$d/data" "$HIER/apps/$name/"
-        if [[ -f $d/symbol.txt ]]; then
-            python3 "$BAU/tools/k15/icon.py" "$d/symbol.txt" \
-                    "$HIER/apps/$name/symbol" >/dev/null
-        fi
-        n=$((n + 1))
-    done
-    echo "   $n Buendel"
+    # --- Die Buendeldaten. NICHT NUR PROGRAMME, sondern auch das, was sie
+    # beschreibt: Osums Runde K15 legt je Programm ein Buendel
+    # `assets/apps/<name>.osp/` an -- INFO (Anzeigename, Beschreibung,
+    # Schluesselwoerter), symbol.txt (die Zeichnung) und data/. Das gehoert
+    # zum Programm und kommt deshalb aus DEMSELBEN festgenagelten Commit.
+    #
+    # Was hier passiert, ist genau zwei Dinge: kopieren, und aus jeder
+    # `symbol.txt` mit dem Werkzeug DIESES Commits (`tools/k15/icon.py`)
+    # die Bilddatei `symbol` im Format OSYM rechnen. `start` entsteht NICHT
+    # hier -- das ist die ausfuehrbare Datei, und welche es ist, steht in
+    # `start.txt`; OrientOS setzt sie beim Paketbau ein.
+    echo ">> Buendeldaten holen (assets/apps aus demselben Commit)"
+    rm -rf "$HIER/apps"
+    mkdir -p "$HIER/apps"
+    if [[ -d $BAU/assets/apps ]]; then
+        n=0
+        for d in "$BAU"/assets/apps/*.osp; do
+            [[ -d $d ]] || continue
+            name=$(basename "$d")
+            mkdir -p "$HIER/apps/$name"
+            cp -f "$d/INFO" "$HIER/apps/$name/INFO"
+            cp -f "$d/start.txt" "$HIER/apps/$name/start.txt"
+            [[ -d $d/data ]] && cp -r "$d/data" "$HIER/apps/$name/"
+            if [[ -f $d/symbol.txt ]]; then
+                python3 "$BAU/tools/k15/icon.py" "$d/symbol.txt" \
+                        "$HIER/apps/$name/symbol" >/dev/null
+            fi
+            n=$((n + 1))
+        done
+        echo "   $n Buendel"
+    fi
+    rm -rf "$USERLAND_CACHE"
+    mkdir -p "$USERLAND_CACHE"
+    cp -a "$HIER/bin" "$HIER/apps" "$USERLAND_CACHE/"
+    cp -f "$HIER/mkfs.py" "$USERLAND_CACHE/mkfs.py"
 fi
 
+mkdir -p "$HIER/../marke"
+cp -f "$BAU"/tools/marke/brand*.py "$HIER/../marke/"
+cp -f "$BAU/marke.conf" "$HIER/../marke.conf"
 cp -f "$BAU/osum.mb" "$HIER/osum.mb"
 cp -f "$BAU/osum.mb.elf" "$HIER/osum.mb.elf"
-echo "$COMMIT" > "$HIER/.gebaut"
+echo "$BUILD_KEY" > "$HIER/.gebaut"
 rm -rf "$BAU"
 echo ">> fertig: vendor/osum/osum.mb ($(stat -c%s "$HIER/osum.mb") Oktette, $KURZ),"
 echo "   vendor/osum/bin/ ($(ls "$HIER/bin" | wc -l) Programme), vendor/osum/mkfs.py"

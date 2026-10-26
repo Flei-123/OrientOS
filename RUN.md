@@ -75,7 +75,7 @@ minutes** (392 s), because `core`/`alloc` get recompiled through `build-std`.
 | `./run-qemu.sh --test-ring3` | an unprivileged program in ring 3 + a negative test on a kernel address |
 | `./run-qemu.sh --test-elf` | load ELF64 out of the boot file system, refuse garbage in a defined way |
 | `./run-qemu.sh --test-handles` | handle negative tests (index, generation, missing right) |
-| `./rename.sh <kernel> <os>` | renames kernel and OS across the whole tree (see RENAME.md) |
+| `./rename.sh <os-name> [slug]` | creates a brand file and makes it the default (see RENAME.md) |
 
 ### Deselecting POSIX — the exact command line
 

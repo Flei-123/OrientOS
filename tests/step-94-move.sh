@@ -55,7 +55,7 @@ move_check() {
     if [[ -x $FIRNC && -f ../firn/tests/048_print_number.fi ]] \
        && $FIRNC --target=x86_64-linux -o "$T/mytool" ../firn/tests/048_print_number.fi >/dev/null 2>&1; then :; else
         cp vendor/osum/bin/cat "$T/mytool"; fi
-    printf 'name=mytool\nfassung=1.0.0\ntitel=mytool\ninfo=self built\nkeys=mytool\nhandle=console\ndatei=start %s\n' "$T/mytool" > "$T/mytool.rezept"
+    printf 'name=mytool\nversion=1.0.0\ntitel=mytool\ninfo=self built\nkeys=mytool\nhandle=console\ndatei=start %s\n' "$T/mytool" > "$T/mytool.rezept"
     $O bauen "$T/mytool.rezept" -o "$T/mytool.opk" >/dev/null 2>&1
 
     # ------------------------------------------------- the old device

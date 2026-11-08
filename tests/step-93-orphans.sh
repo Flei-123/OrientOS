@@ -57,7 +57,7 @@ orphan_check() {
     else
         cp vendor/osum/bin/cat "$T/mytool"
     fi
-    printf 'name=mytool\nfassung=1.0.0\ntitel=mytool\ninfo=built by hand, never published\nkeys=mytool\nhandle=console\ndatei=start %s\n' "$T/mytool" > "$T/mytool.rezept"
+    printf 'name=mytool\nversion=1.0.0\ntitel=mytool\ninfo=built by hand, never published\nkeys=mytool\nhandle=console\ndatei=start %s\n' "$T/mytool" > "$T/mytool.rezept"
     $O bauen "$T/mytool.rezept" -o "$T/mytool.opk" >/dev/null 2>&1
 
     # ------------------------------------------------------- the device

@@ -187,13 +187,13 @@ plan2_check() {
     # Fuenf Namen wuerden eine alte PLAN-Zeile mehrdeutig machen. Sie
     # werden beim BAUEN abgelehnt -- dem letzten Zeitpunkt, an dem es
     # nichts kostet.
-    printf 'name=kernel\nfassung=1.0.0\ntitel=X\ndatei=start %s/vendor/osum/bin/true\n' "$repo" > "$T/res.rezept"
+    printf 'name=kernel\nversion=1.0.0\ntitel=X\ndatei=start %s/vendor/osum/bin/true\n' "$repo" > "$T/res.rezept"
     if $O bauen "$T/res.rezept" -o "$T/res.opk" >"$T/aus" 2>&1; then
         nok "ein Paket namens 'kernel' liess sich bauen -- alte PLAN-Zeilen waeren mehrdeutig"
     else
         ok "ein Paket namens 'kernel' wird abgelehnt: $(grep -m1 -o 'cannot be a package name' "$T/aus")"
     fi
-    printf 'name=kernelchen\nfassung=1.0.0\ntitel=X\ndatei=start %s/vendor/osum/bin/true\n' "$repo" > "$T/ok.rezept"
+    printf 'name=kernelchen\nversion=1.0.0\ntitel=X\ndatei=start %s/vendor/osum/bin/true\n' "$repo" > "$T/ok.rezept"
     $O bauen "$T/ok.rezept" -o "$T/ok.opk" >/dev/null 2>&1 \
         && ok "GEGENPROBE: 'kernelchen' laesst sich bauen -- es sind genau die fuenf Typnamen und nicht alles, was so aehnlich klingt" \
         || nok "auch ein unverfaenglicher Name wird abgelehnt"
@@ -281,7 +281,7 @@ plan2_check() {
     fi
 
     # ------------------------------------- 8. Kernelwechsel und zurueck
-    printf 'name=osum\nfassung=2.0.0\ntitel=Osum\ninfo=zweites Abbild, fuer die Messung\nkeys=osum\nkind=kernel\norigin=osum:zweites-abbild\ndatei=image %s/vendor/osum/osum.mb.elf\n' "$repo" > "$T/k2.rezept"
+    printf 'name=osum\nversion=2.0.0\ntitel=Osum\ninfo=zweites Abbild, fuer die Messung\nkeys=osum\nkind=kernel\norigin=osum:zweites-abbild\ndatei=image %s/vendor/osum/osum.mb.elf\n' "$repo" > "$T/k2.rezept"
     $O bauen "$T/k2.rezept" -o "$T/k2.opk" >/dev/null 2>&1
     local vor nach zurueck_h
     vor=$(sha256sum "$A/system/kernel/image" | cut -d' ' -f1)

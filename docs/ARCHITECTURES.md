@@ -302,7 +302,7 @@ keyed by name, and two packages called `cat` would have collided. It has
 a sixth column now:
 
 ```
-name	fassung	sha256	size	file	arch
+name	version	sha256	size	file	arch
 ```
 
 Five-column indexes from before this round are still read

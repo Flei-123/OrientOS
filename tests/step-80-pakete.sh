@@ -191,9 +191,9 @@ PY
     # diese Rezepte liegen nicht im Repo, sondern in einem Wegwerfordner.
     mkdir -p "$T/rez"
     local repo; repo=$(pwd)
-    printf 'name=unten\nfassung=1.0.0\ntitel=Unten\ndatei=start %s/vendor/osum/bin/true\n' "$repo" \
+    printf 'name=unten\nversion=1.0.0\ntitel=Unten\ndatei=start %s/vendor/osum/bin/true\n' "$repo" \
         > "$T/rez/unten.rezept"
-    printf 'name=oben\nfassung=1.0.0\ntitel=Oben\nbraucht=unten\ndatei=start %s/vendor/osum/bin/false\n' "$repo" \
+    printf 'name=oben\nversion=1.0.0\ntitel=Oben\nbraucht=unten\ndatei=start %s/vendor/osum/bin/false\n' "$repo" \
         > "$T/rez/oben.rezept"
     $O bauen "$T/rez/unten.rezept" -o "$T/unten.opk" >"$T/aus" 2>&1 \
         && ok "das Hilfspaket 'unten' laesst sich bauen ($(stat -c%s "$T/unten.opk" 2>/dev/null || echo 0) Oktette)" \

@@ -209,7 +209,7 @@ RENAME, and renaming another project's file from here would break it.
 | `/etc/display.conf`, `/etc/time.conf`, `/etc/network.conf` | ditto; and their *contents* (`modus=fest`, `maske=`) are Osum's format |
 | `/etc/passwd`, `/etc/shadow` | the shape `pw.fi` reads |
 | `console` as a handle name | the existing handle namespace; two names for one object is worse than one German name |
-| `fassung`, `braucht`, `handle`, `titel` in package metadata | changing them moves every package hash |
+| `version`, `braucht`, `handle`, `titel` in package metadata | changing them moves every package hash |
 
 | renamed here, and why it was allowed | |
 |---|---|

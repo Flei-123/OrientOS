@@ -86,7 +86,7 @@ arch_check() {
     # AND NOBODY TYPED THE ARCHITECTURE. The two recipes differ in the
     # path of one file and in nothing else -- `bauen` reads the machine
     # out of the octets it is packing.
-    rez() { printf 'name=twin\nfassung=1.0.0\ntitel=twin\ninfo=one source, two machines\nkeys=twin\nhandle=console\ndatei=start %s\n' "$2" > "$1"; }
+    rez() { printf 'name=twin\nversion=1.0.0\ntitel=twin\ninfo=one source, two machines\nkeys=twin\nhandle=console\ndatei=start %s\n' "$2" > "$1"; }
     rez "$T/x.rezept" "$T/bx/twin"
     rez "$T/a.rezept" "$T/ba/twin"
     grep -v '^datei=' "$T/x.rezept" > "$T/x.head"; grep -v '^datei=' "$T/a.rezept" > "$T/a.head"
@@ -109,7 +109,7 @@ arch_check() {
 
     # GEGENPROBE: a recipe that LIES about the machine is refused, and it
     # is the octets that win.
-    printf 'name=liar\nfassung=1.0.0\ntitel=liar\ninfo=x\nkeys=liar\narch=aarch64\nhandle=console\ndatei=start %s\n' "$T/bx/twin" > "$T/liar.rezept"
+    printf 'name=liar\nversion=1.0.0\ntitel=liar\ninfo=x\nkeys=liar\narch=aarch64\nhandle=console\ndatei=start %s\n' "$T/bx/twin" > "$T/liar.rezept"
     if $O bauen "$T/liar.rezept" -o "$T/liar.opk" > "$T/liar.log" 2>&1; then
         nok "a recipe that says aarch64 over an x86-64 binary was built anyway"
     else
@@ -118,7 +118,7 @@ arch_check() {
 
     # GEGENPROBE: THE FAT PACKAGE. macOS puts both machines in one file;
     # this refuses to, and the reason is the hash.
-    printf 'name=fat\nfassung=1.0.0\ntitel=fat\ninfo=x\nkeys=fat\nhandle=console\ndatei=start %s\ndatei=start2 %s\n' "$T/bx/twin" "$T/ba/twin" > "$T/fat.rezept"
+    printf 'name=fat\nversion=1.0.0\ntitel=fat\ninfo=x\nkeys=fat\nhandle=console\ndatei=start %s\ndatei=start2 %s\n' "$T/bx/twin" "$T/ba/twin" > "$T/fat.rezept"
     if $O bauen "$T/fat.rezept" -o "$T/fat.opk" > "$T/fat.log" 2>&1; then
         nok "a package with both machines in it was built -- its hash would name two things"
     else
@@ -271,9 +271,9 @@ PY
     fi
 
     # ---------------------------------- 8. dependencies stay on one machine
-    printf 'name=lib\nfassung=1.0.0\ntitel=lib\ninfo=x\nkeys=lib\nhandle=console\ndatei=start %s\n' "$T/bx/twin" > "$T/lib.rezept"
-    printf 'name=user\nfassung=1.0.0\ntitel=user\ninfo=x\nkeys=user\nbraucht=lib\nhandle=console\ndatei=start %s\n' "$T/ba/twin" > "$T/user.rezept"
-    printf 'name=user\nfassung=1.0.0\ntitel=user\ninfo=x\nkeys=user\nbraucht=lib\nhandle=console\ndatei=start %s\n' "$T/bx/twin" > "$T/userx.rezept"
+    printf 'name=lib\nversion=1.0.0\ntitel=lib\ninfo=x\nkeys=lib\nhandle=console\ndatei=start %s\n' "$T/bx/twin" > "$T/lib.rezept"
+    printf 'name=user\nversion=1.0.0\ntitel=user\ninfo=x\nkeys=user\nbraucht=lib\nhandle=console\ndatei=start %s\n' "$T/ba/twin" > "$T/user.rezept"
+    printf 'name=user\nversion=1.0.0\ntitel=user\ninfo=x\nkeys=user\nbraucht=lib\nhandle=console\ndatei=start %s\n' "$T/bx/twin" > "$T/userx.rezept"
     $O bauen "$T/lib.rezept"   -o "$T/lib.opk"   >/dev/null 2>&1
     $O bauen "$T/user.rezept"  -o "$T/user.opk"  >/dev/null 2>&1
     $O bauen "$T/userx.rezept" -o "$T/userx.opk" >/dev/null 2>&1
@@ -335,7 +335,7 @@ assert "arch" in opk.PLAN_TYPES, opk.PLAN_TYPES
 assert tuple(recipes.RESERVED) == tuple(opk.PLAN_TYPES), (recipes.RESERVED, opk.PLAN_TYPES)
 assert len(opk.PLAN_TYPES) == 7, opk.PLAN_TYPES
 PY
-    printf 'name=arch\nfassung=1.0.0\ntitel=x\ninfo=x\nkeys=x\ndatei=start %s\n' "$T/bx/twin" > "$T/res.rezept"
+    printf 'name=arch\nversion=1.0.0\ntitel=x\ninfo=x\nkeys=x\ndatei=start %s\n' "$T/bx/twin" > "$T/res.rezept"
     if $O bauen "$T/res.rezept" -o "$T/res.opk" > "$T/res.log" 2>&1; then
         nok "a package called 'arch' was built -- an old-shape plan line could not be told apart from it"
     else

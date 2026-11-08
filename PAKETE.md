@@ -159,7 +159,7 @@ Reihenfolge:
 
 ```
 name=explorer
-fassung=1.0.0
+version=1.0.0
 titel=Datei-Explorer
 info=Dateien und Ordner ansehen
 keys=datei,dateien,explorer,ordner,verzeichnis,manager,file,files,folder
@@ -243,7 +243,7 @@ sie robuster, und bei ein paar Textdateien ist sie auch die billigere).
 ## 4. Die Quelle und ihre Signatur (Roadmap 6.2)
 
 Eine Quelle ist ein Verzeichnis mit den `.opk`-Dateien, einem `INDEX`
-(`name TAB fassung TAB hash TAB groesse TAB datei`) und `INDEX.sig`,
+(`name TAB version TAB hash TAB groesse TAB datei`) und `INDEX.sig`,
 einer Ed25519-Signatur über die Oktette des `INDEX`.
 
 Die Schichtung ist wichtig und wird hier ausgeschrieben, weil sie sonst

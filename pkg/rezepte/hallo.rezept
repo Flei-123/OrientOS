@@ -15,7 +15,7 @@
 # Es hat KEIN Buendel in Osums assets/apps, deshalb steht dieses Rezept
 # von Hand da und wird nicht erzeugt.
 name=hallo
-fassung=1.0.0
+version=1.0.0
 titel=Hallo
 info=Schreibt eine Zeile und beendet sich -- der Nachweis, dass ein Paket laeuft
 keys=hallo,hello,probe,test

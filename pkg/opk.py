@@ -240,7 +240,15 @@ def ed25519_verify_bibliothek(pk, msg, sig):
 # ---------------------------------------------------------------------------
 # Das Paketformat. PAKETE.md § 2 beschreibt es in Worten.
 # ---------------------------------------------------------------------------
-FELDER = ("name", "fassung", "titel", "info", "keys")   # feste Reihenfolge
+FELDER = ("name", "version", "titel", "info", "keys")   # feste Reihenfolge
+LEGACY_VERSION_KEY = "fassung"
+
+
+def version_normalize(felder):
+    legacy = felder.pop(LEGACY_VERSION_KEY, None)
+    if legacy is not None and "version" not in felder:
+        felder["version"] = legacy
+    return felder
 
 
 def meta_bauen(felder, braucht, handles):
@@ -274,7 +282,7 @@ def meta_lesen(roh):
             handles.append(v)
         else:
             felder[k] = v
-    return felder, braucht, handles
+    return version_normalize(felder), braucht, handles
 
 
 def archiv_bauen(wurzel):
@@ -1488,7 +1496,7 @@ def rezept_lesen(pfad):
             felder.setdefault(k, []).append(v)
         else:
             felder[k] = v
-    return felder, dateien
+    return version_normalize(felder), dateien
 
 
 def bauen(args):
@@ -1534,7 +1542,7 @@ def bauen(args):
     with open(args.aus, "wb") as f:
         f.write(roh)
     print("%-12s %-8s %-8s %8d Oktette  %s"
-          % (felder["name"], felder.get("fassung", "-"), felder["arch"],
+          % (felder["name"], felder.get("version", "-"), felder["arch"],
              len(roh), h))
     return 0
 
@@ -1579,7 +1587,7 @@ def index_bauen(verzeichnis):
         # plan that states its architecture will then refuse the packages
         # rather than guess.
         zeilen.append("%s\t%s\t%s\t%d\t%s\t%s"
-                      % (felder["name"], felder.get("fassung", "-"), h,
+                      % (felder["name"], felder.get("version", "-"), h,
                          len(roh), datei, felder.get("arch") or ""))
     return ("\n".join(zeilen) + "\n").encode("utf-8") if zeilen else b""
 
@@ -1592,8 +1600,8 @@ def _index_zeile(z):
     if len(f) != 6:
         raise SystemExit("opk: an INDEX line has %d fields, not 5 or 6: %r"
                          % (len(f), z[:60]))
-    name, fassung, h, groesse, datei, parch = f
-    return name, fassung, h, int(groesse), datei, parch
+    name, version, h, groesse, datei, parch = f
+    return name, version, h, int(groesse), datei, parch
 
 
 def schluessel(args):
@@ -1675,8 +1683,8 @@ def quelle_lesen(verzeichnis, schluessel_datei=None, arch=None):
     for z in idx.decode("utf-8").splitlines():
         if not z.strip():
             continue
-        name, fassung, h, groesse, datei, parch = _index_zeile(z)
-        nach_name.setdefault(name, []).append((fassung, h, groesse, datei,
+        name, version, h, groesse, datei, parch = _index_zeile(z)
+        nach_name.setdefault(name, []).append((version, h, groesse, datei,
                                                parch))
     eintraege, mehrdeutig = {}, {}
     for name, kandidaten in nach_name.items():
@@ -1731,7 +1739,7 @@ def _paket_holen(args, arch=None):
     eintraege, signiert = quelle_lesen(args.quelle, args.schluessel, arch)
     if args.was not in eintraege:
         raise SystemExit("opk: die Quelle kennt '%s' nicht" % args.was)
-    fassung, h, groesse, datei, parch = eintraege[args.was]
+    version, h, groesse, datei, parch = eintraege[args.was]
     roh = open(os.path.join(args.quelle, datei), "rb").read()
     if not signiert:
         print("   ACHTUNG: die Quelle ist NICHT signiert")
@@ -1792,17 +1800,17 @@ def installieren(args):
     neu = w.store_schreiben(h, meta, daten)
     if plan.get(name) == h:
         print("%s %s ist schon in dieser Fassung da (%s)"
-              % (name, felder.get("fassung", "-"), h[:12]))
+              % (name, felder.get("version", "-"), h[:12]))
         return 0
     alt = plan.get(name)
     plan[name] = h
     n = w.neue_generation(voll, "installiert %s %s"
-                          % (name, felder.get("fassung", "-")))
+                          % (name, felder.get("version", "-")))
     w.aktivieren(n)
     for topf in ("config", "state", "cache"):
         os.makedirs(os.path.join(w.users, args.nutzer, topf, name), exist_ok=True)
     print("%s %s -> store/%s  %s"
-          % (name, felder.get("fassung", "-"), h[:12],
+          % (name, felder.get("version", "-"), h[:12],
              "neu" if neu else "war schon im Store"))
     if alt:
         print("   ersetzt %s" % alt[:12])
@@ -1873,7 +1881,7 @@ def liste(args):
         h = plan[name]
         meta = open(os.path.join(w.store, kurz(h), "PAKET"), "rb").read()
         felder, braucht, _ = meta_lesen(meta)
-        print("  %-12s %-8s %s  %s" % (name, felder.get("fassung", "-"),
+        print("  %-12s %-8s %s  %s" % (name, felder.get("version", "-"),
                                        h[:12], felder.get("titel", "")))
         if braucht:
             print("               braucht %s" % ", ".join(braucht))
@@ -1896,9 +1904,9 @@ def aktualisieren(args):
         if name not in eintraege:
             print("  %s kennt die Quelle nicht" % name)
             continue
-        fassung, h, groesse, datei, parch = eintraege[name]
+        version, h, groesse, datei, parch = eintraege[name]
         if h == plan[name]:
-            print("  %s %s ist aktuell" % (name, fassung))
+            print("  %s %s ist aktuell" % (name, version))
             continue
         args2 = argparse.Namespace(**vars(args))
         args2.was = name
@@ -2145,9 +2153,9 @@ def cmd_kernel(args):
     plan.kernel = h
     n = _next_generation(w, plan, "kernel %s %s"
                          % (felder.get("name", "?"),
-                            felder.get("fassung", "-")))
+                            felder.get("version", "-")))
     print("kernel %s %s -> store/%s  %s"
-          % (felder.get("name", "?"), felder.get("fassung", "-"), h[:12],
+          % (felder.get("name", "?"), felder.get("version", "-"), h[:12],
              "new" if neu else "already in the store"))
     if felder.get("origin"):
         print("   origin  %s" % felder["origin"])
@@ -2379,8 +2387,8 @@ def _open_source(pfad, erlaubt, woher):
     for z in idx.decode("utf-8").splitlines():
         if not z.strip():
             continue
-        name, fassung, h, groesse, datei, parch = _index_zeile(z)
-        eintraege[h] = (name, fassung, groesse,
+        name, version, h, groesse, datei, parch = _index_zeile(z)
+        eintraege[h] = (name, version, groesse,
                         os.path.join(pfad, datei), parch)
     return (eintraege, passt, woher), None
 
@@ -2396,7 +2404,7 @@ def asset_bauen(datei, klasse, name, aus):
     doing it this way instead of building a second blob store beside the
     first one.
     """
-    felder = {"name": name, "fassung": "1.0.0", "titel": name,
+    felder = {"name": name, "version": "1.0.0", "titel": name,
               "info": "%s asset, %d octet(s)" % (klasse,
                                                  os.path.getsize(datei)),
               "keys": name, "kind": "asset", "class": klasse}
@@ -2454,7 +2462,7 @@ def _asset_in_store(w, wert, klasse, quelle=None, schluessel=None):
             return wert
         if quelle:
             eintraege, signiert = quelle_lesen(quelle, schluessel)
-            for name, (fassung, h, groesse, datei, parch) in eintraege.items():
+            for name, (version, h, groesse, datei, parch) in eintraege.items():
                 if h != wert:
                     continue
                 roh = open(os.path.join(quelle, datei), "rb").read()
@@ -2766,7 +2774,7 @@ def source_places(plan, extra=None):
 
 
 def source_index(plan, extra=None, leise=False):
-    """hash -> (name, fassung, size, file, arch) over ALL readable sources.
+    """hash -> (name, version, size, file, arch) over ALL readable sources.
 
     Returns (index, used, refused). Nothing here fails on a source that
     cannot be opened: a plan may well name a server that is not reachable
@@ -2791,7 +2799,7 @@ def source_index(plan, extra=None, leise=False):
 
 
 def vault_index(verzeichnis):
-    """hash -> (name, fassung, size, file, arch) for a plain directory of .opk.
+    """hash -> (name, version, size, file, arch) for a plain directory of .opk.
 
     Every file is opened and its checksum recomputed (`paket_lesen`), so
     a vault entry that has rotted is found HERE and not three steps later
@@ -2818,7 +2826,7 @@ def vault_index(verzeichnis):
                 continue
             meta, daten, _ = paket_lesen(roh)
             felder, _, _ = meta_lesen(meta)
-            aus[h] = (felder.get("name", datei), felder.get("fassung", "-"),
+            aus[h] = (felder.get("name", datei), felder.get("version", "-"),
                       len(roh), ("dir:" + pfad), felder.get("arch") or "")
             continue
         if not datei.endswith(".opk"):
@@ -2829,7 +2837,7 @@ def vault_index(verzeichnis):
             print("   vault: %s is not usable (%s) -- skipped" % (datei, e))
             continue
         felder, _, _ = meta_lesen(meta)
-        aus[h] = (felder.get("name", datei), felder.get("fassung", "-"),
+        aus[h] = (felder.get("name", datei), felder.get("version", "-"),
                   os.path.getsize(pfad), pfad, felder.get("arch") or "")
     return aus
 
@@ -3289,7 +3297,7 @@ def cmd_rebuild(args):
     oktette, geteilt, aus_tresor = 0, 0, 0
     for h in gebraucht:
         aus_quelle = h in index
-        name, fassung, groesse, datei, parch = index.get(h) or tresor[h]
+        name, version, groesse, datei, parch = index.get(h) or tresor[h]
         if not aus_quelle:
             aus_tresor += 1
         if datei.startswith("dir:"):
@@ -3919,7 +3927,7 @@ def cmd_verify(args):
         felder, _, _ = meta_lesen(meta)
         sagen(felder.get("kind") == "kernel",
               "the kernel entry carries kind=kernel (%s %s, origin %s)"
-              % (felder.get("name", "?"), felder.get("fassung", "-"),
+              % (felder.get("name", "?"), felder.get("version", "-"),
                  felder.get("origin", "unrecorded")))
         sagen(os.path.exists(os.path.join(w.p, KERNEL_DIR, "image")),
               "%s/image exists in the activated tree" % KERNEL_DIR)

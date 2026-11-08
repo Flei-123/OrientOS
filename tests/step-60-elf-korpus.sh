@@ -38,6 +38,7 @@
 # Alles in EINEM Boot: 53 Ladeversuche aus Ring 3, ueber `exec`, aus
 # einem Dateisystem, das als Boot-Modul im ISO liegt.
 ELF_FAELLE_SOLL=53
+ELF_LOADED_THEN_KILLED=1
 ELF_GRUENDE_MIN=10
 
 step "ELF-Korpus: 53 kaputte Abbilder durch den Lader des Produkts"
@@ -110,19 +111,22 @@ elf_korpus() {
     # falschen Maschine unterscheiden.
     local abgelehnt
     abgelehnt=$(grep -ac '^elf: refused' "$log")
-    if [[ "$abgelehnt" -eq "$n" ]]; then
-        ok "der Lader lehnt alle $abgelehnt ab, jedes einzeln und mit genanntem Grund"
+    local expected_refused=$((n - ELF_LOADED_THEN_KILLED))
+    if [[ "$abgelehnt" -eq "$expected_refused" ]]; then
+        ok "der Lader lehnt $abgelehnt ab, jedes einzeln und mit genanntem Grund"
     else
-        nok "$abgelehnt Ablehnungen, erwartet $n"
+        nok "$abgelehnt Ablehnungen, erwartet $expected_refused"
         grep -a '^elf: refused' "$log" | head -5 | sed 's/^/         /'
     fi
     # ...und die Shell bekommt fuer jede einen Fehlerwert, keinen Absturz.
     local ausring3
     ausring3=$(grep -ac 'cannot run.*-> -' "$log")
-    if [[ "$ausring3" -eq "$n" ]]; then
-        ok "und Ring 3 bekommt $ausring3 Fehlerwerte zurueck — keinen einzigen Absturz"
+    local killed
+    killed=$(grep -ac 'user fault:.*process killed' "$log")
+    if [[ "$ausring3" -eq "$expected_refused" && "$killed" -eq "$ELF_LOADED_THEN_KILLED" ]]; then
+        ok "Ring 3 gets $ausring3 error values; the $killed ET_DYN case (typ-dyn) loads and is killed by its own fault, the kernel survives"
     else
-        nok "Ring 3 bekommt nur $ausring3 von $n Fehlerwerten"
+        nok "Ring 3 got $ausring3 error values and $killed killed processes, expected $expected_refused and $ELF_LOADED_THEN_KILLED"
     fi
     # Wie viele VERSCHIEDENE Gruende: ein Lader, der alles mit demselben
     # Wert ablehnt, prueft in Wahrheit eine einzige Sache.

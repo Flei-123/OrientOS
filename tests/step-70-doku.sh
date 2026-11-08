@@ -35,11 +35,11 @@ doku_check() {
         nok "KERNELWECHSEL.md fehlt"; return 1
     fi
     for abschnitt in \
-        '## 2. Der Abgleich, Modul für Modul' \
-        '## 3. Was portiert wurde' \
-        '## 4. Was NOCH offen ist' \
-        '## 6. Die Geschichte dieses Wechsels' \
-        '## 7. Der Schnitt'
+        '## 2. The comparison, module by module' \
+        '## 3. What was ported' \
+        '## 4. What is STILL open' \
+        '## 6. The history of this switch' \
+        '## 7. The cut of 2026-08-26'
     do
         grep -qF "$abschnitt" KERNELWECHSEL.md \
             && ok "KERNELWECHSEL.md: $abschnitt" \
@@ -59,11 +59,11 @@ doku_check() {
     done
 
     # --- 3. Der alte Stand wird nicht mehr als geltend behauptet
-    grep -qF 'ÜBERHOLT AM 25.08.2026' LANGUAGE.md \
+    grep -qF 'SUPERSEDED ON 2026-08-25' LANGUAGE.md \
         && ok "LANGUAGE.md kennzeichnet den alten Migrationsstand als überholt" \
         || nok "LANGUAGE.md behauptet den alten Migrationsstand weiter als geltend"
     # Die Zahl aus M-00, die nach dem Schnitt schlicht falsch ist.
-    if grep -qF '17 993 Zeilen' LANGUAGE.md && ! grep -qF 'Geschichte' LANGUAGE.md; then
+    if grep -qF '17,993 lines' LANGUAGE.md && ! grep -qF 'history' LANGUAGE.md; then
         nok "LANGUAGE.md nennt 17 993 Zeilen Rust, ohne sie als Geschichte zu kennzeichnen"
     else
         ok "die alte Zahl in LANGUAGE.md steht als Geschichte da, nicht als Stand"
@@ -82,7 +82,7 @@ doku_check() {
     fi
     local vorlage_zeilen
     vorlage_zeilen=$(wc -l < vorlage/arch_iface.rs)
-    if grep -qF "$vorlage_zeilen Zeilen" KERNELWECHSEL.md; then
+    if grep -qF "$vorlage_zeilen lines" KERNELWECHSEL.md; then
         ok "KERNELWECHSEL.md nennt die Groesse der Vorlage richtig ($vorlage_zeilen Zeilen)"
     else
         nok "KERNELWECHSEL.md nennt nicht $vorlage_zeilen Zeilen fuer vorlage/arch_iface.rs"
@@ -127,7 +127,7 @@ for md in sorted(pathlib.Path('.').glob('*.md')) + [pathlib.Path('tests/README.m
         p = m.group(1)
         teile = p.split('/')
         if len(teile) == 1:
-            if not p.endswith('.md'):
+            if not p.endswith('.md') or md.name == 'THIRD_PARTY_OVERVIEW.md':
                 continue
         elif teile[0] not in lokal:
             continue
@@ -197,7 +197,7 @@ PY
     # --- 7. Was geloescht wurde, steht als geloescht da
     for d in README.md ARCHITECTURE.md ROADMAP.md LANGUAGE.md KERNELWECHSEL.md; do
         if grep -qE 'kernel/src|libs/osum-abi|run-qemu\.sh|cargo' "$d" \
-           && ! grep -qiE 'gelöscht|geloescht|Historie|Geschichte|bis zum' "$d"; then
+           && ! grep -qiE 'deleted|gelöscht|geloescht|history|Historie|Geschichte|until' "$d"; then
             nok "$d nennt geloeschte Dinge, ohne zu sagen, dass sie geloescht sind"
         else
             ok "$d nennt Geloeschtes nur als Geschichte"

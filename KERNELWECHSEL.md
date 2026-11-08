@@ -70,7 +70,7 @@ The rightmost column is the **state after the cut of 2026-08-26**.
 | `arch/x86_64/cpu.rs`, `msr.rs`, `port.rs`, `timer.rs` | `kernel/cpu.fi`, `hw.fi`, `apic.fi` | **Osum** (APIC/IOAPIC instead of only PIC/PIT) | deleted |
 | `arch/x86_64/serial.rs` (59) | `kernel/serial.fi` (171) | both | deleted |
 | `arch/x86_64/user.rs` (797) — ring 3, **SMEP/SMAP in CR4** | `kernel/user.fi` (268), `proc.fi`, `uprog.fi`, **`guard.fi` (328)** | both | **DONE** on 2026-08-26, see 3.3. Deleted. |
-| `kcore/arch_iface.rs` (330) — the arch boundary as traits, with a test step that forbids x86 terms outside of `arch/` | *nothing* | **OrientOS** | **NOT PORTED.** Stays as `vorlage/arch_iface.rs` (378 lines), not built. See 4.1. |
+| `kcore/arch_iface.rs` (330) — the arch boundary as traits, with a test step that forbids x86 terms outside of `arch/` | *nothing* | **OrientOS** | **NOT PORTED.** Stays as `vorlage/arch_iface.rs` (379 lines), not built. See 4.1. |
 
 ### 2.2 Memory
 

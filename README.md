@@ -27,6 +27,8 @@ builds differently named editions.
   immutable store entries, system generations, rollback, signed sources
   (`bauen`, `installieren`, `entfernen`, `generationen`, `zurueck`, ...).
   The format is described in [PAKETE.md](PAKETE.md).
+- **Kernel switch.** What was ported from the old Rust kernel, what was deleted
+  and what stays open: [KERNELWECHSEL.md](KERNELWECHSEL.md).
 - **Acceptance suite.** `./test.sh` checks provenance of the kernel, the
   absence of foreign code where there must be none, BIOS and UEFI boots, the
   userland, the brands and the packages. Every check has a counter-check.

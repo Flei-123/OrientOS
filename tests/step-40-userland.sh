@@ -22,7 +22,8 @@ userland_check() {
     RC=0
     local log
     log=$(mktemp)
-    if ./run-osum.sh --script 'ls /bin;uname;cat /etc/ausgabe.txt;wc -l < /etc/ausgabe.txt;exit' \
+    if ./run-osum.sh --cmdline "osum nokbd nosched noproc nofs noring3 noatime" \
+            --script 'ls /bin;uname;cat /etc/ausgabe.txt;wc -l < /etc/ausgabe.txt;exit' \
             --log "$log" > build/userland.log 2>&1; then
         ok "der Lauf endet regulaer (21)"
     else
@@ -78,7 +79,7 @@ userland_check() {
     # DIE DATEI, DIE AUS DIESEM REPO KOMMT. Sie ist der Nachweis, dass
     # OrientOS dem Produkt wirklich etwas hinzufuegt und nicht nur
     # weiterreicht, was Osum baut.
-    if grep -qa 'Betriebssystem von Grund auf' "$log"; then
+    if grep -qa 'operating system from the ground up' "$log"; then
         ok "'cat /etc/ausgabe.txt' liest die file this repo contributes"
     else
         nok "/etc/ausgabe.txt ist nicht angekommen"

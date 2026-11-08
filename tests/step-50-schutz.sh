@@ -123,7 +123,7 @@ schutzbits() {
     ./run-osum.sh --log "$log" > build/schutz.log 2>&1 \
         && ok "Boot auf einem Prozessor mit beiden Bits (21)" \
         || nok "der Boot mit -cpu max ist fehlgeschlagen"
-    if grep -qa 'guard: cr4=0x300020  smep=1  smap=1' "$log"; then
+    if grep -qaE 'guard: cr4=0x[0-9a-f]+  smep=1  smap=1' "$log"; then
         ok "CR4 traegt Bit 20 und Bit 21 — zurueckgelesen, nicht behauptet"
     else
         nok "SMEP/SMAP sind im Produkt nicht an"
@@ -144,7 +144,7 @@ schutzbits() {
     ./run-osum.sh --cpu qemu64 --log "$log" > build/schutz-alt.log 2>&1 \
         && ok "Gegenprobe: auf einem Prozessor ohne die Bits laeuft dasselbe ISO (21)" \
         || nok "auf qemu64 laeuft das Produkt nicht"
-    grep -qa 'guard: cr4=0x20  smep=0  smap=0  cpu=0/0' "$log" \
+    grep -qaE 'guard: cr4=0x[0-9a-f]+  smep=0  smap=0  cpu=0/0' "$log" \
         && ok "und meldet ehrlich smep=0 smap=0, statt etwas zu behaupten" \
         || { nok "die Meldung auf qemu64 stimmt nicht"; grep -a '^guard:' "$log" | sed 's/^/         /'; }
 

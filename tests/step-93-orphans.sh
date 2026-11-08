@@ -194,7 +194,7 @@ orphan_check() {
     # This is the case where "package missing" would be a lie: the octets
     # are right here, and they still cannot help.
     local N; N=$(cat "$R/system/AKTUELL")
-    sed 's/^arch	x86_64$/arch	aarch64/' "$T/backup/PLAN" > "$T/arm.plan"
+    sed -e 's/^arch	x86_64$/arch	aarch64/' -e '/^app	hallo	/d' "$T/backup/PLAN" > "$T/arm.plan"
     if $O rebuild --root "$T/armdev" --plan "$T/arm.plan" --vault "$T/backup/vault" > "$T/arm.log" 2>&1; then
         nok "an x86_64 orphan was installed on an aarch64 system"
     else

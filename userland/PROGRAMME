@@ -25,7 +25,7 @@
 # ist es nie, weil das Produkt sie nie brauchte: die 27 Programme dieser
 # Liste belegen 932.584 Oktette, also 1822 Datenbloecke von 4062
 # verfuegbaren. Seit K15 lehnt mkfs.py 6144 ab, und das ist richtig so.
-bloecke: 4096
+bloecke: 24576
 
 # --- die Shell und die Werkzeuge (Osum, Runden K6/K8/K9)
 sh
@@ -80,3 +80,5 @@ verzeichnis /home
 # Repos und keine des Kernels -- genau dafuer gibt es diese Datei.
 inodes: 512
 paket hallo
+paket explorer
+paket widgets

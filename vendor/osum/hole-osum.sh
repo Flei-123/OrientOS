@@ -179,17 +179,37 @@ else
         export FIRNLIB="$BAU/lib"
         as --64 -o crt.o kernel/user/crt.s
         n=0
+        failed=()
         for f in kernel/user/*.fi; do
             p=$(basename "$f" .fi)
-            # ulib ist die gemeinsame Bibliothek der Programme, kein Programm.
             [[ $p == ulib ]] && continue
-            vendor/firn/bin/firnc "$f" -o "$p.o" >/dev/null 2>&1 || continue
-            ld -T kernel/user/user.ld --defsym=USER_ENTRY="_F0.u_start" \
-               -o "$p.elf" crt.o "$p.o" 2>/dev/null || continue
+            grep -qaE '^fn u_start' "$f" || continue
+            profile_flag=""
+            crt_object=crt.o
+            if grep -qa '^profile app' "$f"; then
+                profile_flag="--profile=app"
+                crt_object=""
+            fi
+            if ! vendor/firn/bin/firnc $profile_flag -c "$f" -o "$p.o" >"$p.log" 2>&1; then
+                failed+=("$p (compile)")
+                sed 's/^/      /' "$p.log" | head -5 >&2
+                continue
+            fi
+            if ! ld -T kernel/user/user.ld --defsym=USER_ENTRY="_F0.u_start" \
+                    -o "$p.elf" $crt_object "$p.o" 2>"$p.log"; then
+                failed+=("$p (link)")
+                sed 's/^/      /' "$p.log" | head -5 >&2
+                continue
+            fi
             strip --strip-all "$p.elf"
             cp -f "$p.elf" "$HIER/bin/$p"
             n=$((n + 1))
         done
+        if [[ ${#failed[@]} -gt 0 ]]; then
+            echo "ERROR: ${#failed[@]} userland program(s) failed to build:" >&2
+            printf '   %s\n' "${failed[@]}" >&2
+            [[ ${HOLE_OSUM_ALLOW_FAILED:-0} == 1 ]] || exit 1
+        fi
         echo "   $n Programme"
     )
     cp -f "$BAU/tools/osum/mkfs.py" "$HIER/mkfs.py"

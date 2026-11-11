@@ -123,21 +123,12 @@ patches_check() {
     [[ $alle_passen -eq 1 ]] && ok "alle Berichtigungen passen auf den ausgepackten Baum von ${c:0:8}"
 
     # --- Der Uebersetzer, den OSUM festnagelt (nicht der von OrientOS).
-    local firnc=""
-    if [[ -x "$roh/vendor/firn/bin/firnc" ]]; then
-        firnc="$roh/vendor/firn/bin/firnc"
-    else
-        local firnrepo=""
-        for k in ${FIRN_REPO:-} ../firn ../../firn "$HOME/firn"; do
-            [[ -d ${k:-}/.git ]] && { firnrepo=$(cd "$k" && pwd); break; }
-        done
-        if [[ -n "$firnrepo" ]]; then
-            ( cd "$roh" && FIRN_REPO="$firnrepo" bash vendor/firn/hole-firnc.sh ) >/dev/null 2>&1
-            [[ -x "$roh/vendor/firn/bin/firnc" ]] && firnc="$roh/vendor/firn/bin/firnc"
-        fi
-    fi
+    local firnc="" tc_version
+    read -r _ tc_version < "$hier/firn.toolchain"
+    firnc="${FIRN_HOME:-$HOME/.firn}/versions/$tc_version/bin/firnc"
+    [[ -x "$firnc" ]] || firnc=""
     if [[ -z "$firnc" ]]; then
-        nok "kein firnc greifbar — die Wirkung der Berichtigungen ist NICHT gemessen"
+        nok "no firnc in the toolchain (firn install $tc_version) - the effect of the patches is NOT measured"
         rm -rf "$roh"; return $RC
     fi
 

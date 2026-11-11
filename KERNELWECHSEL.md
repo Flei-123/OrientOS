@@ -296,8 +296,8 @@ osum (eigenes Repo, Firn)                orientos (dieses Repo)
 ├── kernel/*.fi   der Kern       ──┐     ├── vendor/osum/COMMIT   ← festgenagelt
 ├── kernel/user/  Shell, 25 Werkz. │     ├── brands/*.toml        Marken
 ├── lib/libc/     libc in Firn     └──►  ├── userland/PROGRAMME   was ins ISO kommt
-├── vendor/firn/COMMIT (eigener          ├── userland/dateien/    was OrientOS beisteuert
-│                       Übersetzer)      ├── PACKAGING.md         Pakete
+├── firn.toolchain (Firn-                ├── userland/dateien/    was OrientOS beisteuert
+│                  Toolchain)            ├── PACKAGING.md         Pakete
 └── test.sh       15 Abschnitte          ├── ASSISTENT.md         Schnittstelle
                                          ├── build.sh             Kernel + Userland → ISO
                                          └── test.sh              Abnahme des Systems

@@ -257,8 +257,8 @@ osum (eigenes Repo, Firn)                orientos (dieses Repo)
 ├── kernel/*.fi   der Kern       ──┐     ├── vendor/osum/COMMIT   ← festgenagelt
 ├── kernel/user/  Shell, 25 Werkz. │     ├── brands/*.toml        Marken
 ├── lib/libc/     libc in Firn     └──►  ├── userland/PROGRAMME   was ins ISO kommt
-├── vendor/firn/COMMIT (eigener          ├── userland/dateien/    was OrientOS beisteuert
-│                       Übersetzer)      ├── PACKAGING.md         Entwurf: Pakete
+├── firn.toolchain (Firn-                ├── userland/dateien/    was OrientOS beisteuert
+│                  Toolchain)            ├── PACKAGING.md         Entwurf: Pakete
 ├── assets/apps/  .prog-Bündel (K15)      ├── PAKETE.md            gebautes Format
                                          ├── pkg/opk.py          die Paketverwaltung
 └── test.sh       15 Abschnitte,         ├── ASSISTENT.md         Schnittstelle

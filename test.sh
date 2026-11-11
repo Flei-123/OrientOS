@@ -64,11 +64,11 @@ herkunft() {
     else
         nok "vendor/osum/COMMIT ist kein Commit-Hash: $c"
     fi
-    f=$(cat vendor/firn/COMMIT 2>/dev/null || echo -)
-    if [[ "$f" =~ ^[0-9a-f]{40}$ ]]; then
-        ok "der Firn-Uebersetzer dieses Repos ist festgenagelt auf ${f:0:8}"
+    f=$(cat firn.toolchain 2>/dev/null || echo -)
+    if [[ "$f" =~ ^firn\ [0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        ok "the Firn compiler of this repo is the toolchain ${f#firn }"
     else
-        nok "vendor/firn/COMMIT ist kein Commit-Hash: $f"
+        nok "firn.toolchain must contain 'firn X.Y.Z': $f"
     fi
     # Im Repo darf KEIN Kernelabbild und kein Programm eingecheckt sein.
     # Faende sich eines, waere nicht mehr gesagt, welcher Stand gemessen

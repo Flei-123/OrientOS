@@ -66,10 +66,10 @@ der Tabelle darunter.
 | | |
 |---|---|
 | **Kernel** | kommt aus dem **Osum-Repo**, festgenagelt über `vendor/osum/COMMIT`. 15 495 Zeilen Firn im Kern, 3 592 im Userland, 1 234 libc, 1 204 Assembler. |
-| **Übersetzer des Kernels** | Osums eigener Nagel (dort `vendor/firn/COMMIT`) — ein **anderer** Commit als der dieses Repos. Zwei Projekte, zwei Nägel. |
+| **Übersetzer des Kernels** | Osums eigener Pin (dort `firn.toolchain`); dieses Repo hat seinen eigenen. |
 | **Firn in diesem Repo** | **keines mehr.** `kernel/firn/serial.fi`, `bitmap.fi`, `elf.fi` (922 Zeilen) gehörten zum Rust-Kernel und sind mit ihm gelöscht; ihre Gegenstücke stehen in Osum (`serial.fi`, `mem.fi`, `elf.fi`). |
 | **Noch in Rust** | **0 Zeilen.** Am 26.08.2026 gelöscht (18 255 Zeilen, eingecheckt gezählt). Eine Datei bleibt als **unübersetzte Vorlage** stehen: `vorlage/arch_iface.rs`, 378 Zeilen, mit Begründung im Kopf — es gibt in diesem Repo kein `cargo` und kein `Cargo.toml` mehr, sie ist Text und kein Code. Warum: [KERNELWECHSEL.md](KERNELWECHSEL.md) § 4.1. |
-| **Übersetzer dieses Repos** | `vendor/firn/COMMIT` — wird hier nicht mehr zum Übersetzen gebraucht, seit kein Firn-Modul mehr in diesem Baum liegt. Osum nagelt seinen eigenen fest. |
+| **Übersetzer dieses Repos** | `firn.toolchain` (`firn 0.1.4950`, installiert über `firn install`) — wird hier nicht mehr zum Übersetzen gebraucht, seit kein Firn-Modul mehr in diesem Baum liegt. |
 | **Aufrufrichtung** | gegenstandslos: es gibt keine Sprachgrenze mehr in diesem Repo. Der Eintrag M-02 bleibt trotzdem gültig — er beschreibt, was Firn fehlte, nicht was OrientOS tut. |
 
 **Was der Wechsel an diesem Dokument NICHT ändert.** Die Reibungspunkte
@@ -82,9 +82,9 @@ Antwort auf die Frage *„wer schreibt den Kernel"* — nicht die auf
 
 Firn wird gerade aktiv weiterentwickelt. Würde osum immer gegen den neuesten
 Stand bauen, wäre bei jedem Fehler unklar, ob er aus dem Kernel oder aus dem
-Übersetzer kommt. Deshalb: **ein Commit**, eingetragen in `vendor/firn/COMMIT`,
+Übersetzer kommt. Deshalb: **eine Version**, eingetragen in `firn.toolchain`,
 und nachgezogen wird **erst, wenn `./test.sh` grün ist**. Die Binärdatei ist
-nicht eingecheckt — nur der Hash und das Bauskript.
+nicht eingecheckt — nur die Version; `firn install` holt sie.
 
 ## M-01 · Brückenkopf: die serielle Konsole
 

@@ -5,14 +5,6 @@
 # Testlaufs ist der Commit, der ihn bestanden hat, nicht sein Log.
 /build/
 
-# Der festgenagelte Firn-Uebersetzer wird gebaut, nicht eingecheckt.
-# Eingecheckt ist nur vendor/firn/COMMIT und das Bauskript.
-/vendor/firn/firnc
-/vendor/firn/bin/
-/vendor/firn/lib/
-/vendor/firn/.bau/
-/vendor/firn/.gebaut
-
 # Der festgenagelte Osum-Kernel UND sein Userland werden gebaut, nicht
 # eingecheckt. Eingecheckt ist nur vendor/osum/COMMIT und das Bauskript;
 # alles andere entsteht daraus (hole-osum.sh).
